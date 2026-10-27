@@ -660,7 +660,15 @@ ans_build (AnsTable *t, const unsigned short *freq, unsigned int alphabet)
 
       if (freq[s])
         {
-          unsigned int hi = TABLE_LOG - floor_log2 (freq[s]);
+          unsigned int logf = floor_log2 (freq[s]);
+          unsigned int hi;
+
+          if (logf > TABLE_LOG)
+            {
+              return 0;
+            }
+
+          hi = TABLE_LOG - logf;
           t->highbits[s] = (unsigned char)hi;
           t->threshold[s] = (unsigned short)(freq[s] << hi);
         }
@@ -687,12 +695,19 @@ ans_build (AnsTable *t, const unsigned short *freq, unsigned int alphabet)
 
   for (x = 0; x < TABLE_N; ++x)
     {
-      unsigned int f, count, bits, base;
+      unsigned int f, count, bits, base, logc;
 
       s = t->dsym[x];
       f = t->freq[s];
       count = f + seen[s]++;
-      bits = TABLE_LOG - floor_log2 (count);
+      logc = floor_log2 (count);
+
+      if (logc > TABLE_LOG)
+        {
+          return 0;
+        }
+
+      bits = TABLE_LOG - logc;
       base = (count << bits) - TABLE_N;
 
       if (base >= TABLE_N || base + (1U << bits) > TABLE_N)
@@ -1334,7 +1349,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
   cand = e->head[hash3 (e->buffer + pos)];
 
   while (cand >= 0 && checks < (int)e->search_depth && (unsigned int)cand < pos
-         && pos - (unsigned int)cand <= e->window_n)
+         && pos <= (unsigned int)cand + e->window_n)
     {
       unsigned int max = end - pos;
 
@@ -1644,7 +1659,7 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
           ++pos;
         }
     }
-  else if (t && state)
+  else if (t && state && w)
     {
       pos = e->window_n + e->n;
 
@@ -1677,7 +1692,7 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
             }
         }
     }
-  else
+  else if (w)
     {
       pos = e->window_n;
 
@@ -2218,7 +2233,6 @@ encode_extras (Encoder *e)
     unsigned short state = 0;
 
     raw_bits = count_extra_bits (e, counts);
-    raw_bytes = (raw_bits + 7UL) / 8UL;
 
     if (!raw_bits)
       {
@@ -2234,6 +2248,8 @@ encode_extras (Encoder *e)
 
         return 1;
       }
+
+    raw_bytes = (raw_bits + 7UL) / 8UL;
 
     if (!counts[0] || !counts[1])
       {
@@ -2875,7 +2891,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   BitReader raw_extra;
   ExtraReader extra;
 
-  if (!read_exact (in, h, 8U) || memcmp (h, "LZ9B", 4)
+  if (!read_exact (in, h, 8U) || memcmp (h, "LZ9B", 4) != 0
       || h[4] != o->format_version)
     {
       return 0;
@@ -2917,7 +2933,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
       lengths[i] = (bitlen[i] + 7UL) / 8UL;
 
-      if (lengths[i] > STAGE_MAX - total)
+      if (total + lengths[i] > STAGE_MAX)
         {
           return 0;
         }
@@ -3302,9 +3318,9 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
   while (done < elements)
     {
+      unsigned long remaining = elements - done;
       unsigned int i,
-          n = (unsigned int)((elements - done) > BLOCK_N ? BLOCK_N
-                                                         : (elements - done));
+          n = (unsigned int)(remaining > BLOCK_N ? BLOCK_N : remaining);
       unsigned int hist_new;
 
       e.n = n;
@@ -3389,7 +3405,7 @@ decode_file (FILE *in, FILE *out)
   Output *o = (Output *)0;
   int okay = 0;
 
-  if (!read_exact (in, hdr, sizeof (hdr)) || memcmp (hdr, "LZ9A", 4)
+  if (!read_exact (in, hdr, sizeof (hdr)) || memcmp (hdr, "LZ9A", 4) != 0
       || (hdr[4] != FORMAT_V3 && hdr[4] != FORMAT_V4)
       || (hdr[5] != 8 && hdr[5] != 9) || load16 (hdr + 6) != FHEAD_N
       || load32 (hdr + 16) != crc_bytes (hdr, 16))
@@ -3441,8 +3457,9 @@ decode_file (FILE *in, FILE *out)
 
   while (done < total)
     {
+      unsigned long left = total - done;
       unsigned int remaining
-          = (unsigned int)(total - done > BLOCK_N ? BLOCK_N : (total - done));
+          = (unsigned int)(left > BLOCK_N ? BLOCK_N : left);
 
       if (!decode_block (in, o, remaining, stage, desc, tables))
         {
@@ -3585,10 +3602,10 @@ main (int argc, char **argv)
     }
 
   if (argc < 4 || argc > 10
-      || (strcmp (argv[1], "c8") && strcmp (argv[1], "c9")
-          && strcmp (argv[1], "c8l") && strcmp (argv[1], "c9l")
-          && strcmp (argv[1], "c8f") && strcmp (argv[1], "c9f")
-          && strcmp (argv[1], "d")))
+      || (strcmp (argv[1], "c8") != 0 && strcmp (argv[1], "c9") != 0
+          && strcmp (argv[1], "c8l") != 0 && strcmp (argv[1], "c9l") != 0
+          && strcmp (argv[1], "c8f") != 0 && strcmp (argv[1], "c9f") != 0
+          && strcmp (argv[1], "d") != 0))
     {
       (void)fprintf (stderr,
               "LZ9ANS experimental ANSI C89 reference\n");
