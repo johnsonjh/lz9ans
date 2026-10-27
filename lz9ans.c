@@ -269,11 +269,11 @@ static unsigned long crc_table[256];
 static void
 init_crc (void)
 {
-  unsigned long i, j, v;
+  unsigned long i, j;
 
   for (i = 0; i != 256; ++i)
     {
-      v = i;
+      unsigned long v = i;
 
       for (j = 0; j != 8; ++j)
         {
@@ -797,7 +797,8 @@ norm_counts (const unsigned int *counts, unsigned int alphabet,
       for (i = 0; i < alphabet; ++i)
         {
           if (counts[i]
-              && (residue[i] > maximum || (residue[i] == maximum && i < best)))
+              && (residue[i] > maximum
+                  || (best > i && residue[i] == maximum)))
             {
               maximum = residue[i];
               best = i;
@@ -1335,7 +1336,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
   while (cand >= 0 && checks < (int)e->search_depth && (unsigned int)cand < pos
          && pos - (unsigned int)cand <= e->window_n)
     {
-      unsigned int k = 0, max = end - pos;
+      unsigned int max = end - pos;
 
       if (max > BLOCK_N)
         {
@@ -1346,7 +1347,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
           && e->buffer[cand + 1] == e->buffer[pos + 1]
           && e->buffer[cand + 2] == e->buffer[pos + 2])
         {
-          k = 3;
+          unsigned int k = 3;
 
           while (k < max && e->buffer[cand + k] == e->buffer[pos + k])
             {
@@ -1595,10 +1596,11 @@ static unsigned int
 literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
               AnsTable *t, unsigned short *state)
 {
-  unsigned int i, j, pos, v, observed = 0;
+  unsigned int i, j, pos, observed = 0;
 
   if (count_only)
     {
+      unsigned int v;
       pos = e->window_n;
 
       for (i = 0; i < e->sn; ++i)
@@ -1642,7 +1644,7 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
           ++pos;
         }
     }
-  else if (t)
+  else if (t && state)
     {
       pos = e->window_n + e->n;
 
@@ -1825,13 +1827,14 @@ entropy_cost (unsigned int frequency)
 static void
 estimate_costs (Encoder *e)
 {
-  unsigned int kind, i, used, width, total;
+  unsigned int kind, i;
   unsigned short freq[512];
 
   for (kind = 0; kind < 4; ++kind)
     {
       unsigned int alphabet = stream_alphabet (kind, e->of_alphabet), lone = 0;
-      unsigned long predicted = 0, raw, header = 0;
+      unsigned int used, width, total;
+      unsigned long raw, header = 0;
       int use_tans = 0;
 
       total = count_stream (e, kind);
@@ -1852,6 +1855,7 @@ estimate_costs (Encoder *e)
       if (used >= 2 && norm_counts (e->counts, alphabet, total, freq))
         {
           unsigned int prev = 0;
+          unsigned long predicted = 0;
           header = 2;
 
           for (i = 0; i < alphabet; ++i)
@@ -1915,7 +1919,7 @@ encode_one_stream (Encoder *e, unsigned int kind, unsigned int wire)
   unsigned int width, mode = MODE_RAW, stream_max = 0;
   unsigned short freq[512];
   unsigned long start = e->stage_len, dbegin = e->desc_len;
-  unsigned long ansbits = 0, desc_cost = 0;
+  unsigned long ansbits = 0;
   BitWriter w;
 
   total = count_stream (e, kind);
@@ -1964,7 +1968,7 @@ encode_one_stream (Encoder *e, unsigned int kind, unsigned int wire)
 
           if (!w.failed)
             {
-              unsigned long pairbytes = 0, prev = 0;
+              unsigned long pairbytes = 0, prev = 0, desc_cost;
 
               for (i = 0; i < alphabet; ++i)
                 {
@@ -2166,11 +2170,12 @@ write_extra_tans (Encoder *e, BitWriter *w, AnsTable *t, unsigned short *state)
 static int
 encode_extras (Encoder *e)
 {
-  unsigned int i, k, nb, value;
   BitWriter w;
 
   if (!e->extra_ans)
     {
+      unsigned int i, nb, value;
+
       if (e->stage_len > STAGE_MAX)
         {
           return 0;
@@ -2186,11 +2191,10 @@ encode_extras (Encoder *e)
           (void)len_code (e->seq[i].ml, 3, &value, &nb);
           bw_add (&w, value, nb);
 
-          k = distance_code (sequence_distance (&e->seq[i]),
-                             sequence_tag (&e->seq[i]), e->window_n, &value,
-                             &nb);
+          (void)distance_code (sequence_distance (&e->seq[i]),
+                               sequence_tag (&e->seq[i]), e->window_n, &value,
+                               &nb);
 
-          (void)k;
           bw_add (&w, value, nb);
         }
 
@@ -2207,7 +2211,7 @@ encode_extras (Encoder *e)
     }
 
   {
-    unsigned int counts[2], used = 2U, i;
+    unsigned int counts[2], used = 2U;
     unsigned short freq[512];
     unsigned long start = e->stage_len, desc_start = e->desc_len, raw_bits;
     unsigned long raw_bytes, tans_bytes, tans_desc;
@@ -2286,7 +2290,7 @@ encode_extras (Encoder *e)
       }
 
     {
-      unsigned int prev = 0;
+      unsigned int prev = 0, i;
 
       for (i = 0; i < 2U; ++i)
         {
@@ -2583,11 +2587,8 @@ parse_descriptor (Stream *s, AnsTable *t, unsigned int kind,
                   unsigned int of_alphabet, const unsigned char *p,
                   unsigned long *offset, unsigned long len)
 {
-  unsigned int alphabet = stream_alphabet (kind, of_alphabet), nused = 0, i,
-               sym = 0;
-  unsigned short freq[512];
+  unsigned int alphabet = stream_alphabet (kind, of_alphabet);
   unsigned int v;
-  unsigned long sum = 0;
 
   if (*offset >= len)
     {
@@ -2627,6 +2628,10 @@ parse_descriptor (Stream *s, AnsTable *t, unsigned int kind,
     }
   else if (s->mode == MODE_TANS)
     {
+      unsigned int nused = 0, i, sym = 0;
+      unsigned short freq[512];
+      unsigned long sum = 0;
+
       (void)memset (freq, 0, sizeof (freq));
 
       if (!get_var (p, offset, len, &nused) || nused < 2 || nused > alphabet)
@@ -2860,12 +2865,11 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 {
   unsigned char h[BHEAD_V5_N];
   unsigned long bitlen[7], lengths[7], total = 0, desc_len, expected;
-  unsigned int i, n, q, lc, type, width, produced = 0, literals = 0;
+  unsigned int i, n, q, lc, type, width;
   unsigned int header_n, stream_n, entropy_n, extra_index;
   unsigned int context_literals = (unsigned int)o->context_literals;
   unsigned int distance_context = (unsigned int)o->distance_context;
   unsigned int extra_ans = (unsigned int)o->extra_ans;
-  unsigned int observed_count[6] = { 0U, 0U, 0U, 0U, 0U, 0U };
   unsigned long off = 0, pos = 0;
   Stream s[6], extra_stream;
   BitReader raw_extra;
@@ -2981,6 +2985,9 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
     }
   else
     {
+      unsigned int produced = 0, literals = 0;
+      unsigned int observed_count[6] = { 0U, 0U, 0U, 0U, 0U, 0U };
+
       if (width != 0 || (q == 0 && lc != n))
         {
           return 0;
