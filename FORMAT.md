@@ -549,10 +549,6 @@ to match exactly.
 
 ## 9. Format gaps and future design choices
 
-- **Native Multics fidelity:** Obtain representative native PL/I source,
-  object code, directory information, and exact segment bit counts.
-  Decide whether trailing 1–8 meaningful bits require a new frame feature.
-
 - **Format stability:** V3 is the default baseline; the optional v4 extensions
   remain experimental and need broader fuzzing, cross-language validation, and
   explicit freezing before archival use.
