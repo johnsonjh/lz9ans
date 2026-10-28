@@ -37,8 +37,6 @@
 #define SEQ_MAX (BLOCK_N / 3U + 1U)
 #define STAGE_MAX 81920U
 #define DESC_MAX 8192U
-/* #define BHEAD_V3_N 48U */
-/* #define BHEAD_V4_N 52U */
 #define BHEAD_V5_N 56U
 #define FHEAD_N 20
 
