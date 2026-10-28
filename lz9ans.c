@@ -37,8 +37,8 @@
 #define SEQ_MAX (BLOCK_N / 3U + 1U)
 #define STAGE_MAX 81920U
 #define DESC_MAX 8192U
-#define BHEAD_V3_N 48U
-#define BHEAD_V4_N 52U
+/* #define BHEAD_V3_N 48U */
+/* #define BHEAD_V4_N 52U */
 #define BHEAD_V5_N 56U
 #define FHEAD_N 20
 
@@ -1369,7 +1369,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
         {
           unsigned int k = 3;
 
-          while (k < max && e->buffer[cand + k] == e->buffer[pos + k])
+          while (k < max && e->buffer[(unsigned int)cand + k] == e->buffer[pos + k])
             {
               ++k;
             }
