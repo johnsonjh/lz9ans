@@ -29,12 +29,20 @@ cppcheck: lz9ans.c
 		--inconclusive --error-exitcode=99 -D__CPPCHECK__ -D__LINT__ \
 		-j 1 --platform=unix64 lz9ans.c
 
+oracle: lz9ans.c
+	/opt/oracle/developerstudio12.6/bin/lint -O -D__ORACLE_LINT__ -fd \
+		-std=c89 -XCC=no -errchk=structarg,parentheses,locfmtchk \
+		-errtags lz9ans.c
+
 lint: lz9ans.c
 	$(MAKE) clean
 	$(MAKE) sanitizers CC=clang
 	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) cppcheck
+	$(MAKE) oracle
+	clang -Weverything -Wno-unsafe-buffer-usage -Wno-missing-noreturn \
+		-Wno-padded -Werror lz9ans.c $(LDFLAGS) -lm
 	scan-build bear -- $(MAKE) all
 	rm -f -r pvsreport > /dev/null 2>&1 || :
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
@@ -46,4 +54,4 @@ clean:
 	rm -f -r __pycache__ || :
 	rm -f -r pvsreport log.pvs compile_commands.json || :
 
-.PHONY: all test sanitizers cppcheck lint clean
+.PHONY: all test sanitizers cppcheck oracle lint clean
