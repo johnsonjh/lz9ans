@@ -672,9 +672,9 @@ are otherwise unchanged. The total sequence count `q` is unchanged; per-context
 OF counts are not stored. The decoder counts matches in each class and checks
 that the corresponding stream is EMPTY exactly when its count is zero.
 
-This feature is an experiment, not a recommended default. The measurements in
-`RESULTS.md` show that splitting offset tables can increase output size because
-its per-block descriptor and table overhead is not always repaid by a better
+This feature is an experiment, not a recommended default. Measurements show
+that splitting offset tables can increase output size because its per-block
+descriptor and table overhead is not always repaid by a better
 symbol distribution.
 
 ### 10.6 Binary tANS EXTRA stream (`0x08`)
