@@ -189,10 +189,19 @@ Distances MUST NOT reach before the start of the frame (there is no preset
 dictionary), but may reach across a block boundary. No match can reference
 future symbols.
 
+Matches referencing positions before the beginning of the stream/frame (where
+`distance > produced_symbols_in_frame`) are termed **pre-history** matches.
+
+In LZ9ANS, pre-history offsets are strictly illegal: decoders MUST validate
+every match distance and reject the stream immediately if `d` exceeds the
+number of already decoded symbols in the frame. Pre-history references
+**MUST NOT** be resolved by reading uninitialized memory, by wrapping around
+the history buffer, or by pre-seeding dummy symbols (such as zeros or spaces).
+
 ### 4.1 Literal-run and match-length codes
 
 LL and ML each use an alphabet of **32** codes numbered 0–31. The same
-conversion uses `bias=0` for LL and `bias=3` for ML. Given nonnegative
+conversion uses `bias=0` for LL and `bias=3` for ML. Given non-negative
 `t = length - bias`:
 
 ```text
@@ -414,7 +423,8 @@ checks before trusting an offset, size, state, or output count:
 1. Read and validate the 20-octet frame header, including CRC, version,
    representation, header length, and reserved field.
 
-2. Initialize an empty 32,768-symbol history and three INVALID repeat slots.
+2. Initialize an empty 32,768-symbol history (zero-initializing memory as
+   defense-in-depth against memory disclosure) and three INVALID repeat slots.
 
 3. For each block, validate magic/version/header length/type/width, counts,
    length limits, and the announced size against the remaining frame.
@@ -432,8 +442,9 @@ checks before trusting an offset, size, state, or output count:
    and decode sequences plus terminal literal run.
 
 8. For every copy, validate `1 <= distance <= 32768`, distance does not
-   exceed the already reconstructed frame prefix, `ML >= 3`, and the copy
-   does not exceed this block's remaining output capacity. Copy forwards
+   exceed the already reconstructed frame prefix (`distance <= produced`),
+   rejecting all pre-history references. Validate `ML >= 3`, and verify the
+   copy does not exceed this block's remaining output capacity. Copy forwards
    one symbol at a time to support overlaps.
 
 9. Verify each entropy stream consumes exactly its meaningful bits and its
@@ -559,6 +570,32 @@ to match exactly.
 
 - **Authenticity:** CRC can detect accidental damage but is **not** a
   cryptographic integrity or authenticity mechanism.
+
+- **Security considerations and pre-history buffer isolation:** LZ77 codecs
+  must explicitly define how to handle backward distances referencing positions
+  before the beginning of the file ("pre-history").
+
+  LZ9ANS prevents this attack surface through several distinct layers:
+
+  1. *Grammar and validation:* Pre-history references are strictly illegal.
+     Every distance `d` must satisfy `1 <= d <= produced` (where `produced` is
+     the count of symbols emitted so far in the current frame). Any stream with
+     `d > produced` is malformed and MUST be rejected immediately prior to any
+     buffer access or copy.
+
+  2. *Repeat-slot integrity:* Repeat distance slots are initialized to `INVALID`
+     at frame start; referencing an uninitialized slot is an immediate format
+     error.
+
+  3. *No synthetic pre-seeding:* The history at the beginning of a frame is
+     logically empty. There is no implicit dictionary pre-seeded with zeros,
+     spaces, or static tables.
+
+  4. *Defense-in-depth zeroing:* Conforming encoders and decoders SHOULD
+     explicitly zero-initialize (`memset` / `calloc`) their history and sliding
+     window buffers upon allocation, ensuring that even under unexpected fault
+     conditions or partial decoding inspection, no residual host heap memory
+     can ever be accessed or disclosed.
 
 - **Portability:** This specific Linux reference expects 8-bit C `char`,
   16-bit `short`, 32-bit `int` and seekable files. A Multics PL/I port

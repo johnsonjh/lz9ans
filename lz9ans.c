@@ -2875,6 +2875,11 @@ output_match (Output *o, unsigned int d, unsigned int ml)
   unsigned short *ring = o->ring;
   unsigned long prod = o->produced;
 
+  if (d < 1U || (unsigned long)d > prod || d > o->window_n)
+    {
+      return 0;
+    }
+
   for (j = 0; j < ml; ++j)
     {
       unsigned int v = ring[(prod - d + j) & mask];
@@ -3229,8 +3234,16 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             d = decode_dist (code, &extra, o->reps, o->window_n,
                              o->of_alphabet);
 
+            /*
+             * Distance cannot be less than 1 or exceed window_n.
+             * Distance cannot exceed the number of symbols decoded
+             * thus far in this frame (d > o->produced); matches
+             * referencing pre-history before the start of the frame
+             * are strictly illegal and rejected.
+             */
+
             if (extra.failed || ml < 3 || ml > n - produced || d < 1
-                || d > o->window_n || d > o->produced)
+                || d > o->window_n || (unsigned long)d > o->produced)
               {
                 return 0;
               }
@@ -3313,6 +3326,17 @@ allocated_encoder (Encoder *e, unsigned int window_n)
   e->stage = (unsigned char *)malloc (STAGE_MAX);
   e->desc = (unsigned char *)malloc (DESC_MAX);
   e->table = (AnsTable *)malloc (sizeof (AnsTable));
+
+  if (e->buffer)
+    {
+      (void)memset (e->buffer, 0,
+                    (window_n + BLOCK_N) * sizeof (unsigned short));
+    }
+
+  if (e->link)
+    {
+      (void)memset (e->link, 0, window_n * sizeof (int));
+    }
 
   return e->buffer && e->seq && e->head && e->link && e->stage && e->desc
          && e->table;
@@ -3544,6 +3568,8 @@ decode_file (FILE *in, FILE *out)
     {
       goto cleanup;
     }
+
+  (void)memset (o->ring, 0, window_n * sizeof (unsigned short));
 
   while (done < total)
     {
