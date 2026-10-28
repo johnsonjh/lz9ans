@@ -17,6 +17,11 @@
 
 /*****************************************************************************/
 
+#undef LZ9VER
+#define LZ9VER "v0.3.1"
+
+/*****************************************************************************/
+
 #define BLOCK_N 32768U
 #define WINDOW_DEFAULT 32768U
 #define WINDOW_64K 65536U
@@ -3608,30 +3613,32 @@ main (int argc, char **argv)
           && strcmp (argv[1], "d") != 0))
     {
       (void)fprintf (stderr,
-              "LZ9ANS experimental ANSI C89 reference\n");
+              "LZ9ANS - experimental reference implementation " LZ9VER "\n\n");
       (void)fprintf (stderr,
-              "usage: lz9ans c8|c9 input output [-1..-9] [-v] "
-              "[--context-literals] [--distance-context] "
-              "[--extra-ans] [--window=64k]\n");
+              "Usage:\n"
+              "  lz9ans [c8|c9] <input> <output> [-1..-9] [-v] "
+              "[--context-literals]\n"
+              "         [--distance-context] [--extra-ans]"
+              " [--window=64k]\n");
       (void)fprintf (stderr,
-              "       lz9ans d input output [-v]\n");
+              "  lz9ans d <input> <output> [-v]\n\n");
       (void)fprintf (stderr,
-              "  c8: 8-bit input, c9: mxload packed 9-bit input\n");
+              "  c8: 8-bit input;  c9: mxload packed 9-bit input; ");
       (void)fprintf (stderr,
-              "  default level -6;"
-              " --context-literals enables context literals\n");
+              " default level -6\n\n"
+              "  --context-literals:  enables context literals\n");
       (void)fprintf (stderr,
-              "  --window=64k"
-              " enables the experimental 64K-symbol history\n");
+              "  --window=64k:"
+              "        enables the experimental 64K-symbol history\n");
       (void)fprintf (stderr,
-              "  --distance-context"
-              " splits offset models at match length 19\n");
+              "  --distance-context:"
+              "  splits offset models at match length 19\n");
       (void)fprintf (stderr,
-              "  --extra-ans"
-              " entropy-codes bypass bits with a binary tANS model\n");
+              "  --extra-ans:"
+              "         entropy-codes bypass bits with a binary tANS model\n");
       (void)fprintf (stderr,
               "  -v:"
-              " report physical input/output sizes and size ratio\n");
+              "                  report file sizes and compression ratio\n\n");
 
       return 2;
     }
