@@ -51,8 +51,7 @@ lint: lz9ans.c
 	$(MAKE) clean
 
 clean:
-	rm -f lz9ans lz9ans_asan a.out a.exe || :
-	rm -f -r __pycache__ || :
-	rm -f -r pvsreport log.pvs compile_commands.json || :
+	rm -f lz9ans lz9ans_asan a.out a.exe log.pvs compile_commands.json || :
+	rm -f -r __pycache__ pvsreport > /dev/null 2>&1 || :
 
 .PHONY: all test sanitizers cppcheck oracle lint clean
