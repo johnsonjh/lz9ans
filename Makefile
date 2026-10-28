@@ -43,6 +43,7 @@ lint: lz9ans.c
 	$(MAKE) oracle
 	clang -Weverything -Wno-unsafe-buffer-usage -Wno-missing-noreturn \
 		-Wno-padded -Werror lz9ans.c $(LDFLAGS) -lm
+	rm -f a.out a.exe > /dev/null 2>&1 || :
 	scan-build bear -- $(MAKE) all
 	rm -f -r pvsreport > /dev/null 2>&1 || :
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
@@ -50,7 +51,7 @@ lint: lz9ans.c
 	$(MAKE) clean
 
 clean:
-	rm -f lz9ans lz9ans_asan || :
+	rm -f lz9ans lz9ans_asan a.out a.exe || :
 	rm -f -r __pycache__ || :
 	rm -f -r pvsreport log.pvs compile_commands.json || :
 
