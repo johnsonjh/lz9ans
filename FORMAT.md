@@ -553,11 +553,7 @@ to match exactly.
   remain experimental and need broader fuzzing, cross-language validation, and
   explicit freezing before archival use.
 
-- **Compression/speed:** The historical v0.3 tables are baseline measurements.
-  The appended experiment results use this v4-capable source and are specific
-  to the measured local files; they do not establish universal superiority.
-
-- **Container semantics:** Archive method numbers, independent blocks,
+- **Container semantics:** ZIP / archive method numbers, independent blocks,
   indexing, streaming inputs of unknown length, and concatenated frames
   are outside this experimental format.
 
