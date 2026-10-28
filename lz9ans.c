@@ -591,6 +591,7 @@ br_get (BitReader *b, unsigned int n)
       || (unsigned long)n > b->bits - b->position)
     {
       b->failed = 1;
+
       return 0;
     }
 
@@ -3874,6 +3875,7 @@ main (int argc, char **argv)
     }
 
   out = fopen (argv[3], "wb");
+
   if (!out)
     {
       perror (argv[3]);
