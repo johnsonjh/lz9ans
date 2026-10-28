@@ -1,0 +1,17 @@
+###############################################################################
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Jeffrey H. Johnson
+# Copyright (c) 2025-2026 The DPS8M Development Team
+# scspell-id: c899758c-d28a-11f1-9c46-80ee73e9b8e7
+###############################################################################
+
+version = 1
+SPDX-PackageName = "lz9ans"
+SPDX-PackageSupplier = "Jeffrey H. Johnson <johnsonjh.dev@gmail.com>"
+SPDX-PackageDownloadLocation = "https://github.com/johnsonjh/lz9ans"
+
+[[annotations]]
+path = ["vectors/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025-2026 Jeffrey H. Johnson"
+SPDX-License-Identifier = "MIT"
