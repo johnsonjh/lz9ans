@@ -2060,6 +2060,7 @@ encode_one_stream (Encoder *e, unsigned int kind, unsigned int wire)
         }
 
       e->desc[e->desc_len++] = MODE_RLE;
+
       if (!put_var (e->desc, &e->desc_len, DESC_MAX, single))
         {
           return 0;
@@ -2445,6 +2446,7 @@ write_stored (FILE *out, Encoder *e, unsigned long crc)
       if (e->buffer[e->window_n + i] >= 256)
         {
           width = 9;
+
           break;
         }
 
@@ -2692,6 +2694,7 @@ parse_descriptor (Stream *s, AnsTable *t, unsigned int kind,
       for (i = 0; i < nused; ++i)
         {
           unsigned int gap, f;
+
           if (!get_var (p, offset, len, &gap) || !get_var (p, offset, len, &f))
             {
               return 0;
@@ -3215,6 +3218,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
               {
                 unsigned int of_wire
                     = of_index + (ml >= DISTANCE_CONTEXT_THRESHOLD ? 1U : 0U);
+
                 code = stream_get (&s[of_wire]);
                 ++observed_count[of_wire];
               }
@@ -3371,6 +3375,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   if (!allocated_encoder (&e, window_n))
     {
       free_encoder (&e);
+
       return 0;
     }
 
@@ -3398,6 +3403,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   if (!write_exact (out, hdr, sizeof (hdr)))
     {
       free_encoder (&e);
+
       return 0;
     }
 
@@ -3623,6 +3629,7 @@ input_count (FILE *in, unsigned int mode, unsigned long *count)
   if (mode == 8)
     {
       *count = bytes;
+
       return 1;
     }
 
