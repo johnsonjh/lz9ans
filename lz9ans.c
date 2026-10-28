@@ -113,6 +113,7 @@ typedef struct
 {
   const unsigned char *p;
   unsigned long bits;
+  unsigned long size;
   unsigned long position;
   int backwards;
   int failed;
@@ -572,6 +573,7 @@ br_init (BitReader *b, const unsigned char *p, unsigned long bits,
 {
   b->p = p;
   b->bits = bits;
+  b->size = (bits + 7UL) >> 3;
   b->position = 0;
   b->backwards = backwards;
   b->failed = 0;
@@ -583,7 +585,7 @@ static unsigned int
 br_get (BitReader *b, unsigned int n)
 {
   unsigned int v, by, shift;
-  unsigned long start, size, window;
+  unsigned long start, window;
 
   if (n > 16 || b->position > b->bits
       || (unsigned long)n > b->bits - b->position)
@@ -599,16 +601,15 @@ br_get (BitReader *b, unsigned int n)
 
   start = b->backwards ? (b->bits - b->position - n) : b->position;
   b->position += n;
-  size = (b->bits + 7UL) >> 3;
   by = (unsigned int)(start >> 3);
   window = (unsigned long)b->p[by] << 16;
 
-  if ((unsigned long)by + 1UL < size)
+  if ((unsigned long)by + 1UL < b->size)
     {
       window |= (unsigned long)b->p[by + 1] << 8;
     }
 
-  if ((unsigned long)by + 2UL < size)
+  if ((unsigned long)by + 2UL < b->size)
     {
       window |= (unsigned long)b->p[by + 2];
     }
@@ -1282,16 +1283,24 @@ build_cost_prefix (Encoder *e)
 
 /*****************************************************************************/
 
-static unsigned int
-sequence_price (const Encoder *e, unsigned int ll, unsigned int ml,
-                unsigned int distance)
+static unsigned long
+ll_price (const Encoder *e, unsigned int ll)
 {
-  unsigned int ex, nb, lc, mc, oc;
-  unsigned long price = 0;
+  unsigned int ex, nb, lc;
 
   lc = len_code (ll, 0, &ex, &nb);
-  price += estimated_code_cost (e, STREAM_LL, lc)
-           + (unsigned long)nb * COST_SCALE;
+
+  return estimated_code_cost (e, STREAM_LL, lc)
+         + (unsigned long)nb * COST_SCALE + COST_SCALE;
+}
+
+/*****************************************************************************/
+
+static unsigned int
+match_price (const Encoder *e, unsigned int ml, unsigned int distance)
+{
+  unsigned int ex, nb, mc, oc;
+  unsigned long price = 0;
 
   mc = len_code (ml, 3, &ex, &nb);
   price += estimated_code_cost (e, STREAM_ML, mc)
@@ -1308,8 +1317,6 @@ sequence_price (const Encoder *e, unsigned int ll, unsigned int ml,
     {
       price += (unsigned long)(oc - 4U) * COST_SCALE;
     }
-
-  price += COST_SCALE; /* ~1-bit per sequence */
 
   return (unsigned int)price;
 }
@@ -1341,6 +1348,10 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
   int cand, checks = 0;
   unsigned int best = 0, d = 0;
   long best_gain = 0;
+  unsigned int max;
+  unsigned long base_ll_price = 0;
+  const unsigned short *buf;
+  unsigned int p0, p1, p2;
 
   if (pos + 2U >= end)
     {
@@ -1351,25 +1362,42 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
       return;
     }
 
-  cand = e->head[hash3 (e->buffer + pos)];
+  max = end - pos;
+
+  if (max > BLOCK_N)
+    {
+      max = BLOCK_N;
+    }
+
+  buf = e->buffer;
+  p0 = buf[pos];
+  p1 = buf[pos + 1];
+  p2 = buf[pos + 2];
+
+  if (e->use_cost)
+    {
+      base_ll_price = ll_price (e, pending);
+    }
+
+  cand = e->head[hash3 (buf + pos)];
 
   while (cand >= 0 && checks < (int)e->search_depth && (unsigned int)cand < pos
          && pos <= (unsigned int)cand + e->window_n)
     {
-      unsigned int max = end - pos;
-
-      if (max > BLOCK_N)
+      if (!e->use_cost && best >= 3
+          && buf[(unsigned int)cand + best] != buf[pos + best])
         {
-          max = BLOCK_N;
+          cand = e->link[((unsigned int)cand) & (e->window_n - 1U)];
+          ++checks;
+
+          continue;
         }
 
-      if (e->buffer[cand] == e->buffer[pos]
-          && e->buffer[cand + 1] == e->buffer[pos + 1]
-          && e->buffer[cand + 2] == e->buffer[pos + 2])
+      if (buf[cand] == p0 && buf[cand + 1] == p1 && buf[cand + 2] == p2)
         {
           unsigned int k = 3;
 
-          while (k < max && e->buffer[(unsigned int)cand + k] == e->buffer[pos + k])
+          while (k < max && buf[(unsigned int)cand + k] == buf[pos + k])
             {
               ++k;
             }
@@ -1395,8 +1423,9 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
                   saving
                       = (long)literal_price (e, pos - e->window_n,
                                              pos - e->window_n + length_here)
-                        - (long)sequence_price (e, pending, length_here,
-                                                pos - (unsigned int)cand);
+                        - (long)(base_ll_price
+                                 + match_price (e, length_here,
+                                                pos - (unsigned int)cand));
 
                   if (saving > best_gain
                       || (saving == best_gain && saving > 0
@@ -2837,6 +2866,62 @@ output_symbol (Output *o, unsigned int v)
 
 /*****************************************************************************/
 
+static int
+output_match (Output *o, unsigned int d, unsigned int ml)
+{
+  unsigned int j, mask = o->window_n - 1U;
+  unsigned short *ring = o->ring;
+  unsigned long prod = o->produced;
+
+  for (j = 0; j < ml; ++j)
+    {
+      unsigned int v = ring[(prod - d + j) & mask];
+
+      ring[(prod + j) & mask] = (unsigned short)v;
+      o->crc_acc = (o->crc_acc << 9) | v;
+      o->crc_bits += 9;
+
+      while (o->crc_bits >= 8)
+        {
+          o->crc_bits -= 8;
+          o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+          o->crc_acc &= (1U << o->crc_bits) - 1U;
+        }
+
+      if (o->out_mode == 8)
+        {
+          if (!output_octet (o, v))
+            {
+              return 0;
+            }
+        }
+      else
+        {
+          o->out_acc = (o->out_acc << 9) | v;
+          o->out_bits += 9;
+
+          while (o->out_bits >= 8)
+            {
+              o->out_bits -= 8;
+
+              if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
+                {
+                  return 0;
+                }
+
+              o->out_acc &= (1U << o->out_bits) - 1U;
+            }
+        }
+    }
+
+  o->produced += ml;
+  o->in_block += ml;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
 static void
 block_crc_begin (Output *o)
 {
@@ -3147,14 +3232,9 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
                 return 0;
               }
 
-            for (j = 0; j < ml; ++j)
+            if (!output_match (o, d, ml))
               {
-                unsigned int v
-                    = o->ring[(o->produced - d) & (o->window_n - 1U)];
-                if (!output_symbol (o, v))
-                  {
-                    return 0;
-                  }
+                return 0;
               }
 
             produced += ml;
