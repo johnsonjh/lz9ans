@@ -3218,7 +3218,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
       return 0;
     }
 
-  if (fgetc (in) != EOF || ferror (out))
+  if (fgetc (in) != EOF || ferror (in) || ferror (out))
     {
       free_encoder (&e);
 
@@ -3308,7 +3308,7 @@ decode_file (FILE *in, FILE *out)
         }
     }
 
-  if (!output_flush (o) || fgetc (in) != EOF || ferror (out))
+  if (!output_flush (o) || fgetc (in) != EOF || ferror (in) || ferror (out))
     {
       goto cleanup;
     }
