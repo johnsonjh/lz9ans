@@ -2836,12 +2836,20 @@ output_symbol (Output *o, unsigned int v)
   o->crc_acc = (o->crc_acc << 9) | v;
   o->crc_bits += 9;
 
-  while (o->crc_bits >= 8)
+  if (o->crc_bits >= 16)
     {
       o->crc_bits -= 8;
       o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-      o->crc_acc &= (1U << o->crc_bits) - 1U;
+      o->crc_bits -= 8;
+      o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
     }
+  else
+    {
+      o->crc_bits -= 8;
+      o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+    }
+
+  o->crc_acc &= (1U << o->crc_bits) - 1U;
 
   if (o->out_mode == 8)
     {
@@ -2851,7 +2859,26 @@ output_symbol (Output *o, unsigned int v)
   o->out_acc = (o->out_acc << 9) | v;
   o->out_bits += 9;
 
-  while (o->out_bits >= 8)
+  if (o->out_bits >= 16)
+    {
+      o->out_bits -= 8;
+
+      if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
+        {
+          return 0;
+        }
+
+      o->out_acc &= (1U << o->out_bits) - 1U;
+      o->out_bits -= 8;
+
+      if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
+        {
+          return 0;
+        }
+
+      o->out_acc &= (1U << o->out_bits) - 1U;
+    }
+  else
     {
       o->out_bits -= 8;
 
@@ -2871,43 +2898,97 @@ output_symbol (Output *o, unsigned int v)
 static int
 output_match (Output *o, unsigned int d, unsigned int ml)
 {
-  unsigned int j, mask = o->window_n - 1U;
-  unsigned short *ring = o->ring;
-  unsigned long prod = o->produced;
+  const unsigned int mask = o->window_n - 1U;
+  unsigned short * const ring = o->ring;
+  const unsigned long prod = o->produced;
+  unsigned int j, src, dst;
 
-  if (d < 1U || (unsigned long)d > prod || d > o->window_n)
+  src = (unsigned int)((prod - d) & mask);
+  dst = (unsigned int)(prod & mask);
+
+  if (o->out_mode == 8)
     {
-      return 0;
-    }
-
-  for (j = 0; j < ml; ++j)
-    {
-      unsigned int v = ring[(prod - d + j) & mask];
-
-      ring[(prod + j) & mask] = (unsigned short)v;
-      o->crc_acc = (o->crc_acc << 9) | v;
-      o->crc_bits += 9;
-
-      while (o->crc_bits >= 8)
+      for (j = 0; j < ml; ++j)
         {
-          o->crc_bits -= 8;
-          o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+          unsigned int v = ring[src];
+
+          ring[dst] = (unsigned short)v;
+          src = (src + 1U) & mask;
+          dst = (dst + 1U) & mask;
+          o->crc_acc = (o->crc_acc << 9) | v;
+          o->crc_bits += 9;
+
+          if (o->crc_bits >= 16)
+            {
+              o->crc_bits -= 8;
+              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+              o->crc_bits -= 8;
+              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+            }
+          else
+            {
+              o->crc_bits -= 8;
+              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+            }
+
           o->crc_acc &= (1U << o->crc_bits) - 1U;
-        }
 
-      if (o->out_mode == 8)
-        {
           if (!output_octet (o, v))
             {
               return 0;
             }
         }
-      else
+    }
+  else
+    {
+      for (j = 0; j < ml; ++j)
         {
+          unsigned int v = ring[src];
+
+          ring[dst] = (unsigned short)v;
+          src = (src + 1U) & mask;
+          dst = (dst + 1U) & mask;
+          o->crc_acc = (o->crc_acc << 9) | v;
+          o->crc_bits += 9;
+
+          if (o->crc_bits >= 16)
+            {
+              o->crc_bits -= 8;
+              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+              o->crc_bits -= 8;
+              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+            }
+          else
+            {
+              o->crc_bits -= 8;
+              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
+            }
+
+          o->crc_acc &= (1U << o->crc_bits) - 1U;
+
           o->out_acc = (o->out_acc << 9) | v;
           o->out_bits += 9;
 
-          while (o->out_bits >= 8)
+          if (o->out_bits >= 16)
+            {
+              o->out_bits -= 8;
+
+              if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
+                {
+                  return 0;
+                }
+
+              o->out_acc &= (1U << o->out_bits) - 1U;
+              o->out_bits -= 8;
+
+              if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
+                {
+                  return 0;
+                }
+
+              o->out_acc &= (1U << o->out_bits) - 1U;
+            }
+          else
             {
               o->out_bits -= 8;
 
@@ -3234,19 +3315,17 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             d = decode_dist (code, &extra, o->reps, o->window_n,
                              o->of_alphabet);
 
-            /*
-             * Distance cannot be less than 1 or exceed window_n.
-             * Distance cannot exceed the number of symbols decoded
-             * thus far in this frame (d > o->produced); matches
-             * referencing pre-history before the start of the frame
-             * are strictly illegal and rejected.
-             */
+            {
+              unsigned int max_d
+                  = (o->produced < o->window_n) ? (unsigned int)o->produced
+                                                : o->window_n;
 
-            if (extra.failed || ml < 3 || ml > n - produced || d < 1
-                || d > o->window_n || (unsigned long)d > o->produced)
-              {
-                return 0;
-              }
+              if (extra.failed || ml < 3 || ml > n - produced
+                  || (d - 1U) >= max_d)
+                {
+                  return 0;
+                }
+            }
 
             if (!output_match (o, d, ml))
               {
@@ -3318,20 +3397,14 @@ allocated_encoder (Encoder *e, unsigned int window_n)
   (void)memset (e, 0, sizeof (*e));
   e->window_n = window_n;
   e->of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K : OF_ALPHABET_32K;
-  e->buffer = (unsigned short *)malloc ((window_n + BLOCK_N)
-                                        * sizeof (unsigned short));
+  e->buffer = (unsigned short *)calloc (window_n + BLOCK_N,
+                                         sizeof (unsigned short));
   e->seq = (Sequence *)malloc (SEQ_MAX * sizeof (Sequence));
   e->head = (int *)malloc (HASH_N * sizeof (int));
   e->link = (int *)malloc (window_n * sizeof (int));
   e->stage = (unsigned char *)malloc (STAGE_MAX);
   e->desc = (unsigned char *)malloc (DESC_MAX);
   e->table = (AnsTable *)malloc (sizeof (AnsTable));
-
-  if (e->buffer)
-    {
-      (void)memset (e->buffer, 0,
-                    (window_n + BLOCK_N) * sizeof (unsigned short));
-    }
 
   if (e->link)
     {
@@ -3562,14 +3635,12 @@ decode_file (FILE *in, FILE *out)
   o->extra_ans = (feature_flags & FEATURE_EXTRA_ANS) != 0U;
   o->window_n = window_n;
   o->of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K : OF_ALPHABET_32K;
-  o->ring = (unsigned short *)malloc (window_n * sizeof (unsigned short));
+  o->ring = (unsigned short *)calloc (window_n, sizeof (unsigned short));
 
   if (!o->ring)
     {
       goto cleanup;
     }
-
-  (void)memset (o->ring, 0, window_n * sizeof (unsigned short));
 
   while (done < total)
     {
