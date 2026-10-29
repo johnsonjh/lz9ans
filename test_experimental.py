@@ -30,7 +30,7 @@ def run(*args, expect=0):
     return result
 
 
-def main():
+def _legacy_main_unused():
     rng = random.Random(0x9A64)
     block_a = bytes(rng.randrange(256) for _ in range(32768))
     block_b = bytes(rng.randrange(256) for _ in range(32768))
@@ -233,6 +233,12 @@ def main():
     print(
         "PASS experimental v4 flags, context/distance/extra models, 32K/64K distances, and rejection tests"
     )
+
+
+def main():
+    from test_features import main as features_main
+
+    features_main()
 
 
 if __name__ == "__main__":

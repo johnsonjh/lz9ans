@@ -3,4 +3,4 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS
 
-LZ9ANS - Experimental 9-bit LZ77+tANS codec
+LZ9ANS - 9-bit LZ77+tANS codec

@@ -1,13 +1,13 @@
 <!-- Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com> -->
 <!-- Copyright (c) 2025-2026 The DPS8M Development Team -->
 <!-- SPDX-License-Identifier: MIT -->
-# LZ9ANS experimental stream format
+# LZ9ANS version 5 stream format
 
 ## 1. Scope and terminology
 
 LZ9ANS compresses a stream of **symbols** with values from **0 to 511**.
 Every symbol occupies nine meaningful bits logically, regardless of how it
-is represented in the compressor's working RAM. The Linux host tool supports:
+is represented in the compressor's working RAM. The UNIX host tool supports:
 
 - **Mode 8:** Ordinary binary file, with one logical symbol per 8-bit octet.
   This is a subset of the 9-bit alphabet, values 0–255.
@@ -30,22 +30,24 @@ version or tape encoding is *not* asserted.
 
 ### 1.1 Constants
 
-| Identifier           | Value  | Meaning                                           |
-|---------------------:|:-------|:--------------------------------------------------|
-| `BLOCK_N`            | 32,768 | Maximum logical output symbols in a block         |
-| `WINDOW_N`           | 32,768 | Maximum backward match distance, **in symbols**   |
-| `MIN_MATCH`          | 3      | Minimum matched symbols                           |
-| `MAX_MATCH`          | 32,768 | Maximum matched symbols in one sequence           |
-| `TABLE_LOG`          | 10     | Base-two log of tANS state count                  |
-| `TABLE_N`            | 1,024  | tANS states, numbered 0–1023                      |
-| `STREAM_COUNT`       | 5      | LIT, LL, ML, OF, EXTRA                            |
-| `MAX_DESC_OCTETS`    | 8,192  | Maximum total entropy descriptors in a block      |
-| `MAX_PAYLOAD_OCTETS` | 81,920 | Maximum combined compressed substreams in a block |
+| Identifier           | Value  | Meaning                                              |
+|---------------------:|:-------|:-----------------------------------------------------|
+| `BLOCK_N`            | 32,768 | Maximum logical output symbols in a block            |
+| `WINDOW_DEFAULT`     | 32,768 | Default maximum backward match distance, in symbols  |
+| `WINDOW_64K`         | 65,536 | Optional maximum backward match distance, in symbols |
+| `MIN_MATCH`          | 3      | Minimum matched symbols                              |
+| `MAX_MATCH`          | 32,768 | Maximum matched symbols in one sequence              |
+| `TABLE_LOG`          | 10     | Base-two log of tANS state count                     |
+| `TABLE_N`            | 1,024  | tANS states, numbered 0–1023                         |
+| `STREAM_COUNT`       | 5      | LIT, LL, ML, OF, EXTRA                               |
+| `MAX_DESC_OCTETS`    | 8,192  | Maximum total entropy descriptors in a block         |
+| `MAX_PAYLOAD_OCTETS` | 81,920 | Maximum combined compressed substreams in a block    |
 
-The **block limit** and **window limit** are both 32,768 symbols in v3. A
-match may refer to the entire immediately preceding block, and may also refer
-backward within the current block. The history at the start of a frame is
-**empty**, not populated with synthetic zeros.
+The block limit is 32,768 symbols in v5. The default window is 32,768 symbols;
+frame flag bit 0 enables a 65,536-symbol window. A match may refer to the
+immediately preceding history and may refer backward within the current block.
+The history at the start of a frame is **empty**, not populated with synthetic
+zeros.
 
 ## 2. 9-bit bit packing and checksums
 
@@ -88,17 +90,17 @@ and little-endian except the ASCII magics and single-byte flags.
 
 ### 3.1 Frame header (20 octets)
 
-| Offset | Octets | Required value / interpretation                   |
-|-------:|:-------|:--------------------------------------------------|
-| 0      | 4      | ASCII `LZ9A` (`4c 5a 39 41`)                      |
-| 4      | 1      | Version **3**                                     |
-| 5      | 1      | Output representation **8** or **9**              |
-| 6      | 2      | Header length **20** (`0x0014`)                   |
-| 8      | 4      | Total logical symbol count, `N`, 0–4,294,967,295  |
-| 12     | 4      | Reserved count-high field; **MUST be zero** in v3 |
-| 16     | 4      | CRC-32/ISO-HDLC of octets 0–15                    |
+| Offset | Octets | Required value / interpretation                                                       |
+|-------:|:-------|:--------------------------------------------------------------------------------------|
+| 0      | 4      | ASCII `LZ9A` (`4c 5a 39 41`)                                                          |
+| 4      | 1      | Version **5**                                                                         |
+| 5      | 1      | Output representation **8** or **9**                                                  |
+| 6      | 2      | Header length **20** (`0x0014`)                                                       |
+| 8      | 4      | Total logical symbol count, `N`, 0–4,294,967,295                                      |
+| 12     | 4      | Feature flags: bit 0 = 64K window, bit 1 = EXTRA-ANS; all other bits **MUST** be zero |
+| 16     | 4      | CRC-32/ISO-HDLC of octets 0–15                                                        |
 
-The Linux CLI uses seekable input and may impose a smaller file size limit
+The UNIX CLI uses seekable input and may impose a smaller file size limit
 through `ftell`/`long`; that is a host implementation limit, not an additional
 wire-format restriction.
 
@@ -107,13 +109,13 @@ wire-format restriction.
 | Offset | Octets | Interpretation                                                                     |
 |-------:|:-------|:-----------------------------------------------------------------------------------|
 | 0      | 4      | ASCII `LZ9B` (`4c 5a 39 42`)                                                       |
-| 4      | 1      | Version **3**                                                                      |
+| 4      | 1      | Version **5**                                                                      |
 | 5      | 1      | Bits 0–1: type 0=STORED, 1=LZ. Bits 2–7: symbol width (7/8/9 for STORED, 0 for LZ) |
-| 6      | 2      | Header length **48** (`0x0030`)                                                    |
+| 6      | 2      | Header length **48** (`0x0030`); fixed for every v5 block                          |
 | 8      | 4      | `n`: decoded symbols in this block, 1–32,768                                       |
 | 12     | 4      | `q`: number of LZ match sequences, 0–`floor(n/3)`                                  |
 | 16     | 4      | `lc`: total number of literal symbols, at most `n`                                 |
-| 20     | 4      | `dl`: combined length of four entropy descriptors, in octets                       |
+| 20     | 4      | `dl`: descriptor length; four entropy descriptors, plus EXTRA iff EXTRA-ANS is set |
 | 24     | 4      | Meaningful bits in LIT stream                                                      |
 | 28     | 4      | Meaningful bits in LL stream                                                       |
 | 32     | 4      | Meaningful bits in ML stream                                                       |
@@ -148,12 +150,13 @@ The decoder accepts any permitted width with valid symbol values.
 
 `type=1`, `width=0`. Immediately after the 48-octet block header:
 
-1. Four entropy descriptors, exactly `dl` octets in total, in the order
-   **LIT**, **LL**, **ML**, **OF**.
+1. Descriptors for **LIT**, **LL**, **ML**, and **OF**, exactly `dl` octets in
+   total. If EXTRA-ANS is enabled, its EXTRA descriptor follows these four.
 
 2. The four encoded entropy bitstreams in that same order.
 
-3. The fifth, forward-oriented **EXTRA** bitstream.
+3. The fifth, forward-oriented **EXTRA** bitstream, encoded as raw bits unless
+   EXTRA-ANS is enabled.
 
 The count of LIT symbols is `lc`. Each of LL, ML, and OF has exactly `q`
 symbols. EXTRA has no standalone symbols or entropy descriptor; it holds only
@@ -174,7 +177,8 @@ For each sequence in forward order:
 
 2. Decode ML; it MUST be at least three.
 
-3. Decode OF to a backward **distance** `d` between 1 and 32,768.
+3. Decode OF to a backward **distance** `d` between 1 and the selected
+   window limit (32,768 or 65,536 symbols).
 
 4. Copy ML symbols from `d` logical positions behind the current output
    cursor, one symbol at a time, allowing source and destination to overlap.
@@ -226,11 +230,11 @@ For example, LL=0 maps to code 0, ML=3 maps to code 0, and LL=16 maps to code
 16 with zero additional bits (`k=0`). Codes permit larger values than can fit
 into one block; decoders MUST reject any decoded length that exceeds the
 remaining block capacity. ML values larger than 32,768 cannot occur in a valid
-v3 encoder output.
+v5 encoder output.
 
 ### 4.2 Offset alphabet, repeat slots, and RUN
 
-OF has **20** codes, 0–19, with these exact meanings:
+OF has **20** codes by default and 21 codes (0–20) with a 64K window:
 
 | OF code | Meaning                                             | EXTRA bits  | Repeat-slot action                |
 |--------:|:----------------------------------------------------|:------------|:----------------------------------|
@@ -240,6 +244,7 @@ OF has **20** codes, 0–19, with these exact meanings:
 | 3       | **RUN:** distance exactly 1                         | 0           | **Do not modify** repeat slots    |
 | 4–18    | Explicit distance bucket `k=code-4`, `0 <= k <= 14` | Exactly `k` | Promote explicit distance to `R0` |
 | 19      | Explicit distance exactly **32,768**                | 0           | Promote 32,768 to `R0`            |
+| 20      | Explicit distance 32,769–65,536 (64K window only)   | 15          | Promote explicit distance to `R0` |
 
 Initial slots at the beginning of each frame: **`R0=R1=R2=INVALID`**.  Code
 0/1/2 is invalid unless its referenced slot has been initialized by a prior
@@ -294,8 +299,9 @@ codes. Literal payloads never contribute to EXTRA.
 
 ## 5. Entropy streams and descriptors
 
-The alphabet sizes are **512 LIT**, **32 LL**, **32 ML**, and **20 OF**.  Each
-stream independently chooses one of four entropy modes. The chosen mode is
+The alphabet sizes are **512 LIT**, **32 LL**, **32 ML**, and **20 OF**
+(21 OF with the 64K-window flag). Each stream independently chooses one of
+four entropy modes. The chosen mode is
 specified by its *descriptor*, not inferred from the data.
 
 Descriptors are concatenated and parsed without alignment gaps:
@@ -307,14 +313,15 @@ Descriptors are concatenated and parsed without alignment gaps:
 | 2         | RLE   | One unsigned varint: sole symbol value                      | Zero bits, repeat symbol for entire count         |
 | 3         | tANS  | One varint `nused`, then `nused` `(gap, freq)` varint pairs | Reverse-consumed tANS bit groups                  |
 
-RAW LIT accepts width 7/8/9; RAW LL, ML, OF always use width **5**.  Five bits
-suffice to encode all 20 OF codes (unused code values 20–31 are invalid). The
+RAW LIT accepts width 7/8/9; RAW LL, ML, OF always use width **5**. Five bits
+suffice for the 21-symbol OF alphabet used with a 64K window; codes 21–31 are
+always invalid, and code 20 is invalid unless the 64K-window flag is set. The
 decoder checks that all symbols lie within the required alphabet, that mode
 EMPTY matches a zero count and no payload, and that all meaningful payload
 bits are consumed.
 
 The varint is an **unsigned little-endian base-128** integer. Each octet
-contributes its low seven bits; bit7 means continue. The v3 decoder permits at
+contributes its low seven bits; bit7 means continue. The v5 decoder permits at
 most three octets per integer. Values are further bounded by the field's
 semantic range. Encoders normally emit the shortest representation.
 
@@ -417,14 +424,15 @@ any part of the C implementation.
 
 ## 6. Decoder procedure and validation requirements
 
-A conforming v3 decoder SHOULD implement the following stages, enforcing all
+A conforming v5 decoder SHOULD implement the following stages, enforcing all
 checks before trusting an offset, size, state, or output count:
 
 1. Read and validate the 20-octet frame header, including CRC, version,
-   representation, header length, and reserved field.
+   representation, header length, and feature flags.
 
-2. Initialize an empty 32,768-symbol history (zero-initializing memory as
-   defense-in-depth against memory disclosure) and three INVALID repeat slots.
+2. Initialize an empty 32,768- or 65,536-symbol history as selected by the
+   frame flags (zero-initializing memory as defense-in-depth against memory
+   disclosure) and three INVALID repeat slots.
 
 3. For each block, validate magic/version/header length/type/width, counts,
    length limits, and the announced size against the remaining frame.
@@ -437,14 +445,14 @@ checks before trusting an offset, size, state, or output count:
 
 6. For STORED, read `n` fixed-width symbols, updating history but not MRU.
 
-7. For LZ, reconstruct all four descriptors, validate the frequencies,
-   set each stream's expected count, initialize entropy decoding states,
-   and decode sequences plus terminal literal run.
+7. For LZ, reconstruct the LIT/LL/ML/OF descriptors and, when EXTRA-ANS is
+   set, the EXTRA descriptor. Validate frequencies and counts, initialize
+   entropy states, and decode sequences plus the terminal literal run.
 
-8. For every copy, validate `1 <= distance <= 32768`, distance does not
-   exceed the already reconstructed frame prefix (`distance <= produced`),
-   rejecting all pre-history references. Validate `ML >= 3`, and verify the
-   copy does not exceed this block's remaining output capacity. Copy forwards
+8. For every copy, validate `1 <= distance <= window_limit`, and ensure the
+   distance does not exceed the already reconstructed frame prefix
+   (`distance <= produced`), rejecting all pre-history references. Validate
+   `ML >= 3`, and verify the copy does not exceed this block's remaining output capacity. Copy forwards
    one symbol at a time to support overlaps.
 
 9. Verify each entropy stream consumes exactly its meaningful bits and its
@@ -466,15 +474,15 @@ write to a temporary name if destination atomicity is required.
 
 ## 7. Encoder reference choices (informative, not required for decoding)
 
-LZ9ANS v3 uses an **8,192-entry hash table** keyed from three consecutive
-symbols and a **32,768-position** hash-chain ring to locate match candidates.
-The parser maintains a 32K-symbol block plus 32K history in 16-bit C
-containers, records `(LL, ML, distance)` sequences, and emits four entropy
-streams and the shared EXTRA bitstream.  The distance is stored in a 32-bit C
-field so the encoder can carry a 15-bit distance plus the repeat-slot tag;
-this is an implementation detail, not a wire field.
+LZ9ANS v5 uses an **8,192-entry hash table** keyed from three consecutive
+symbols and a hash-chain ring sized to the selected history window to locate
+match candidates.  The parser maintains a 32K-symbol block plus up to 64K
+history in 16-bit C containers, records `(LL, ML, distance)` sequences, and
+emits four entropy streams and the shared EXTRA bitstream.  The distance is
+stored in a 32-bit C field so the encoder can carry a 17-bit distance plus the
+repeat-slot tag; this is an implementation detail, not a wire field.
 
-The levels from `-1` through `-9` all produce **the same v3 wire format**:
+The levels from `-1` through `-9` all produce **the same v5 wire format**:
 
 | Level | Max hash-chain candidates | Parser behavior                                    |
 |------:|:--------------------------|:---------------------------------------------------|
@@ -510,11 +518,13 @@ descriptors) is no smaller than storing the block at its narrowest 7/8/9 bit
 width, it writes STORED instead and restores any speculative MRU changes made
 during parsing. The decoder never needs to know which parser or level was used.
 
-Linux reference explicit state on one x86-64/8-bit-octet build:
-**497,714 octets encoder state** and **207,248 octets decoder state** as
+Linux reference implementation explicit state on one x86-64/8-bit-octet build:
+**497,730 octets encoder state** and **207,392 octets base decoder state** as
 reported by `./lz9ans --memory` (plus stack, C library file buffers, allocator
-overhead). The accounted encoder state is 497,714 bytes, below 512 KiB
-(524,288 bytes) by 26,574 bytes. The figure includes the `Encoder` structure
+overhead). The base decoder figure includes four ordinary ANS tables;
+`--extra-ans` adds one `AnsTable` (10,754 octets on the stated host).
+The accounted encoder state is 497,730 bytes, below 512 KiB (524,288 bytes) by
+26,558 bytes. The figure includes the `Encoder` structure
 and its associated arrays, but excludes small helper stack temporaries, C
 runtime state, `FILE` buffers, allocator overhead, and the process itself. It
 is therefore a useful state budget, not a guarantee of total resident memory.
@@ -524,10 +534,14 @@ different and must be sized separately.
 
 ## 8. Golden vectors and interoperability
 
-The repository's `vectors/` directory contains **exact compressed v3
-bitstreams** and their input files.  The first five are short format examples;
-the two long-distance fixtures are larger and specifically exercise v3
-distance limits. None is intended as a general compression benchmark.
+The repository retains the original v3 fixture files and verifies their
+recorded SHA-256 digests before use. `test_vectors.py` upgrades each fixture in
+memory by changing the frame and block version bytes to 5 and recomputing the
+frame-header CRC. The v3 fixtures use the fixed five-stream layout and have no
+feature flags, so payload bytes remain unchanged; the block CRC does not cover
+the block version byte. The v5 decoder MUST reject the original, unmodified v3
+frames. None of these fixtures is
+intended as a general compression benchmark.
 
 | Fixture       | Input mode | Level | Raw octets | Frame octets  | SHA-256 of compressed frame                                        |
 |--------------:|:-----------|:------|:-----------|:--------------|:-------------------------------------------------------------------|
@@ -539,7 +553,7 @@ distance limits. None is intended as a general compression benchmark.
 | `longdist16k` | 8          | 9     | 32,768     | 16,465        | `83e3f89be3579929a981fc3c222e301e442a8f56ae17170791cd641167b3b909` |
 | `longdist32k` | 8          | 9     | 65,536     | 32,893        | `832d58995ae2092f2099f6b2e2f16c63d4acf1f084c4fd8f8bf9938074dc3226` |
 
-The empty-mode-8 frame is exactly these **20 octets**:
+The legacy v3 empty-mode-8 frame is exactly these **20 octets**:
 
 ```text
 4c 5a 39 41 03 08 14 00 00 00 00 00 00 00 00 00 be 16 f2 0a
@@ -560,9 +574,11 @@ to match exactly.
 
 ## 9. Format gaps and future design choices
 
-- **Format stability:** V3 is the default baseline; the optional v4 extensions
-  remain experimental and need broader fuzzing, cross-language validation, and
-  explicit freezing before archival use.
+- **Format stability:** V5 is the only format emitted and accepted by this
+  implementation. It uses a fixed 48-octet block header and fixed five-stream
+  layout; the 64K-window and EXTRA-ANS flags do not change that layout. Frames
+  with any version other than 5 are rejected. Future incompatible changes
+  require a new format version.
 
 - **Container semantics:** ZIP / archive method numbers, independent blocks,
   indexing, streaming inputs of unknown length, and concatenated frames
@@ -597,152 +613,79 @@ to match exactly.
      conditions or partial decoding inspection, no residual host heap memory
      can ever be accessed or disclosed.
 
-- **Portability:** This specific Linux reference expects 8-bit C `char`,
-  16-bit `short`, 32-bit `int` and seekable files. A Multics PL/I port
-  should carry the *wire equations* and use 36-bit-native representations,
-  not emulate those host C types unnecessarily.
+- **Portability:** This specific UNIX reference implementation expects 8-bit
+  C `char`, 16-bit `short`, 32-bit `int` and seekable files.  Any Multics PL/I
+  port should carry the *wire equations* and use 36-bit-native representations,
+  not emulate these host C types unnecessarily.
 
-## 10. Experimental version 4 extensions
+## 10. Version 5 feature flags and fixed stream layout
 
-V4 is an opt-in extension of the v3 frame and block grammar. It is not frozen.
-The reference encoder emits v4 only when at least one feature below is enabled;
-with no options, it emits byte-identical v3 output. V4 decoders must reject
-unknown feature bits and inconsistent version/flag combinations.
+Version 5 is the only format emitted or accepted by this implementation. Its
+20-octet frame header uses the same field widths as the earlier layout, but
+octet 4 MUST be 5 and the 32-bit field at offset 12 is a feature bitmask. A v5
+frame may set either, both, or neither of these flags:
 
-### 10.1 Frame version and feature flags
+| Bit | Mask         | Meaning                              |
+|----:|:-------------|:-------------------------------------|
+| 0   | `0x00000001` | 65,536-symbol history window         |
+| 1   | `0x00000002` | Entropy-coded EXTRA bitstream        |
 
-The 20-octet frame header retains the v3 layout. Octet 4 is version **4** and
-the 32-bit little-endian field at offset 12 is a feature bitmask:
+Bits outside `0x03` are invalid. Flags apply to the whole frame and cannot be
+changed block by block. V5 retains the 32,768-symbol block maximum. Frames and
+blocks whose version byte is not 5 MUST be rejected; v3 and v4 compatibility
+is intentionally not implemented.
 
-| Bit | Mask         | Meaning                                 |
-|----:|:-------------|:----------------------------------------|
-| 0   | `0x00000001` | Context-conditioned literal streams     |
-| 1   | `0x00000002` | 65,536-symbol history window            |
-| 2   | `0x00000004` | Match-length-conditioned offset streams |
-| 3   | `0x00000008` | Entropy-coded EXTRA bitstream           |
+### 10.1 Fixed block-header size and stream layout
 
-A v3 frame MUST have version 3 and flags zero. A v4 frame MUST have version 4
-and at least one known flag set. Bits outside `0x0f` are invalid. The features
-apply to every block in the frame; features cannot be changed block by block.
-The 32,768-symbol block maximum is unchanged.
+Every v5 block has a 48-octet header. The five bit-length fields at offsets
+24, 28, 32, 36, and 40 always describe **LIT, LL, ML, OF, EXTRA**, respectively;
+the block CRC is always at offset 44. Neither frame flag changes this layout.
+All payloads begin on octet boundaries and their unused low-order padding bits
+MUST be zero. A STORED block uses only LIT; all other bit lengths and `dl` MUST
+be zero.
 
-### 10.2 V4 block-header size and stream layout
+An LZ block always has the four ordinary entropy streams LIT, LL, ML, and OF.
+Its descriptor area contains one descriptor for each of those streams, in that
+order. If EXTRA-ANS is enabled, an additional EXTRA descriptor follows them;
+otherwise the fifth EXTRA payload is a raw forward-oriented bitstream. The
+EXTRA bit-length field is present in both modes, and the decoder derives the
+number of EXTRA bits from the decoded LL, ML, and OF codes.
 
-The number of payload streams is `5 + context_flag + distance_context_flag`.
-EXTRA is always the last payload stream. The block header length is
-`28 + 4 * payload_stream_count` octets; the CRC follows the stream bit lengths.
-Consequently, the header is 48 octets with neither split-table feature, 52
-when exactly one is enabled, and 56 when both are enabled. The 64K-window and
-EXTRA-ANS flags do not add payload streams and do not affect header length.
+### 10.2 64K history window (`0x01`)
 
-The bit-length fields at offset 24 are in the following order:
-
-| Literal context | Distance context | Payload order                                  |
-|----------------:|:-----------------|:-----------------------------------------------|
-| Off             | Off              | `LIT, LL, ML, OF, EXTRA`                       |
-| On              | Off              | `LIT0, LIT1, LL, ML, OF, EXTRA`                |
-| Off             | On               | `LIT, LL, ML, OF-short, OF-long, EXTRA`        |
-| On              | On               | `LIT0, LIT1, LL, ML, OF-short, OF-long, EXTRA` |
-
-For every row, the final field is EXTRA. The block CRC offset is
-`24 + 4 * payload_stream_count`. Payload byte alignment and zero padding are
-otherwise identical to v3. A STORED block uses only the first payload stream;
-all remaining stream bit lengths and `dl` MUST be zero, even when v4 features
-are enabled for the frame.
-
-The `dl` field remains the length of the concatenated descriptors. LZ blocks
-have one descriptor for each LIT/LL/ML/OF entropy stream. If EXTRA-ANS is
-enabled, one additional descriptor for the EXTRA stream follows those normal
-stream descriptors. The EXTRA payload already has a bit-length field in v3;
-there is no extra payload field for EXTRA-ANS.
-
-### 10.3 Literal context (`0x01`)
-
-The previous decoded output symbol selects the literal stream using the most
-significant bit of the active symbol width:
-
-- Mode 8: context 0 when bit 7 is zero, context 1 when bit 7 is one.
-- Mode 9: context 0 when bit 8 is zero, context 1 when bit 8 is one.
-
-At the beginning of a frame, before any output symbol exists, the context is
-zero. The context follows the actual decoded output, including symbols copied
-by matches and symbols from previous blocks. Each literal is coded by `LIT0`
-or `LIT1` according to the context immediately before that literal is emitted.
-The `lc` header field remains the total literal count; per-context counts are
-not stored. A decoder counts each context while producing output and validates
-that an EMPTY descriptor is used if and only if that context's literal count
-is zero. Other streams retain their v3 meaning and counts.
-
-### 10.4 64K history window (`0x02`)
-
-The history window increases to **65,536 logical symbols**; blocks remain at
-32,768 symbols and the maximum match length remains 32,768. Cross-block
-references can now reach 65,536 symbols. The OF alphabet grows from 20 to 21
-symbols; the repeat slots and RUN semantics are unchanged.
-
-For a 64K-window frame, offset codes 0–19 retain their v3 meanings, with code
-19 representing exactly 32,768. Code 20 represents distances 32,769 through
-65,536 and carries exactly 15 EXTRA bits:
+The window flag increases the history limit to **65,536 logical symbols**;
+blocks and maximum match length remain 32,768 symbols. The OF alphabet grows
+from 20 to 21 symbols; repeat slots and RUN semantics are unchanged. Codes
+0–19 retain the ordinary offset meanings, with code 19 representing exactly
+32,768. Code 20 represents distances 32,769 through 65,536 and carries exactly
+15 EXTRA bits:
 
 ```text
 distance = 32769 + read_extra(15)
 ```
 
-The encoder writes `distance - 32769` in 15 MSB-first bits. This extended
-range includes the exact 65,536 endpoint. Code 20 is invalid unless the 64K
-window flag is set. For a 32K window the OF alphabet remains 20 and code 20 is
-invalid. An implementation must use at least 17 bits for the logical distance;
-16-bit storage is insufficient for the 65,536 endpoint.
+The encoder writes `distance - 32769` in 15 MSB-first bits. Code 20 is invalid
+unless the 64K-window flag is set. With the default 32K window the OF alphabet
+remains 20 and code 20 is invalid. An implementation must use at least 17 bits
+for the logical distance; 16-bit storage is insufficient for distance 65,536.
 
-### 10.5 Match-length-conditioned offset tables (`0x04`)
+### 10.3 Binary tANS EXTRA stream (`0x02`)
 
-The encoder maintains two separate OF entropy streams, but retains one logical
-offset code alphabet and one shared EXTRA stream. After decoding ML, the
-sequence selects its OF stream as follows:
-
-- `OF-short` when `ML < 19`;
-- `OF-long` when `ML >= 19`.
-
-The threshold aligns with the first ML code that requires additional length
-bits. The OF symbol, repeat-slot update, RUN semantics, and distance EXTRA bits
-are otherwise unchanged. The total sequence count `q` is unchanged; per-context
-OF counts are not stored. The decoder counts matches in each class and checks
-that the corresponding stream is EMPTY exactly when its count is zero.
-
-This feature is an experiment, not a recommended default. Measurements show
-that splitting offset tables can increase output size because its per-block
-descriptor and table overhead is not always repaid by a better
-symbol distribution.
-
-### 10.6 Binary tANS EXTRA stream (`0x08`)
-
-With EXTRA-ANS enabled, EXTRA still represents the same sequence of bits in the
-same logical order: LL extra bits, ML extra bits, then OF extra bits for each
-sequence in forward order. Instead of writing those bits as an un-described raw
-bitstream, the encoder selects one of the existing entropy modes using a
-2-symbol alphabet (`0` and `1`):
+With EXTRA-ANS enabled, EXTRA represents the same sequence of bits in the same
+logical order: LL extra bits, ML extra bits, then OF extra bits for each
+sequence in forward order. Instead of writing those bits as a raw bitstream,
+the encoder selects an entropy mode using the binary alphabet `0` and `1`:
 
 - EMPTY if the block has no EXTRA bits;
-- RLE if all EXTRA bits are the same value;
+- RLE if all EXTRA bits have the same value;
 - tANS with a normalized 1,024-state binary model when both values occur and
   the encoded payload plus descriptor is smaller than RAW;
 - otherwise RAW with width 1.
 
 The descriptor uses the same EMPTY/RAW/RLE/tANS syntax as other entropy
-streams. The EXTRA bit count is not stored explicitly; the decoder derives it
-while decoding LL, ML, and OF codes, counts each consumed bit, and validates
-exact stream consumption and terminal tANS state. In tANS mode the encoder
-feeds bits in reverse sequence/component/bit order so the decoder reconstructs
-the original forward EXTRA bit order. If the tANS representation does not
-beat the RAW representation after descriptor cost, the encoder chooses RAW.
-
-### 10.7 Feature combinations and compatibility
-
-Any subset of the four v4 flags may be combined. In particular, a frame may
-combine a 64K window with context literals, distance-context tables, and
-EXTRA-ANS. The frame flags determine the block stream layout, descriptor count,
-OF alphabet, and distance limit. A decoder must not infer features from block
-header length alone; it must validate the frame flags and then require each
-block's exact expected header size. V4 remains experimental until a PL/I
-implementation passes the same independent-decoder, malformed-stream, and
-cross-language tests as the C and Python implementations.
+streams. The decoder counts the consumed EXTRA bits while decoding LL, ML, and
+OF codes and validates exact stream consumption and terminal tANS state. In
+tANS mode the encoder feeds bits in reverse sequence/component/bit order so
+the decoder reconstructs the original forward EXTRA bit order. If the tANS
+representation does not beat RAW after descriptor cost, the encoder chooses
+RAW. Neither feature changes the fixed five-stream block layout.

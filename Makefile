@@ -15,7 +15,7 @@ test: lz9ans
 	./test_vectors.py
 	./test_window.py
 	./test_verbose.py
-	./test_experimental.py
+	./test_features.py
 
 sanitizers: lz9ans.c
 	$(CC) -Og -g -ansi -pedantic -Wall -Wextra -Werror \

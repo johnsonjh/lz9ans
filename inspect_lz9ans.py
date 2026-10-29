@@ -68,12 +68,10 @@ class Symbols:
         self.used = 0
         self.mode = descriptor[0]
         self.bits = Bits(data, meaningful, self.mode == 3)
-        is_literal = kind in (0, 5, 6)
+        is_literal = kind == 0
         is_extra = kind == 4
         alphabet = (
-            512
-            if is_literal
-            else 2 if is_extra else of_alphabet if kind in (3, 7, 8) else 32
+            512 if is_literal else 2 if is_extra else of_alphabet if kind == 3 else 32
         )
         check(self.mode in range(4), "invalid entropy mode")
         if count is not None:
@@ -217,20 +215,14 @@ def decode(data):
     check(len(data) >= 20 and data[:4] == b"LZ9A", "invalid frame magic")
     version, mode = data[4], data[5]
     check(
-        version in (3, 4) and mode in (8, 9) and u16(data, 6) == 20,
+        version == 5 and mode in (8, 9) and u16(data, 6) == 20,
         "unsupported frame header",
     )
     flags = u32(data, 12)
     check(zlib.crc32(data[:16]) == u32(data, 16), "corrupt frame header")
-    check(
-        (flags & ~15) == 0
-        and ((version == 3 and flags == 0) or (version == 4 and flags != 0)),
-        "invalid feature flags",
-    )
-    context_literals = bool(flags & 1)
-    window = 65536 if flags & 2 else 32768
-    distance_context = bool(flags & 4)
-    extra_ans = bool(flags & 8)
+    check((flags & ~3) == 0, "invalid feature flags")
+    window = 65536 if flags & 1 else 32768
+    extra_ans = bool(flags & 2)
     of_alphabet = 21 if window == 65536 else 20
     target = u32(data, 8)
     position = 20
@@ -238,10 +230,10 @@ def decode(data):
     reps = [0, 0, 0]
     stats = Counter()
     while len(output) < target:
-        stream_count = 5 + int(context_literals) + int(distance_context)
-        entropy_count = stream_count - 1
+        stream_count = 5
+        entropy_count = 4
         descriptor_count = entropy_count + int(extra_ans)
-        header_size = 28 + 4 * stream_count
+        header_size = 48
         check(position + header_size <= len(data), "missing block header")
         h = data[position : position + header_size]
         position += header_size
@@ -252,8 +244,8 @@ def decode(data):
         flag, width = h[5] & 3, h[5] >> 2
         n, sequence_count, literal_count = struct.unpack_from("<III", h, 8)
         desc_length = u32(h, 20)
-        lengths = struct.unpack_from("<" + "I" * stream_count, h, 24)
-        expected_crc = u32(h, 24 + 4 * stream_count)
+        lengths = struct.unpack_from("<5I", h, 24)
+        expected_crc = u32(h, 44)
         check(
             0 < n <= min(32768, target - len(output))
             and sequence_count <= n // 3
@@ -298,22 +290,9 @@ def decode(data):
         else:
             stats["lz"] += 1
             check(width == 0, "nonzero LZ block width")
-            if context_literals and distance_context:
-                kinds = (6, 5, 1, 2, 7, 8)
-            elif context_literals:
-                kinds = (6, 5, 1, 2, 3)
-            elif distance_context:
-                kinds = (0, 1, 2, 7, 8)
-            else:
-                kinds = (0, 1, 2, 3)
+            kinds = (0, 1, 2, 3)
             if extra_ans:
                 kinds = kinds + (4,)
-            of_index = 3 + int(context_literals)
-            split_indices = set()
-            if context_literals:
-                split_indices.update((0, 1))
-            if distance_context:
-                split_indices.update((of_index, of_index + 1))
             descriptors = []
             index = 0
             for _ in range(descriptor_count):
@@ -336,7 +315,7 @@ def decode(data):
             counts = [
                 (
                     None
-                    if i in split_indices or (extra_ans and i == entropy_count)
+                    if extra_ans and i == entropy_count
                     else (literal_count if kind == 0 else sequence_count)
                 )
                 for i, kind in enumerate(kinds)
@@ -353,14 +332,8 @@ def decode(data):
                 raw[stream_count - 1], streams[entropy_count] if extra_ans else None
             )
             used_literals = 0
-            observed_counts = [0] * entropy_count
-
-            def literal_context():
-                previous = output[-1] if output else 0
-                return int(bool(previous & (128 if mode == 8 else 256)))
-
-            ll_index = 2 if context_literals else 1
-            ml_index = ll_index + 1
+            ll_index = 1
+            ml_index = 2
             for _ in range(sequence_count):
                 run = decode_length(streams[ll_index].get(), 0, extra)
                 check(
@@ -369,26 +342,16 @@ def decode(data):
                     "invalid literal run",
                 )
                 for _ in range(run):
-                    ctx = literal_context() if context_literals else 0
-                    lit_wire = ctx if context_literals else 0
-                    value = streams[lit_wire].get()
+                    value = streams[0].get()
                     check(
                         value < (256 if mode == 8 else 512),
                         "literal exceeds frame input width",
                     )
                     output.append(value)
-                    if lit_wire in split_indices:
-                        observed_counts[lit_wire] += 1
                 used_literals += run
                 match_length = decode_length(streams[ml_index].get(), 3, extra)
                 stats["match_lt19" if match_length < 19 else "match_ge19"] += 1
-                if distance_context:
-                    of_wire = of_index + int(match_length >= 19)
-                else:
-                    of_wire = of_index
-                code = streams[of_wire].get()
-                if of_wire in split_indices:
-                    observed_counts[of_wire] += 1
+                code = streams[3].get()
                 stats[f"offset_{code}"] += 1
                 if code <= 2:
                     distance = reps[code]
@@ -424,21 +387,14 @@ def decode(data):
                 "incorrect terminal literal count",
             )
             for _ in range(trailing):
-                ctx = literal_context() if context_literals else 0
-                lit_wire = ctx if context_literals else 0
-                value = streams[lit_wire].get()
+                value = streams[0].get()
                 check(
                     value < (256 if mode == 8 else 512),
                     "terminal literal exceeds frame input width",
                 )
                 output.append(value)
-                if lit_wire in split_indices:
-                    observed_counts[lit_wire] += 1
-            for i, stream in enumerate(streams[:entropy_count]):
-                if i in split_indices:
-                    stream.finish(observed_counts[i])
-                else:
-                    stream.finish()
+            for stream in streams[:entropy_count]:
+                stream.finish()
             extra.finish()
         check(
             zlib.crc32(pack9(output[block_start:])) == expected_crc,

@@ -18,18 +18,15 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.3.4"
+#define LZ9VER "v0.5.0"
 
 /*****************************************************************************/
 
 #define BLOCK_N 32768U
 #define WINDOW_DEFAULT 32768U
 #define WINDOW_64K 65536U
-#define FEATURE_CONTEXT_LITERALS 1U
-#define FEATURE_WINDOW_64K 2U
-#define FEATURE_DISTANCE_CONTEXT 4U
-#define FEATURE_EXTRA_ANS 8U
-#define DISTANCE_CONTEXT_THRESHOLD 19U
+#define FEATURE_WINDOW_64K 1U
+#define FEATURE_EXTRA_ANS 2U
 #define HASH_N 8192U
 #define HASH_MASK (HASH_N - 1U)
 #define TABLE_LOG 10
@@ -37,7 +34,7 @@
 #define SEQ_MAX (BLOCK_N / 3U + 1U)
 #define STAGE_MAX 81920U
 #define DESC_MAX 8192U
-#define BHEAD_V5_N 56U
+#define BLOCK_HEADER_N 48U
 #define FHEAD_N 20
 
 /*****************************************************************************/
@@ -56,12 +53,9 @@
 #define STREAM_ML 2
 #define STREAM_OF 3
 #define STREAM_EXTRA 4
-#define STREAM_LIT_HI 5
-#define STREAM_LIT_LO 6
-#define STREAM_OF_SHORT 7
-#define STREAM_OF_LONG 8
-#define FORMAT_V3 3U
-#define FORMAT_V4 4U
+#define FORMAT_V5 5U
+#define STREAM_COUNT 5U
+#define ENTROPY_STREAM_COUNT 4U
 #define OF_ALPHABET_32K 20U
 #define OF_ALPHABET_64K 21U
 #define COST_SCALE 256U
@@ -159,20 +153,14 @@ typedef struct
   unsigned int lit_count;
   unsigned int last_lit;
   unsigned int max_literal;
-  unsigned long stream_bits[7];
-  unsigned long stream_bytes[7];
+  unsigned long stream_bits[STREAM_COUNT];
+  unsigned long stream_bytes[STREAM_COUNT];
   unsigned long desc_len;
   unsigned long stage_len;
-  unsigned char modes[7];
-  unsigned int extra_index;
-  unsigned int format_version;
   unsigned int input_mode;
-  int context_literals;
-  int distance_context;
   int extra_ans;
   unsigned int window_n;
   unsigned int of_alphabet;
-  unsigned int feature_flags;
   unsigned int current_kind;
   unsigned int search_depth;
   int lazy;
@@ -188,13 +176,9 @@ typedef struct
 typedef struct
 {
   unsigned short *ring;
-  unsigned int format_version;
-  int context_literals;
-  int distance_context;
   int extra_ans;
   unsigned int window_n;
   unsigned int of_alphabet;
-  unsigned int feature_flags;
   unsigned char outbuf[8192];
   unsigned int out_used;
   unsigned long produced;
@@ -376,123 +360,6 @@ load32 (const unsigned char *p)
 {
   return (unsigned long)p[0] | ((unsigned long)p[1] << 8)
          | ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24);
-}
-
-/*****************************************************************************/
-
-static unsigned int
-stream_count_for_features (unsigned int context_literals,
-                           unsigned int distance_context)
-{
-  return 5U + context_literals + distance_context;
-}
-
-/*****************************************************************************/
-
-static unsigned int
-entropy_count_for_features (unsigned int context_literals,
-                            unsigned int distance_context)
-{
-  return stream_count_for_features (context_literals, distance_context) - 1U;
-}
-
-/*****************************************************************************/
-
-static unsigned int
-block_header_size (unsigned int context_literals,
-                   unsigned int distance_context)
-{
-  return 28U
-         + 4U * stream_count_for_features (context_literals, distance_context);
-}
-
-/*****************************************************************************/
-
-static unsigned int
-logical_kind_for_wire (unsigned int context_literals,
-                       unsigned int distance_context, unsigned int wire)
-{
-  static const unsigned char base_kind[4]
-      = { STREAM_LIT, STREAM_LL, STREAM_ML, STREAM_OF };
-
-  static const unsigned char context_kind[5]
-      = { STREAM_LIT_LO, STREAM_LIT_HI, STREAM_LL, STREAM_ML, STREAM_OF };
-
-  static const unsigned char distance_kind[5]
-      = { STREAM_LIT, STREAM_LL, STREAM_ML, STREAM_OF_SHORT, STREAM_OF_LONG };
-
-  static const unsigned char both_kind[6]
-      = { STREAM_LIT_LO, STREAM_LIT_HI,   STREAM_LL,
-          STREAM_ML,     STREAM_OF_SHORT, STREAM_OF_LONG };
-
-  if (context_literals && distance_context)
-    {
-      return both_kind[wire];
-    }
-
-  if (context_literals)
-    {
-      return context_kind[wire];
-    }
-
-  if (distance_context)
-    {
-      return distance_kind[wire];
-    }
-
-  return base_kind[wire];
-}
-
-/*****************************************************************************/
-
-static int
-split_stream_for_features (unsigned int context_literals,
-                           unsigned int distance_context, unsigned int wire)
-{
-  unsigned int of_index = 3U + (context_literals ? 1U : 0U);
-
-  if (context_literals && wire < 2U)
-    {
-      return 1;
-    }
-
-  if (distance_context && (wire == of_index || wire == of_index + 1U))
-    {
-      return 1;
-    }
-
-  return 0;
-}
-
-/*****************************************************************************/
-
-static unsigned int
-literal_context_value (unsigned int symbol, unsigned int mode)
-{
-  return mode == 8U ? ((symbol & 128U) != 0U) : ((symbol & 256U) != 0U);
-}
-
-/*****************************************************************************/
-
-static unsigned int
-literal_context_at (const Encoder *e, unsigned int pos)
-{
-  unsigned int previous;
-
-  if (pos > e->window_n)
-    {
-      previous = e->buffer[pos - 1U];
-    }
-  else if (pos == e->window_n && e->hlen)
-    {
-      previous = e->buffer[e->window_n - 1U];
-    }
-  else
-    {
-      previous = 0U;
-    }
-
-  return literal_context_value (previous, e->input_mode);
 }
 
 /*****************************************************************************/
@@ -1556,7 +1423,7 @@ parse_block (Encoder *e)
 static unsigned int
 stream_alphabet (unsigned int kind, unsigned int of_alphabet)
 {
-  if (kind == STREAM_LIT || kind == STREAM_LIT_LO || kind == STREAM_LIT_HI)
+  if (kind == STREAM_LIT)
     {
       return 512U;
     }
@@ -1566,9 +1433,7 @@ stream_alphabet (unsigned int kind, unsigned int of_alphabet)
       return 2U;
     }
 
-  return (kind == STREAM_OF || kind == STREAM_OF_SHORT
-          || kind == STREAM_OF_LONG) ? of_alphabet
-                                     : 32U;
+  return kind == STREAM_OF ? of_alphabet : 32U;
 }
 
 /*****************************************************************************/
@@ -1594,55 +1459,9 @@ symbol_of_seq (const Encoder *e, unsigned int kind, const Sequence *q)
 
 /*****************************************************************************/
 
-static int
-distance_kind_matches (unsigned int kind, const Sequence *q)
-{
-  if (kind == STREAM_OF_SHORT)
-    {
-      return q->ml < DISTANCE_CONTEXT_THRESHOLD;
-    }
-
-  if (kind == STREAM_OF_LONG)
-    {
-      return q->ml >= DISTANCE_CONTEXT_THRESHOLD;
-    }
-
-  return 1;
-}
-
-/*****************************************************************************/
-
-static int
-literal_kind_matches (const Encoder *e, unsigned int kind, unsigned int pos)
-{
-  if (!e->context_literals)
-    {
-      return kind != STREAM_LIT_HI && kind != STREAM_LIT_LO;
-    }
-
-  if (kind == STREAM_LIT)
-    {
-      return 1;
-    }
-
-  if (kind == STREAM_LIT_LO)
-    {
-      return literal_context_at (e, pos) == 0U;
-    }
-
-  if (kind == STREAM_LIT_HI)
-    {
-      return literal_context_at (e, pos) == 1U;
-    }
-
-  return 0;
-}
-
-/*****************************************************************************/
-
 static unsigned int
-literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
-              AnsTable *t, unsigned short *state)
+literal_scan (Encoder *e, int count_only, BitWriter *w, AnsTable *t,
+              unsigned short *state)
 {
   unsigned int i, j, pos, observed = 0;
 
@@ -1656,29 +1475,6 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
           for (j = 0; j < e->seq[i].ll; ++j)
             {
               v = e->buffer[pos + j];
-
-              if (literal_kind_matches (e, kind, pos + j))
-                {
-                  ++e->counts[v];
-
-                  if (v > e->max_literal)
-                    {
-                      e->max_literal = v;
-                    }
-
-                  ++observed;
-                }
-            }
-
-          pos += e->seq[i].ll + e->seq[i].ml;
-        }
-
-      while (pos < e->window_n + e->n)
-        {
-          v = e->buffer[pos];
-
-          if (literal_kind_matches (e, kind, pos))
-            {
               ++e->counts[v];
 
               if (v > e->max_literal)
@@ -1689,7 +1485,20 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
               ++observed;
             }
 
-          ++pos;
+          pos += e->seq[i].ll + e->seq[i].ml;
+        }
+
+      while (pos < e->window_n + e->n)
+        {
+          v = e->buffer[pos++];
+          ++e->counts[v];
+
+          if (v > e->max_literal)
+            {
+              e->max_literal = v;
+            }
+
+          ++observed;
         }
     }
   else if (t && state && w)
@@ -1700,11 +1509,7 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
         {
           unsigned int at = pos - 1U;
 
-          if (literal_kind_matches (e, kind, at))
-            {
-              ans_put (t, w, e->buffer[at], state);
-            }
-
+          ans_put (t, w, e->buffer[at], state);
           --pos;
         }
 
@@ -1716,11 +1521,7 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
             {
               unsigned int at = pos - 1U;
 
-              if (literal_kind_matches (e, kind, at))
-                {
-                  ans_put (t, w, e->buffer[at], state);
-                }
-
+              ans_put (t, w, e->buffer[at], state);
               --pos;
             }
         }
@@ -1733,10 +1534,7 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
         {
           for (j = 0; j < e->seq[i].ll; ++j)
             {
-              if (literal_kind_matches (e, kind, pos + j))
-                {
-                  bw_add (w, e->buffer[pos + j], e->current_kind);
-                }
+              bw_add (w, e->buffer[pos + j], e->current_kind);
             }
 
           pos += e->seq[i].ll + e->seq[i].ml;
@@ -1744,11 +1542,7 @@ literal_scan (Encoder *e, unsigned int kind, int count_only, BitWriter *w,
 
       while (pos < e->window_n + e->n)
         {
-          if (literal_kind_matches (e, kind, pos))
-            {
-              bw_add (w, e->buffer[pos], e->current_kind);
-            }
-
+          bw_add (w, e->buffer[pos], e->current_kind);
           ++pos;
         }
     }
@@ -1765,19 +1559,16 @@ count_stream (Encoder *e, unsigned int kind)
 
   (void)memset (e->counts, 0, sizeof (e->counts));
 
-  if (kind == STREAM_LIT || kind == STREAM_LIT_LO || kind == STREAM_LIT_HI)
+  if (kind == STREAM_LIT)
     {
-      return literal_scan (e, kind, 1, (BitWriter *)0, (AnsTable *)0,
+      return literal_scan (e, 1, (BitWriter *)0, (AnsTable *)0,
                            (unsigned short *)0);
     }
 
   for (i = 0; i < e->sn; ++i)
     {
-      if (distance_kind_matches (kind, &e->seq[i]))
-        {
-          ++e->counts[symbol_of_seq (e, kind, &e->seq[i])];
-          ++total;
-        }
+      ++e->counts[symbol_of_seq (e, kind, &e->seq[i])];
+      ++total;
     }
 
   return total;
@@ -1792,29 +1583,23 @@ encode_values (Encoder *e, unsigned int kind, BitWriter *w, AnsTable *t,
   unsigned int i;
   unsigned short state = 0;
 
-  if (kind == STREAM_LIT || kind == STREAM_LIT_LO || kind == STREAM_LIT_HI)
+  if (kind == STREAM_LIT)
     {
       e->current_kind = width;
-      (void)literal_scan (e, kind, 0, w, t, &state);
+      (void)literal_scan (e, 0, w, t, &state);
     }
   else if (t)
     {
       for (i = e->sn; i; --i)
         {
-          if (distance_kind_matches (kind, &e->seq[i - 1]))
-            {
-              ans_put (t, w, symbol_of_seq (e, kind, &e->seq[i - 1]), &state);
-            }
+          ans_put (t, w, symbol_of_seq (e, kind, &e->seq[i - 1]), &state);
         }
     }
   else
     {
       for (i = 0; i < e->sn; ++i)
         {
-          if (distance_kind_matches (kind, &e->seq[i]))
-            {
-              bw_add (w, symbol_of_seq (e, kind, &e->seq[i]), width);
-            }
+          bw_add (w, symbol_of_seq (e, kind, &e->seq[i]), width);
         }
     }
 
@@ -1829,7 +1614,7 @@ encode_values (Encoder *e, unsigned int kind, BitWriter *w, AnsTable *t,
 static unsigned int
 raw_width (unsigned int kind, unsigned int maxlit)
 {
-  if (kind == STREAM_LIT || kind == STREAM_LIT_LO || kind == STREAM_LIT_HI)
+  if (kind == STREAM_LIT)
     {
       return maxlit < 128 ? 7U : (maxlit < 256 ? 8U : 9U);
     }
@@ -1960,7 +1745,7 @@ estimate_costs (Encoder *e)
 /*****************************************************************************/
 
 static int
-encode_one_stream (Encoder *e, unsigned int kind, unsigned int wire)
+encode_one_stream (Encoder *e, unsigned int kind)
 {
   unsigned int i, total, used = 0, single = 0,
                          alphabet = stream_alphabet (kind, e->of_alphabet);
@@ -1980,8 +1765,8 @@ encode_one_stream (Encoder *e, unsigned int kind, unsigned int wire)
         }
     }
 
-  e->stream_bits[wire] = 0;
-  e->stream_bytes[wire] = 0;
+  e->stream_bits[kind] = 0;
+  e->stream_bytes[kind] = 0;
 
   if (!total)
     {
@@ -2097,9 +1882,9 @@ encode_one_stream (Encoder *e, unsigned int kind, unsigned int wire)
           }
       }
 
-      e->stream_bits[wire] = ansbits;
-      e->stream_bytes[wire] = (ansbits + 7UL) / 8UL;
-      e->stage_len += e->stream_bytes[wire];
+      e->stream_bits[kind] = ansbits;
+      e->stream_bytes[kind] = (ansbits + 7UL) / 8UL;
+      e->stage_len += e->stream_bytes[kind];
     }
   else
     {
@@ -2118,12 +1903,11 @@ encode_one_stream (Encoder *e, unsigned int kind, unsigned int wire)
           return 0;
         }
 
-      e->stream_bits[wire] = w.bits;
-      e->stream_bytes[wire] = (w.bits + 7UL) / 8UL;
-      e->stage_len += e->stream_bytes[wire];
+      e->stream_bits[kind] = w.bits;
+      e->stream_bytes[kind] = (w.bits + 7UL) / 8UL;
+      e->stage_len += e->stream_bytes[kind];
     }
 
-  e->modes[wire] = (unsigned char)mode;
   (void)dbegin;
 
   return 1;
@@ -2252,9 +2036,9 @@ encode_extras (Encoder *e)
           return 0;
         }
 
-      e->stream_bits[e->extra_index] = w.bits;
-      e->stream_bytes[e->extra_index] = (w.bits + 7UL) / 8UL;
-      e->stage_len += e->stream_bytes[e->extra_index];
+      e->stream_bits[STREAM_EXTRA] = w.bits;
+      e->stream_bytes[STREAM_EXTRA] = (w.bits + 7UL) / 8UL;
+      e->stage_len += e->stream_bytes[STREAM_EXTRA];
 
       return 1;
     }
@@ -2276,9 +2060,8 @@ encode_extras (Encoder *e)
           }
 
         e->desc[e->desc_len++] = MODE_EMPTY;
-        e->stream_bits[e->extra_index] = 0;
-        e->stream_bytes[e->extra_index] = 0;
-        e->modes[e->extra_index] = MODE_EMPTY;
+        e->stream_bits[STREAM_EXTRA] = 0;
+        e->stream_bytes[STREAM_EXTRA] = 0;
 
         return 1;
       }
@@ -2299,9 +2082,8 @@ encode_extras (Encoder *e)
             return 0;
           }
 
-        e->stream_bits[e->extra_index] = 0;
-        e->stream_bytes[e->extra_index] = 0;
-        e->modes[e->extra_index] = MODE_RLE;
+        e->stream_bits[STREAM_EXTRA] = 0;
+        e->stream_bytes[STREAM_EXTRA] = 0;
 
         return 1;
       }
@@ -2378,17 +2160,15 @@ encode_extras (Encoder *e)
             return 0;
           }
 
-        e->stream_bits[e->extra_index] = w.bits;
-        e->stream_bytes[e->extra_index] = (w.bits + 7UL) / 8UL;
-        e->stage_len = start + e->stream_bytes[e->extra_index];
-        e->modes[e->extra_index] = MODE_RAW;
+        e->stream_bits[STREAM_EXTRA] = w.bits;
+        e->stream_bytes[STREAM_EXTRA] = (w.bits + 7UL) / 8UL;
+        e->stage_len = start + e->stream_bytes[STREAM_EXTRA];
       }
     else
       {
-        e->stream_bits[e->extra_index] = w.bits;
-        e->stream_bytes[e->extra_index] = tans_bytes;
+        e->stream_bits[STREAM_EXTRA] = w.bits;
+        e->stream_bytes[STREAM_EXTRA] = tans_bytes;
         e->stage_len = start + tans_bytes;
-        e->modes[e->extra_index] = MODE_TANS;
       }
   }
 
@@ -2398,36 +2178,31 @@ encode_extras (Encoder *e)
 /*****************************************************************************/
 
 static void
-make_block_header (unsigned char *hdr, unsigned int version,
-                   unsigned int context_literals,
-                   unsigned int distance_context, unsigned int type,
+make_block_header (unsigned char *hdr, unsigned int type,
                    unsigned int width, unsigned int n, unsigned int q,
                    unsigned int lc, unsigned long dl,
                    const unsigned long *bits, unsigned long crc)
 {
-  unsigned int i,
-      header_n = block_header_size (context_literals, distance_context);
-  unsigned int stream_n
-      = stream_count_for_features (context_literals, distance_context);
+  unsigned int i;
 
-  (void)memset (hdr, 0, header_n);
+  (void)memset (hdr, 0, BLOCK_HEADER_N);
   (void)memcpy (hdr, "LZ9B", 4);
 
-  hdr[4] = (unsigned char)version;
+  hdr[4] = FORMAT_V5;
   hdr[5] = (unsigned char)(type | (width << 2));
 
-  store16 (hdr + 6, header_n);
+  store16 (hdr + 6, BLOCK_HEADER_N);
   store32 (hdr + 8, n);
   store32 (hdr + 12, q);
   store32 (hdr + 16, lc);
   store32 (hdr + 20, dl);
 
-  for (i = 0; i < stream_n; ++i)
+  for (i = 0; i < STREAM_COUNT; ++i)
     {
       store32 (hdr + 24 + 4 * i, bits[i]);
     }
 
-  store32 (hdr + 24 + 4 * stream_n, crc);
+  store32 (hdr + 24 + 4 * STREAM_COUNT, crc);
 }
 
 /*****************************************************************************/
@@ -2436,8 +2211,8 @@ static int
 write_stored (FILE *out, Encoder *e, unsigned long crc)
 {
   unsigned int i, width = 7;
-  unsigned long bits[7], nbytes;
-  unsigned char h[BHEAD_V5_N];
+  unsigned long bits[STREAM_COUNT], nbytes;
+  unsigned char h[BLOCK_HEADER_N];
   BitWriter bw;
 
   for (i = 0; i < e->n; ++i)
@@ -2474,32 +2249,27 @@ write_stored (FILE *out, Encoder *e, unsigned long crc)
       return 0;
     }
 
-  for (i = 0; i < 7; ++i)
+  for (i = 0; i < STREAM_COUNT; ++i)
     {
       bits[i] = 0;
     }
 
-  bits[0] = bw.bits;
-  make_block_header (h, e->format_version, (unsigned int)e->context_literals,
-                     (unsigned int)e->distance_context, BLOCK_STORED, width,
-                     e->n, 0, e->n, 0, bits, crc);
+  bits[STREAM_LIT] = bw.bits;
+  make_block_header (h, BLOCK_STORED, width, e->n, 0, e->n, 0, bits, crc);
 
-  return write_exact (out, h,
-                      block_header_size ((unsigned int)e->context_literals,
-                                         (unsigned int)e->distance_context))
+  return write_exact (out, h, sizeof (h))
          && write_exact (out, e->stage, (size_t)nbytes);
 }
-
 /*****************************************************************************/
 
 static int
 encode_block (FILE *out, Encoder *e)
 {
   unsigned long crc = input_crc (e->buffer + e->window_n, e->n);
-  unsigned int i, width = 7, wire = 0;
+  unsigned int i, width = 7;
   int compressed_ok = 1;
   unsigned long stored, compressed;
-  unsigned char h[BHEAD_V5_N];
+  unsigned char h[BLOCK_HEADER_N];
   unsigned int saved_reps[3];
 
   (void)memcpy (saved_reps, e->reps, sizeof (saved_reps));
@@ -2536,57 +2306,13 @@ encode_block (FILE *out, Encoder *e)
   e->desc_len = 0;
   e->stage_len = 0;
 
-  if (e->context_literals)
-    {
-      if (!encode_one_stream (e, STREAM_LIT_LO, wire++))
-        {
-          compressed_ok = 0;
-        }
-
-      if (compressed_ok && !encode_one_stream (e, STREAM_LIT_HI, wire++))
-        {
-          compressed_ok = 0;
-        }
-    }
-  else
-    {
-      if (!encode_one_stream (e, STREAM_LIT, wire++))
-        {
-          compressed_ok = 0;
-        }
-    }
-
-  if (compressed_ok && !encode_one_stream (e, STREAM_LL, wire++))
+  if (!encode_one_stream (e, STREAM_LIT)
+      || !encode_one_stream (e, STREAM_LL)
+      || !encode_one_stream (e, STREAM_ML)
+      || !encode_one_stream (e, STREAM_OF))
     {
       compressed_ok = 0;
     }
-
-  if (compressed_ok && !encode_one_stream (e, STREAM_ML, wire++))
-    {
-      compressed_ok = 0;
-    }
-
-  if (compressed_ok && e->distance_context)
-    {
-      if (!encode_one_stream (e, STREAM_OF_SHORT, wire++))
-        {
-          compressed_ok = 0;
-        }
-
-      if (compressed_ok && !encode_one_stream (e, STREAM_OF_LONG, wire++))
-        {
-          compressed_ok = 0;
-        }
-    }
-  else if (compressed_ok)
-    {
-      if (!encode_one_stream (e, STREAM_OF, wire++))
-        {
-          compressed_ok = 0;
-        }
-    }
-
-  e->extra_index = wire;
 
   if (compressed_ok && !encode_extras (e))
     {
@@ -2613,20 +2339,17 @@ encode_block (FILE *out, Encoder *e)
 
   if (!compressed_ok || e->stage_len > STAGE_MAX || e->desc_len > DESC_MAX
       || compressed >= stored
-      || e->stream_bits[e->extra_index] > STAGE_MAX * 8UL)
+      || e->stream_bits[STREAM_EXTRA] > STAGE_MAX * 8UL)
     {
       (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
 
       return write_stored (out, e, crc);
     }
 
-  make_block_header (h, e->format_version, (unsigned int)e->context_literals,
-                     (unsigned int)e->distance_context, BLOCK_LZ, 0, e->n,
-                     e->sn, e->lit_count, e->desc_len, e->stream_bits, crc);
+  make_block_header (h, BLOCK_LZ, 0, e->n, e->sn, e->lit_count,
+                     e->desc_len, e->stream_bits, crc);
 
-  return write_exact (out, h,
-                      block_header_size ((unsigned int)e->context_literals,
-                                         (unsigned int)e->distance_context))
+  return write_exact (out, h, sizeof (h))
          && write_exact (out, e->desc, (size_t)e->desc_len)
          && write_exact (out, e->stage, (size_t)e->stage_len);
 }
@@ -2661,9 +2384,7 @@ parse_descriptor (Stream *s, AnsTable *t, unsigned int kind,
       s->width = p[(*offset)++];
 
       if (s->width != raw_width (kind, 511)
-          && !((kind == STREAM_LIT || kind == STREAM_LIT_LO
-                || kind == STREAM_LIT_HI)
-               && (s->width == 7 || s->width == 8)))
+          && !(kind == STREAM_LIT && (s->width == 7 || s->width == 8)))
         {
           return 0;
         }
@@ -3034,65 +2755,38 @@ block_crc_end (Output *o, unsigned long expected)
 
 /*****************************************************************************/
 
-static unsigned int
-output_literal_context (const Output *o)
-{
-  unsigned int previous;
-
-  if (!o->produced)
-    {
-      previous = 0U;
-    }
-  else
-    {
-      previous = o->ring[(o->produced - 1UL) & (o->window_n - 1U)];
-    }
-
-  return literal_context_value (previous, (unsigned int)o->out_mode);
-}
-
-/*****************************************************************************/
-
 static int
 decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
               unsigned char *desc, AnsTable *tables)
 {
-  unsigned char h[BHEAD_V5_N];
-  unsigned long bitlen[7], lengths[7], total = 0, desc_len, expected;
+  unsigned char h[BLOCK_HEADER_N];
+  unsigned long bitlen[STREAM_COUNT], lengths[STREAM_COUNT], total = 0;
+  unsigned long desc_len, expected;
   unsigned int i, n, q, lc, type, width;
-  unsigned int header_n, stream_n, entropy_n, extra_index;
-  unsigned int context_literals = (unsigned int)o->context_literals;
-  unsigned int distance_context = (unsigned int)o->distance_context;
-  unsigned int extra_ans = (unsigned int)o->extra_ans;
   unsigned long off = 0, pos = 0;
-  Stream s[6], extra_stream;
+  Stream s[ENTROPY_STREAM_COUNT], extra_stream;
   BitReader raw_extra;
   ExtraReader extra;
 
   if (!read_exact (in, h, 8U) || memcmp (h, "LZ9B", 4) != 0
-      || h[4] != o->format_version)
+      || h[4] != FORMAT_V5)
     {
       return 0;
     }
 
-  header_n = load16 (h + 6);
-
-  if (header_n != block_header_size (context_literals, distance_context)
-      || !read_exact (in, h + 8, header_n - 8U))
+  if (load16 (h + 6) != BLOCK_HEADER_N
+      || !read_exact (in, h + 8, BLOCK_HEADER_N - 8U))
     {
       return 0;
     }
 
-  stream_n = stream_count_for_features (context_literals, distance_context);
-  entropy_n = entropy_count_for_features (context_literals, distance_context);
-  extra_index = stream_n - 1U;
   type = h[5] & 3U;
   width = h[5] >> 2;
   n = (unsigned int)load32 (h + 8);
   q = (unsigned int)load32 (h + 12);
   lc = (unsigned int)load32 (h + 16);
   desc_len = load32 (h + 20);
-  expected = load32 (h + 24 + 4U * stream_n);
+  expected = load32 (h + 24 + 4U * STREAM_COUNT);
 
   if (!n || n > max_n || n > BLOCK_N || q > n / 3U || lc > n
       || desc_len > DESC_MAX || type > BLOCK_LZ)
@@ -3100,7 +2794,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       return 0;
     }
 
-  for (i = 0; i < stream_n; ++i)
+  for (i = 0; i < STREAM_COUNT; ++i)
     {
       bitlen[i] = load32 (h + 24 + 4U * i);
 
@@ -3130,7 +2824,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       return 0;
     }
 
-  for (i = 0; i < stream_n; ++i)
+  for (i = 0; i < STREAM_COUNT; ++i)
     {
       if ((bitlen[i] & 7UL) && lengths[i]
           && (stage[pos + lengths[i] - 1UL]
@@ -3149,12 +2843,12 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       BitReader r;
 
       if (desc_len || q || lc != n || (width != 7 && width != 8 && width != 9)
-          || bitlen[0] != (unsigned long)n * width)
+          || bitlen[STREAM_LIT] != (unsigned long)n * width)
         {
           return 0;
         }
 
-      for (i = 1; i < stream_n; ++i)
+      for (i = 1; i < STREAM_COUNT; ++i)
         {
           if (bitlen[i])
             {
@@ -3162,7 +2856,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             }
         }
 
-      br_init (&r, stage, bitlen[0], 0);
+      br_init (&r, stage, bitlen[STREAM_LIT], 0);
 
       for (i = 0; i < n; ++i)
         {
@@ -3180,42 +2874,33 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   else
     {
       unsigned int produced = 0, literals = 0;
-      unsigned int observed_count[6] = { 0U, 0U, 0U, 0U, 0U, 0U };
 
       if (width != 0 || (q == 0 && lc != n))
         {
           return 0;
         }
 
-      for (i = 0; i < entropy_n; ++i)
+      for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
         {
-          unsigned int kind
-              = logical_kind_for_wire (context_literals, distance_context, i);
+          unsigned int kind = i;
+          unsigned int count = kind == STREAM_LIT ? lc : q;
 
-          if (!parse_descriptor (&s[i], &tables[i], kind, o->of_alphabet, desc,
-                                 &off, desc_len))
+          if (!parse_descriptor (&s[i], &tables[i], kind, o->of_alphabet,
+                                 desc, &off, desc_len))
             {
               return 0;
             }
 
-          if (split_stream_for_features (context_literals, distance_context,
-                                         i))
-            {
-              s[i].count = 0;
-            }
-          else
-            {
-              s[i].count = (kind == STREAM_LIT ? lc : q);
+          s[i].count = count;
 
-              if ((s[i].mode == MODE_EMPTY) != (s[i].count == 0))
-                {
-                  return 0;
-                }
+          if ((s[i].mode == MODE_EMPTY) != (s[i].count == 0))
+            {
+              return 0;
             }
         }
 
-      if (extra_ans
-          && !parse_descriptor (&extra_stream, &tables[entropy_n],
+      if (o->extra_ans
+          && !parse_descriptor (&extra_stream, &tables[STREAM_EXTRA],
                                 STREAM_EXTRA, o->of_alphabet, desc, &off,
                                 desc_len))
         {
@@ -3229,7 +2914,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
       pos = 0;
 
-      for (i = 0; i < entropy_n; ++i)
+      for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
         {
           if (!stream_begin (&s[i], bitlen[i], stage + pos))
             {
@@ -3241,9 +2926,9 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
       (void)memset (&extra, 0, sizeof (extra));
 
-      if (extra_ans)
+      if (o->extra_ans)
         {
-          if (!stream_begin (&extra_stream, bitlen[extra_index], stage + pos))
+          if (!stream_begin (&extra_stream, bitlen[STREAM_EXTRA], stage + pos))
             {
               return 0;
             }
@@ -3253,88 +2938,60 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
         }
       else
         {
-          br_init (&raw_extra, stage + pos, bitlen[extra_index], 0);
+          br_init (&raw_extra, stage + pos, bitlen[STREAM_EXTRA], 0);
           extra.raw = &raw_extra;
           extra.entropy = 0;
         }
 
-      {
-        unsigned int ll_index = context_literals ? 2U : 1U;
-        unsigned int ml_index = ll_index + 1U;
-        unsigned int of_index = ml_index + 1U;
+      for (i = 0; i < q; ++i)
+        {
+          unsigned int j, lr, ml, d, code;
 
-        for (i = 0; i < q; ++i)
-          {
-            unsigned int j, lr, ml, d, code;
+          code = stream_get (&s[STREAM_LL]);
+          lr = decode_len (code, 0, &extra);
 
-            code = stream_get (&s[ll_index]);
-            lr = decode_len (code, 0, &extra);
-
-            if (extra.failed || lr > n - produced || lr > lc - literals)
-              {
-                return 0;
-              }
-
-            for (j = 0; j < lr; ++j)
-              {
-                unsigned int ctx
-                    = context_literals ? output_literal_context (o) : 0U;
-                unsigned int lit_wire = context_literals ? ctx : 0U;
-                unsigned int v = stream_get (&s[lit_wire]);
-
-                if (v >= 512 || !output_symbol (o, v))
-                  {
-                    return 0;
-                  }
-
-                if (split_stream_for_features (context_literals,
-                                               distance_context, lit_wire))
-                  {
-                    ++observed_count[lit_wire];
-                  }
-              }
-
-            produced += lr;
-            literals += lr;
-            code = stream_get (&s[ml_index]);
-            ml = decode_len (code, 3, &extra);
-
-            if (distance_context)
-              {
-                unsigned int of_wire
-                    = of_index + (ml >= DISTANCE_CONTEXT_THRESHOLD ? 1U : 0U);
-
-                code = stream_get (&s[of_wire]);
-                ++observed_count[of_wire];
-              }
-            else
-              {
-                code = stream_get (&s[of_index]);
-              }
-
-            d = decode_dist (code, &extra, o->reps, o->window_n,
-                             o->of_alphabet);
-
+          if (extra.failed || lr > n - produced || lr > lc - literals)
             {
-              unsigned int max_d
-                  = (o->produced < o->window_n) ? (unsigned int)o->produced
-                                                : o->window_n;
+              return 0;
+            }
 
-              if (extra.failed || ml < 3 || ml > n - produced
-                  || (d - 1U) >= max_d)
+          for (j = 0; j < lr; ++j)
+            {
+              unsigned int v = stream_get (&s[STREAM_LIT]);
+
+              if (v >= 512 || !output_symbol (o, v))
                 {
                   return 0;
                 }
             }
 
-            if (!output_match (o, d, ml))
+          produced += lr;
+          literals += lr;
+          code = stream_get (&s[STREAM_ML]);
+          ml = decode_len (code, 3, &extra);
+          code = stream_get (&s[STREAM_OF]);
+          d = decode_dist (code, &extra, o->reps, o->window_n,
+                           o->of_alphabet);
+
+          {
+            unsigned int max_d
+                = (o->produced < o->window_n) ? (unsigned int)o->produced
+                                              : o->window_n;
+
+            if (extra.failed || ml < 3 || ml > n - produced
+                || (d - 1U) >= max_d)
               {
                 return 0;
               }
-
-            produced += ml;
           }
-      }
+
+          if (!output_match (o, d, ml))
+            {
+              return 0;
+            }
+
+          produced += ml;
+        }
 
       if (n - produced != lc - literals)
         {
@@ -3343,20 +3000,11 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
       while (produced < n)
         {
-          unsigned int ctx
-              = context_literals ? output_literal_context (o) : 0U;
-          unsigned int lit_wire = context_literals ? ctx : 0U;
-          unsigned int v = stream_get (&s[lit_wire]);
+          unsigned int v = stream_get (&s[STREAM_LIT]);
 
           if (v >= 512 || !output_symbol (o, v))
             {
               return 0;
-            }
-
-          if (split_stream_for_features (context_literals, distance_context,
-                                         lit_wire))
-            {
-              ++observed_count[lit_wire];
             }
 
           ++produced;
@@ -3368,16 +3016,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
           return 0;
         }
 
-      for (i = 0; i < entropy_n; ++i)
-        {
-          if (split_stream_for_features (context_literals, distance_context, i)
-              && ((observed_count[i] == 0U) != (s[i].mode == MODE_EMPTY)))
-            {
-              return 0;
-            }
-        }
-
-      for (i = 0; i < entropy_n; ++i)
+      for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
         {
           if (!stream_end (&s[i]))
             {
@@ -3459,8 +3098,7 @@ read_one9 (FILE *in, unsigned int *acc, unsigned int *nbits,
 
 static int
 encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
-             int level, int context_literals, int distance_context,
-             int extra_ans, unsigned int window_n)
+             int level, int extra_ans, unsigned int window_n)
 {
   static const unsigned char depth[9] = { 1, 2, 4, 8, 12, 16, 24, 32, 48 };
   Encoder e;
@@ -3478,22 +3116,16 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   e.search_depth = depth[level - 1];
   e.lazy = level >= 5;
   e.level = level;
-  e.context_literals = context_literals;
-  e.distance_context = distance_context;
   e.extra_ans = extra_ans;
   e.input_mode = mode;
-  e.feature_flags = (context_literals ? FEATURE_CONTEXT_LITERALS : 0U)
-                    | (window_n == WINDOW_64K ? FEATURE_WINDOW_64K : 0U)
-                    | (distance_context ? FEATURE_DISTANCE_CONTEXT : 0U)
-                    | (extra_ans ? FEATURE_EXTRA_ANS : 0U);
-  e.format_version = e.feature_flags ? FORMAT_V4 : FORMAT_V3;
-  e.extra_index = context_literals ? 5U : 4U;
   (void)memcpy (hdr, "LZ9A", 4);
-  hdr[4] = (unsigned char)e.format_version;
+  hdr[4] = FORMAT_V5;
   hdr[5] = (unsigned char)mode;
   store16 (hdr + 6, FHEAD_N);
   store32 (hdr + 8, elements);
-  store32 (hdr + 12, e.feature_flags);
+  store32 (hdr + 12,
+           (window_n == WINDOW_64K ? FEATURE_WINDOW_64K : 0U)
+           | (extra_ans ? FEATURE_EXTRA_ANS : 0U));
   store32 (hdr + 16, crc_bytes (hdr, 16));
 
   if (!write_exact (out, hdr, sizeof (hdr)))
@@ -3586,14 +3218,14 @@ decode_file (FILE *in, FILE *out)
 {
   unsigned char hdr[FHEAD_N];
   unsigned long total, done = 0;
-  unsigned int feature_flags, window_n;
+  unsigned int feature_flags, window_n, table_count;
   unsigned char *stage = (unsigned char *)0, *desc = (unsigned char *)0;
   AnsTable *tables = (AnsTable *)0;
   Output *o = (Output *)0;
   int okay = 0;
 
   if (!read_exact (in, hdr, sizeof (hdr)) || memcmp (hdr, "LZ9A", 4) != 0
-      || (hdr[4] != FORMAT_V3 && hdr[4] != FORMAT_V4)
+      || hdr[4] != FORMAT_V5
       || (hdr[5] != 8 && hdr[5] != 9) || load16 (hdr + 6) != FHEAD_N
       || load32 (hdr + 16) != crc_bytes (hdr, 16))
     {
@@ -3602,12 +3234,7 @@ decode_file (FILE *in, FILE *out)
 
   feature_flags = (unsigned int)load32 (hdr + 12);
 
-  if ((feature_flags
-       & ~(FEATURE_CONTEXT_LITERALS | FEATURE_WINDOW_64K
-           | FEATURE_DISTANCE_CONTEXT | FEATURE_EXTRA_ANS))
-          != 0U
-      || (hdr[4] == FORMAT_V3 && feature_flags != 0U)
-      || (hdr[4] == FORMAT_V4 && feature_flags == 0U))
+  if ((feature_flags & ~(FEATURE_WINDOW_64K | FEATURE_EXTRA_ANS)) != 0U)
     {
       return 0;
     }
@@ -3617,7 +3244,9 @@ decode_file (FILE *in, FILE *out)
   total = load32 (hdr + 8);
   stage = (unsigned char *)malloc (STAGE_MAX);
   desc = (unsigned char *)malloc (DESC_MAX);
-  tables = (AnsTable *)malloc (7U * sizeof (AnsTable));
+  table_count = (feature_flags & FEATURE_EXTRA_ANS)
+                 ? STREAM_COUNT : ENTROPY_STREAM_COUNT;
+  tables = (AnsTable *)malloc (table_count * sizeof (AnsTable));
   o = (Output *)malloc (sizeof (Output));
 
   if (!stage || !desc || !tables || !o)
@@ -3628,10 +3257,6 @@ decode_file (FILE *in, FILE *out)
   (void)memset (o, 0, sizeof (*o));
   o->out = out;
   o->out_mode = hdr[5];
-  o->format_version = hdr[4];
-  o->feature_flags = feature_flags;
-  o->context_literals = (feature_flags & FEATURE_CONTEXT_LITERALS) != 0U;
-  o->distance_context = (feature_flags & FEATURE_DISTANCE_CONTEXT) != 0U;
   o->extra_ans = (feature_flags & FEATURE_EXTRA_ANS) != 0U;
   o->window_n = window_n;
   o->of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K : OF_ALPHABET_32K;
@@ -3753,9 +3378,8 @@ main (int argc, char **argv)
   FILE *in, *out;
   unsigned long count = 0, input_bytes = 0, output_bytes = 0;
   unsigned int mode = 0;
-  int level = 6, verbose = 0, level_seen = 0, context_literals = 0,
-      distance_context = 0, distance_seen = 0, extra_ans = 0, extra_seen = 0,
-      window_seen = 0, i, okay;
+  int level = 6, verbose = 0, level_seen = 0, extra_ans = 0,
+      extra_seen = 0, window_seen = 0, i, okay;
   unsigned int window_n = WINDOW_DEFAULT;
   clock_t start, finish;
 
@@ -3774,8 +3398,10 @@ main (int argc, char **argv)
       unsigned long dec = (unsigned long)sizeof (Output)
                           + (unsigned long)win * sizeof (unsigned short)
                           + STAGE_MAX + DESC_MAX
-                          + 7UL * (unsigned long)sizeof (AnsTable)
-                          + 7UL * (unsigned long)sizeof (Stream);
+                          + (unsigned long)ENTROPY_STREAM_COUNT * sizeof (AnsTable)
+                          + (unsigned long)(ENTROPY_STREAM_COUNT + 1U)
+                            * sizeof (Stream);
+      unsigned long extra_table = (unsigned long)sizeof (AnsTable);
 
       (void)printf (
               "window: %u symbols\n", win);
@@ -3783,8 +3409,9 @@ main (int argc, char **argv)
               "encoder allocated state: %lu bytes (excludes helper stack "
               "temporaries)\n", enc);
       (void)printf (
-              "decoder allocated state: %lu bytes (plus small stack "
-              "temporaries)\n", dec);
+              "decoder allocated state: %lu bytes (base; EXTRA-ANS adds "
+              "%lu bytes for one additional table; plus small stack "
+              "temporaries)\n", dec, extra_table);
 
       return 0;
     }
@@ -3796,26 +3423,20 @@ main (int argc, char **argv)
           && strcmp (argv[1], "d") != 0))
     {
       (void)fprintf (stderr,
-              "LZ9ANS - experimental reference implementation " LZ9VER "\n\n");
+              "LZ9ANS reference implementation " LZ9VER "\n\n");
       (void)fprintf (stderr,
               "Usage:\n"
               "  lz9ans [c8|c9] <input> <output> [-1..-9] [-v] "
-              "[--context-literals]\n"
-              "         [--distance-context] [--extra-ans]"
-              " [--window=64k]\n");
+              "[--extra-ans] [--window=64k]\n");
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v]\n\n");
       (void)fprintf (stderr,
               "  c8: 8-bit input;  c9: mxload packed 9-bit input; ");
       (void)fprintf (stderr,
-              " default level -6\n\n"
-              "  --context-literals:  enables context literals\n");
+              " default level -6\n\n");
       (void)fprintf (stderr,
               "  --window=64k:"
-              "        enables the experimental 64K-symbol history\n");
-      (void)fprintf (stderr,
-              "  --distance-context:"
-              "  splits offset models at match length 19\n");
+              "        enables a 65,536-symbol history window\n");
       (void)fprintf (stderr,
               "  --extra-ans:"
               "         entropy-codes bypass bits with a binary tANS model\n");
@@ -3853,29 +3474,6 @@ main (int argc, char **argv)
             }
 
           verbose = 1;
-        }
-      else if (argv[1][0] == 'c' && !strcmp (argv[i], "--context-literals"))
-        {
-          if (context_literals)
-            {
-              (void)fprintf (stderr, "Duplicate --context-literals option.\n");
-
-              return 2;
-            }
-
-          context_literals = 1;
-        }
-      else if (argv[1][0] == 'c' && !strcmp (argv[i], "--distance-context"))
-        {
-          if (distance_seen)
-            {
-              (void)fprintf (stderr, "Duplicate --distance-context option.\n");
-
-              return 2;
-            }
-
-          distance_seen = 1;
-          distance_context = 1;
         }
       else if (argv[1][0] == 'c' && !strcmp (argv[i], "--extra-ans"))
         {
@@ -3984,8 +3582,7 @@ main (int argc, char **argv)
 
   if (mode)
     {
-      okay = encode_file (in, out, mode, count, level, context_literals,
-                          distance_context, extra_ans, window_n);
+      okay = encode_file (in, out, mode, count, level, extra_ans, window_n);
     }
   else
     {

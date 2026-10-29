@@ -5,8 +5,10 @@
 
 from hashlib import sha256
 from pathlib import Path
+import struct
 import subprocess
 import tempfile
+import zlib
 
 from inspect_lz9ans import FormatError, decode
 
@@ -57,24 +59,48 @@ def command(*parts):
     return result.returncode
 
 
+def v5_fixture(legacy):
+    """Upgrade a hashed, feature-free v3 fixture's version metadata to v5."""
+    data = bytearray(legacy)
+    assert data[:4] == b"LZ9A" and data[4] == 3
+    assert struct.unpack_from("<I", data, 12)[0] == 0
+    data[4] = 5
+    data[16:20] = zlib.crc32(data[:16]).to_bytes(4, "little")
+    target = struct.unpack_from("<I", data, 8)[0]
+    position = 20
+    produced = 0
+    while produced < target:
+        assert data[position : position + 4] == b"LZ9B"
+        assert data[position + 4] == 3
+        header_size = struct.unpack_from("<H", data, position + 6)[0]
+        assert header_size == 48
+        count = struct.unpack_from("<I", data, position + 8)[0]
+        desc_len = struct.unpack_from("<I", data, position + 20)[0]
+        bit_lengths = struct.unpack_from("<5I", data, position + 24)
+        data[position + 4] = 5
+        position += (
+            header_size + desc_len + sum((bits + 7) // 8 for bits in bit_lengths)
+        )
+        produced += count
+    assert produced == target and position == len(data)
+    return bytes(data)
+
+
 def main():
     binary = (ROOT / "lz9ans").resolve()
     with tempfile.TemporaryDirectory(prefix="lz9ans-golden-") as tmp:
         work = Path(tmp)
         for name, (mode, level, expected_hash) in VECTORS.items():
             raw = (ROOT / "vectors" / f"{name}.input").read_bytes()
-            frame = (ROOT / "vectors" / f"{name}.lz9a").read_bytes()
-            assert sha256(frame).hexdigest() == expected_hash, name
+            legacy = (ROOT / "vectors" / f"{name}.lz9a").read_bytes()
+            assert sha256(legacy).hexdigest() == expected_hash, name
+            frame = v5_fixture(legacy)
             result, counter = decode(frame)
             assert result == raw, name
+            frame_path = work / f"{name}.lz9a"
+            frame_path.write_bytes(frame)
             assert (
-                command(
-                    str(binary),
-                    "d",
-                    str(ROOT / "vectors" / f"{name}.lz9a"),
-                    str(work / "decoded"),
-                )
-                == 0
+                command(str(binary), "d", str(frame_path), str(work / "decoded")) == 0
             ), name
             assert (work / "decoded").read_bytes() == raw, name
             assert (
@@ -95,13 +121,11 @@ def main():
             if name == "longdist32k":
                 assert counter["offset_19"] == 1
                 assert counter["stored"] == 1
-            print("PASS byte-exact", name)
+            print("PASS byte-exact v5", name)
 
-        # This RUN vector has no previously initialized MRU distance.
-        # Change its OF RLE symbol from RUN (3) to REP0 (0). No block
-        # integrity adjustment is necessary: the decoder must reject the
-        # invalid repeat distance before completing the block.
-        invalid = bytearray((ROOT / "vectors" / "run8.lz9a").read_bytes())
+        # The RUN fixture has no initialized MRU distance. Change its OF RLE
+        # symbol from RUN (3) to REP0 (0); no integrity adjustment is needed.
+        invalid = bytearray(v5_fixture((ROOT / "vectors" / "run8.lz9a").read_bytes()))
         assert invalid[-2] == 3
         invalid[-2] = 0
         (work / "invalid.lz9a").write_bytes(invalid)
