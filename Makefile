@@ -53,5 +53,6 @@ lint: lz9ans.c
 clean distclean:
 	rm -f lz9ans lz9ans_asan a.out a.exe log.pvs compile_commands.json || :
 	rm -f -r __pycache__ pvsreport > /dev/null 2>&1 || :
+	@git clean -ndx 2> /dev/null || :
 
 .PHONY: all test sanitizers cppcheck oracle lint clean distclean
