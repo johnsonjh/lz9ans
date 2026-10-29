@@ -15,3 +15,9 @@ path = ["vectors/**"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2025-2026 Jeffrey H. Johnson"
 SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["corpus/9bit_corpus.tar.lz"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = ["1972 The Massachusetts Institute of Technology","1972 Honeywell Information Systems, Inc.","2006 Bull HN Information Systems, Inc.","2006 Bull SAS"]
+SPDX-License-Identifier = "Multics"
