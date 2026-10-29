@@ -394,7 +394,8 @@ bw_init (BitWriter *b, unsigned char *p, unsigned long bytes)
 static void
 bw_add (BitWriter *b, unsigned int value, unsigned int bits)
 {
-  unsigned int remaining = bits;
+  unsigned long byte;
+  unsigned int occupied, space;
 
   if (b->bits > b->capacity_bits
       || (unsigned long)bits > b->capacity_bits - b->bits)
@@ -404,30 +405,51 @@ bw_add (BitWriter *b, unsigned int value, unsigned int bits)
       return;
     }
 
-  while (remaining)
+  if (!bits)
     {
-      unsigned long byte = b->bits >> 3;
-      unsigned int occupied = (unsigned int)(b->bits & 7UL);
-      unsigned int take = 8U - occupied;
-      unsigned int mask, part;
-
-      if (take > remaining)
-        {
-          take = remaining;
-        }
-
-      mask = (1U << take) - 1U;
-      part = (value >> (remaining - take)) & mask;
-
-      if (!occupied)
-        {
-          b->p[byte] = 0;
-        }
-
-      b->p[byte] |= (unsigned char)(part << (8U - occupied - take));
-      b->bits += take;
-      remaining -= take;
+      return;
     }
+
+  byte = b->bits >> 3;
+  occupied = (unsigned int)(b->bits & 7UL);
+  space = 8U - occupied;
+
+  if (!occupied)
+    {
+      b->p[byte] = 0;
+    }
+
+  if (bits <= space)
+    {
+      b->p[byte] |= (unsigned char)((value & ((1U << bits) - 1U))
+                                    << (space - bits));
+      b->bits += bits;
+
+      return;
+    }
+
+  {
+    unsigned int remaining = bits;
+
+    remaining -= space;
+    b->p[byte] |= (unsigned char)((value >> remaining) & ((1U << space) - 1U));
+    b->bits += space;
+
+    while (remaining >= 8U)
+      {
+        remaining -= 8U;
+        ++byte;
+        b->p[byte] = (unsigned char)((value >> remaining) & 255U);
+        b->bits += 8U;
+      }
+
+    if (remaining)
+      {
+        ++byte;
+        b->p[byte] = (unsigned char)(value << (8U - remaining));
+        b->bits += remaining;
+      }
+  }
 }
 
 /*****************************************************************************/
@@ -491,6 +513,9 @@ br_get (BitReader *b, unsigned int n)
 static unsigned int
 floor_log2 (unsigned int n)
 {
+#if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
+  return n > 1U ? (unsigned int)(31 - (__builtin_clz (n))) : 0U;
+#else
   unsigned int v = 0;
 
   while (n >>= 1)
@@ -499,6 +524,7 @@ floor_log2 (unsigned int n)
     }
 
   return v;
+#endif
 }
 
 /*****************************************************************************/
@@ -1623,30 +1649,44 @@ raw_width (unsigned int kind, unsigned int maxlit)
 
 /*****************************************************************************/
 
+/*
+ * Integer-approximate -log2(frequency/1024) in Q8 fixed point.
+ * Uses floor_log2 and a single-step linear interpolation between
+ * powers of two, avoiding all floating-point math on the hot path.
+ *
+ * For frequency f (1..1024):
+ *   log2(1024/f) = 10 - log2(f)
+ *
+ * We decompose log2(f) = k + frac where k = floor_log2(f) and
+ *   frac ~= (f - 2^k) / 2^k  (linear approx in [2^k, 2^(k+1)))
+ *
+ * Result in Q8: (10 - k) * 256 - frac * 256
+ *            = (10 - k) * 256 - ((f - 2^k) * 256) / 2^k
+ */
+
 static unsigned int
 entropy_cost (unsigned int frequency)
 {
-  double bits, scaled;
+  unsigned int k, low, result;
 
   if (!frequency)
     {
       return 16U * COST_SCALE;
     }
 
-  bits = (log ((double)TABLE_N) - log ((double)frequency)) / log (2.0);
-  scaled = bits * (double)COST_SCALE + 0.5;
-
-  if (scaled < 0.0)
+  if (frequency >= TABLE_N)
     {
       return 0;
     }
 
-  if (scaled > 65535.0)
-    {
-      return 65535U;
-    }
+  k = floor_log2 (frequency);
+  low = 1U << k;
 
-  return (unsigned int)scaled;
+  /* (10 - k) * 256 - ((frequency - low) * 256) / low */
+  result = ((TABLE_LOG - k) * COST_SCALE)
+           - ((frequency - low) * COST_SCALE) / low;
+
+  return result > 65535U ? 65535U : result;
 }
 
 /*****************************************************************************/
@@ -2202,27 +2242,12 @@ make_block_header (unsigned char *hdr, unsigned int type,
 /*****************************************************************************/
 
 static int
-write_stored (FILE *out, Encoder *e, unsigned long crc)
+write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
 {
-  unsigned int i, width = 7;
+  unsigned int i;
   unsigned long bits[STREAM_COUNT], nbytes;
   unsigned char h[BLOCK_HEADER_N];
   BitWriter bw;
-
-  for (i = 0; i < e->n; ++i)
-    {
-      if (e->buffer[e->window_n + i] >= 256)
-        {
-          width = 9;
-
-          break;
-        }
-
-      if (e->buffer[e->window_n + i] >= 128)
-        {
-          width = 8;
-        }
-    }
 
   nbytes = ((unsigned long)e->n * width + 7UL) / 8UL;
 
@@ -2337,7 +2362,7 @@ encode_block (FILE *out, Encoder *e)
     {
       (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
 
-      return write_stored (out, e, crc);
+      return write_stored (out, e, crc, width);
     }
 
   make_block_header (h, BLOCK_LZ, 0, e->n, e->sn, e->lit_count,
