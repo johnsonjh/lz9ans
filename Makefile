@@ -50,8 +50,8 @@ lint: lz9ans.c
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport
 	$(MAKE) clean
 
-clean:
+clean distclean:
 	rm -f lz9ans lz9ans_asan a.out a.exe log.pvs compile_commands.json || :
 	rm -f -r __pycache__ pvsreport > /dev/null 2>&1 || :
 
-.PHONY: all test sanitizers cppcheck oracle lint clean
+.PHONY: all test sanitizers cppcheck oracle lint clean distclean

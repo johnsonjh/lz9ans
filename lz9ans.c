@@ -18,7 +18,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.5.0"
+#define LZ9VER "v0.5.1"
 
 /*****************************************************************************/
 
@@ -1062,12 +1062,6 @@ decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
 
   return d;
 }
-
-/*****************************************************************************/
-
-/*
- * Forward declarations used by the cost estimator below
- */
 
 /*****************************************************************************/
 
@@ -3418,8 +3412,6 @@ main (int argc, char **argv)
 
   if (argc < 4 || argc > 10
       || (strcmp (argv[1], "c8") != 0 && strcmp (argv[1], "c9") != 0
-          && strcmp (argv[1], "c8l") != 0 && strcmp (argv[1], "c9l") != 0
-          && strcmp (argv[1], "c8f") != 0 && strcmp (argv[1], "c9f") != 0
           && strcmp (argv[1], "d") != 0))
     {
       (void)fprintf (stderr,
@@ -3450,16 +3442,6 @@ main (int argc, char **argv)
   if (argv[1][0] == 'c')
     {
       mode = (unsigned int)(argv[1][1] - '0');
-
-      if (argv[1][2] == 'l')
-        {
-          level = 7;
-        }
-
-      if (argv[1][2] == 'f')
-        {
-          level = 1;
-        }
     }
 
   for (i = 4; i < argc; ++i)
