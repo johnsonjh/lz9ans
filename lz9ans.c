@@ -1228,8 +1228,8 @@ hash_insert (Encoder *e, unsigned int pos, unsigned int end)
 
 static void
 find_match (Encoder *e, unsigned int pos, unsigned int end,
-            unsigned int pending, unsigned int *length, unsigned int *distance,
-            long *gain)
+            unsigned int pending, unsigned int pos_hash,
+            unsigned int *length, unsigned int *distance, long *gain)
 {
   int cand, checks = 0;
   unsigned int best = 0, d = 0;
@@ -1265,7 +1265,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
       base_ll_price = ll_price (e, pending);
     }
 
-  cand = e->head[hash3 (buf + pos)];
+  cand = e->head[pos_hash];
 
   while (cand >= 0 && checks < (int)e->search_depth && (unsigned int)cand < pos
          && pos <= (unsigned int)cand + e->window_n)
@@ -1351,6 +1351,8 @@ parse_block (Encoder *e)
 {
   unsigned int pos = e->window_n, end = e->window_n + e->n;
   unsigned int litstart = pos, k, length, distance, j;
+  unsigned int pos_hash, next_hash = 0, cached_hash = 0;
+  int have_cached_hash = 0;
   long gain = 0;
 
   e->sn = 0;
@@ -1369,15 +1371,35 @@ parse_block (Encoder *e)
 
   while (pos < end)
     {
-      find_match (e, pos, end, pos - litstart, &length, &distance, &gain);
+      int have_next_hash;
+
+      if (have_cached_hash)
+        {
+          pos_hash = cached_hash;
+          have_cached_hash = 0;
+        }
+      else if (pos + 2U < end)
+        {
+          pos_hash = hash3 (e->buffer + pos);
+        }
+      else
+        {
+          pos_hash = 0;
+        }
+
+      have_next_hash = 0;
+      find_match (e, pos, end, pos - litstart, pos_hash, &length, &distance,
+                  &gain);
 
       if (e->lazy && length >= 3 && length < 64 && pos + 3U < end)
         {
           unsigned int nextlen, nextdist;
           long nextgain = 0;
 
-          find_match (e, pos + 1U, end, pos + 1U - litstart, &nextlen,
-                      &nextdist, &nextgain);
+          next_hash = hash3 (e->buffer + pos + 1U);
+          have_next_hash = 1;
+          find_match (e, pos + 1U, end, pos + 1U - litstart, next_hash,
+                      &nextlen, &nextdist, &nextgain);
 
           if ((e->use_cost && nextgain > gain)
               || (!e->use_cost
@@ -1385,8 +1407,15 @@ parse_block (Encoder *e)
                       || (nextlen == length + 1U
                           && nextdist * 2U < distance))))
             {
-              hash_insert (e, pos, end);
+              if (pos + 2U < end)
+                {
+                  e->link[pos & (e->window_n - 1U)] = e->head[pos_hash];
+                  e->head[pos_hash] = (int)pos;
+                }
+
               ++pos;
+              cached_hash = next_hash;
+              have_cached_hash = 1;
 
               continue;
             }
@@ -1419,7 +1448,28 @@ parse_block (Encoder *e)
 
           for (k = 0; k < length; ++k)
             {
-              hash_insert (e, pos + k, end);
+              unsigned int at = pos + k;
+
+              if (at + 2U < end)
+                {
+                  unsigned int h;
+
+                  if (k == 0)
+                    {
+                      h = pos_hash;
+                    }
+                  else if (k == 1 && have_next_hash)
+                    {
+                      h = next_hash;
+                    }
+                  else
+                    {
+                      h = hash3 (e->buffer + at);
+                    }
+
+                  e->link[at & (e->window_n - 1U)] = e->head[h];
+                  e->head[h] = (int)at;
+                }
             }
 
           pos += length;
@@ -1427,7 +1477,12 @@ parse_block (Encoder *e)
         }
       else
         {
-          hash_insert (e, pos, end);
+          if (pos + 2U < end)
+            {
+              e->link[pos & (e->window_n - 1U)] = e->head[pos_hash];
+              e->head[pos_hash] = (int)pos;
+            }
+
           ++pos;
         }
     }
