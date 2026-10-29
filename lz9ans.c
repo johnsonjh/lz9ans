@@ -3378,7 +3378,7 @@ main (int argc, char **argv)
   FILE *in, *out;
   unsigned long count = 0, input_bytes = 0, output_bytes = 0;
   unsigned int mode = 0;
-  int level = 6, verbose = 0, level_seen = 0, extra_ans = 0,
+  int level = 5, verbose = 0, level_seen = 0, extra_ans = 0,
       extra_seen = 0, window_seen = 0, i, okay;
   unsigned int window_n = WINDOW_DEFAULT;
   clock_t start, finish;
@@ -3433,7 +3433,7 @@ main (int argc, char **argv)
       (void)fprintf (stderr,
               "  c8: 8-bit input;  c9: mxload packed 9-bit input; ");
       (void)fprintf (stderr,
-              " default level -6\n\n");
+              " default level -5\n\n");
       (void)fprintf (stderr,
               "  --window=64k:"
               "        enables a 65,536-symbol history window\n");
