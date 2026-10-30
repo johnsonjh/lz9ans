@@ -2,12 +2,16 @@
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
 CC = cc
-CFLAGS = -O3 -ansi -pedantic -flto=auto -Wall -Wextra -Werror
+CFLAGS = $${CFLAGS:-} -O3 -ansi -pedantic -flto=auto -Wall -Wextra -Werror
 
 all: lz9ans
 
 lz9ans: lz9ans.c
-	$(CC) $(CFLAGS) -o $@ lz9ans.c $(LDFLAGS) -lm
+	@eval echo \
+		$${CC:-$(CC)} $(CFLAGS) -o $@ lz9ans.c \
+		$${LDFLAGS:-} $(LDFLAGS) -lm || :
+	@eval $${CC:-$(CC)} $(CFLAGS) -o $@ lz9ans.c \
+		$${LDFLAGS:-} $(LDFLAGS) -lm
 
 test: lz9ans
 	./test_lz9ans.py --fuzz --independent
@@ -18,9 +22,9 @@ test: lz9ans
 	./test_features.py
 
 sanitizers: lz9ans.c
-	$(CC) -Og -g -ansi -pedantic -Wall -Wextra -Werror \
+	eval $${CC:-$(CC)} -Og -g -ansi -pedantic -Wall -Wextra -Werror \
 		-fsanitize=address,undefined -fno-omit-frame-pointer \
-		-o lz9ans_asan lz9ans.c -lm
+		-o lz9ans_asan lz9ans.c $${LDFLAGS:-} $(LDFLAGS) -lm
 
 cppcheck: lz9ans.c
 	cppcheck \
@@ -36,22 +40,23 @@ oracle: lz9ans.c
 
 lint: lz9ans.c
 	$(MAKE) clean
-	$(MAKE) sanitizers CC=clang
+	eval $(MAKE) sanitizers CC="$${CLANG:-clang}"
 	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) cppcheck
 	$(MAKE) oracle
-	clang -Weverything -Wno-unsafe-buffer-usage -Wno-missing-noreturn \
-		-Wno-padded -Werror lz9ans.c $(LDFLAGS) -lm
-	rm -f a.out a.exe > /dev/null 2>&1 || :
+	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
+		-Wno-missing-noreturn -Wno-padded -Werror lz9ans.c \
+		$${LDFLAGS:-} $(LDFLAGS) -lm
+	$(MAKE) clean
 	scan-build bear -- $(MAKE) all
-	rm -f -r pvsreport > /dev/null 2>&1 || :
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport
 	$(MAKE) clean
 
 clean distclean:
-	rm -f lz9ans lz9ans_asan a.out a.exe log.pvs compile_commands.json || :
+	rm -f lz9ans lz9ans.exe lz9ans_asan lz9ans_asan.exe a.out a.exe || :
+	rm -f log.pvs compile_commands.json || :
 	rm -f -r __pycache__ pvsreport > /dev/null 2>&1 || :
 	@git clean -ndx 2> /dev/null || :
 
