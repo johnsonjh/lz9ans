@@ -51,7 +51,7 @@ lint: lz9ans.c
 	$(MAKE) clean
 	scan-build bear -- $(MAKE) all
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
-	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport
+	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
 	$(MAKE) clean
 
 clean distclean:
