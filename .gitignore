@@ -10,6 +10,7 @@
 /log.pvs
 /lz9ans
 /lz9ans_asan
+/lz9ans.plist
 *.orig
 /pvsreport
 __pycache__/
