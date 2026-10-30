@@ -18,7 +18,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.5.3"
+#define LZ9VER "v0.6.0-dev"
 
 /*****************************************************************************/
 
@@ -33,6 +33,8 @@
 #define TABLE_N (1U << TABLE_LOG)
 #define SEQ_MAX (BLOCK_N / 3U + 1U)
 #define STAGE_MAX 81920U
+#define TABLE_CACHE_BYTES (STREAM_COUNT * 512U * sizeof (unsigned short))
+#define STAGE_DATA_MAX (STAGE_MAX - TABLE_CACHE_BYTES)
 #define DESC_MAX 8192U
 #define BLOCK_HEADER_N 48U
 #define FHEAD_N 20
@@ -43,6 +45,7 @@
 #define MODE_RAW 1
 #define MODE_RLE 2
 #define MODE_TANS 3
+#define MODE_REUSE 4
 #define BLOCK_STORED 0
 #define BLOCK_LZ 1
 
@@ -53,7 +56,7 @@
 #define STREAM_ML 2
 #define STREAM_OF 3
 #define STREAM_EXTRA 4
-#define FORMAT_V5 5U
+#define FORMAT_V6 6U
 #define STREAM_COUNT 5U
 #define ENTROPY_STREAM_COUNT 4U
 #define OF_ALPHABET_32K 20U
@@ -173,6 +176,12 @@ typedef struct
 
 /*****************************************************************************/
 
+/* The prefix array is also scratch storage for table-cache snapshots! */
+typedef char encoder_prefix_must_hold_table_cache_compile_time_assertion[
+  sizeof (((Encoder *)0)->prefix) >= TABLE_CACHE_BYTES ? 1 : -1];
+
+/*****************************************************************************/
+
 typedef struct
 {
   unsigned short *ring;
@@ -212,6 +221,24 @@ sequence_tag (const Sequence *q)
 static int write_exact (FILE *f, const void *p, size_t n);
 static unsigned int stream_get (Stream *s);
 static unsigned int extra_get (ExtraReader *x, unsigned int n);
+
+/*****************************************************************************/
+
+static unsigned short *
+table_cache (const Encoder *e, unsigned int kind)
+{
+  return (unsigned short *)(void *)(e->stage + STAGE_DATA_MAX
+                                    + kind * 512U
+                                      * sizeof (unsigned short));
+}
+
+/*****************************************************************************/
+
+static int
+stream_is_tans (int mode)
+{
+  return mode == MODE_TANS || mode == MODE_REUSE;
+}
 
 /*****************************************************************************/
 
@@ -758,6 +785,223 @@ put_var (unsigned char *p, unsigned long *off, unsigned long cap,
 /*****************************************************************************/
 
 static int
+table_cache_matches (const Encoder *e, unsigned int kind,
+                     const unsigned short *freq, unsigned int alphabet)
+{
+  const unsigned short *cache
+      = (const unsigned short *)(const void *)(e->stage + STAGE_DATA_MAX
+                                                + kind * 512U
+                                                  * sizeof (unsigned short));
+  unsigned int i, sum = 0;
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      sum += cache[i];
+    }
+
+  return sum == TABLE_N
+         && memcmp (cache, freq, alphabet * sizeof (unsigned short)) == 0;
+}
+
+/*****************************************************************************/
+
+static unsigned long
+compact_tans_bits (const Encoder *e, unsigned int kind,
+                   unsigned int alphabet, const unsigned short *freq)
+{
+  unsigned int i, used = 0;
+  unsigned long bits = 0;
+
+  if (table_cache_matches (e, kind, freq, alphabet))
+    {
+      return 0;
+    }
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      if (freq[i])
+        {
+          ++used;
+        }
+    }
+
+  if (used < 2U)
+    {
+      return 0;
+    }
+
+  if (kind == STREAM_LIT)
+    {
+      for (i = 0; i < alphabet; ++i)
+        {
+          if (freq[i])
+            {
+              bits += 2UL * floor_log2 (freq[i]) + 1UL;
+            }
+        }
+    }
+  else
+    {
+      unsigned int remaining = used;
+      unsigned int assigned = 0;
+
+      for (i = 0; i < alphabet; ++i)
+        {
+
+          if (freq[i])
+            {
+              unsigned int range, value, log_range, cutoff;
+
+              --remaining;
+              range = TABLE_N - assigned - remaining;
+              value = (unsigned int)freq[i] - 1U;
+              log_range = floor_log2 (range);
+              cutoff = (1U << (log_range + 1U)) - range;
+              bits += log_range + (value >= cutoff ? 1UL : 0UL);
+              assigned += freq[i];
+            }
+        }
+    }
+
+  return bits;
+}
+
+/*****************************************************************************/
+
+static unsigned long
+compact_tans_desc_size (const Encoder *e, unsigned int kind,
+                        unsigned int alphabet, const unsigned short *freq)
+{
+  unsigned long bits = compact_tans_bits (e, kind, alphabet, freq);
+
+  if (!bits && table_cache_matches (e, kind, freq, alphabet))
+    {
+      return 1UL;
+    }
+
+  return 1UL + (alphabet + 7U) / 8U + (bits + 7UL) / 8UL;
+}
+
+/*****************************************************************************/
+
+static void
+put_gamma (BitWriter *w, unsigned int value)
+{
+  unsigned int bits = floor_log2 (value);
+
+  bw_add (w, 0, bits);
+  bw_add (w, value, bits + 1U);
+}
+
+/*****************************************************************************/
+
+static void
+put_truncated (BitWriter *w, unsigned int value, unsigned int range)
+{
+  unsigned int bits = floor_log2 (range);
+  unsigned int cutoff = (1U << (bits + 1U)) - range;
+
+  if (value < cutoff)
+    {
+      bw_add (w, value, bits);
+    }
+  else
+    {
+      bw_add (w, value + cutoff, bits + 1U);
+    }
+}
+
+/*****************************************************************************/
+
+static int
+put_compact_tans_descriptor (Encoder *e, unsigned int kind,
+                             unsigned int alphabet,
+                             const unsigned short *freq)
+{
+  unsigned short *cache = table_cache (e, kind);
+  unsigned long size = compact_tans_desc_size (e, kind, alphabet, freq);
+  unsigned int i, used = 0;
+  unsigned int bitmap_bytes = (alphabet + 7U) / 8U;
+  unsigned long bitmap_start;
+  BitWriter w;
+
+  if (e->desc_len + size > DESC_MAX)
+    {
+      return 0;
+    }
+
+  if (size == 1UL)
+    {
+      e->desc[e->desc_len++] = MODE_REUSE;
+
+      return 1;
+    }
+
+  e->desc[e->desc_len++] = MODE_TANS;
+  bitmap_start = e->desc_len;
+  (void)memset (e->desc + bitmap_start, 0, bitmap_bytes);
+  e->desc_len += bitmap_bytes;
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      if (freq[i])
+        {
+          e->desc[bitmap_start + (i >> 3)]
+              |= (unsigned char)(1U << (7U - (i & 7U)));
+          ++used;
+        }
+    }
+
+  bw_init (&w, e->desc + e->desc_len, DESC_MAX - e->desc_len);
+
+  if (kind == STREAM_LIT)
+    {
+      for (i = 0; i < alphabet; ++i)
+        {
+          if (freq[i])
+            {
+              put_gamma (&w, freq[i]);
+            }
+        }
+    }
+  else
+    {
+      unsigned int assigned = 0, remaining = used;
+
+      for (i = 0; i < alphabet; ++i)
+        {
+          if (freq[i])
+            {
+              unsigned int range;
+
+              --remaining;
+              range = TABLE_N - assigned - remaining;
+              put_truncated (&w, (unsigned int)freq[i] - 1U, range);
+              assigned += freq[i];
+            }
+        }
+    }
+
+  if (w.failed || used < 2U)
+    {
+      return 0;
+    }
+
+  e->desc_len += (w.bits + 7UL) / 8UL;
+  (void)memcpy (cache, freq, alphabet * sizeof (unsigned short));
+
+  if (alphabet < 512U)
+    {
+      (void)memset (cache + alphabet, 0,
+                    (512U - alphabet) * sizeof (unsigned short));
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
 get_var (const unsigned char *p, unsigned long *off, unsigned long len,
          unsigned int *value)
 {
@@ -1227,6 +1471,71 @@ hash_insert (Encoder *e, unsigned int pos, unsigned int end)
 /*****************************************************************************/
 
 static void
+consider_match (const Encoder *e, unsigned int pos, unsigned int max,
+                unsigned long base_ll_price,
+                unsigned int cand, unsigned int p0, unsigned int p1,
+                unsigned int p2, unsigned int *best, unsigned int *distance,
+                long *best_gain)
+{
+  const unsigned short *buf = e->buffer;
+  unsigned int k;
+
+  if (buf[cand] != p0 || buf[cand + 1U] != p1 || buf[cand + 2U] != p2)
+    {
+      return;
+    }
+
+  k = 3;
+
+  while (k < max && buf[cand + k] == buf[pos + k])
+    {
+      ++k;
+    }
+
+  if (e->use_cost)
+    {
+      unsigned int trial[3], t, trial_count = e->level >= 8 ? 3U : 1U;
+
+      trial[0] = k;
+      trial[1] = k > 3U ? k - 1U : k;
+      trial[2] = k >= 19U ? 18U : k;
+
+      for (t = 0; t < trial_count; ++t)
+        {
+          unsigned int length_here = trial[t];
+          long saving;
+
+          if (t && length_here == trial[t - 1U])
+            {
+              continue;
+            }
+
+          saving
+              = (long)literal_price (e, pos - e->window_n,
+                                     pos - e->window_n + length_here)
+                - (long)(base_ll_price
+                         + match_price (e, length_here, pos - cand));
+
+          if (saving > *best_gain
+              || (saving == *best_gain && saving > 0
+                  && length_here > *best))
+            {
+              *best_gain = saving;
+              *best = length_here;
+              *distance = pos - cand;
+            }
+        }
+    }
+  else if (k > *best)
+    {
+      *best = k;
+      *distance = pos - cand;
+    }
+}
+
+/*****************************************************************************/
+
+static void
 find_match (Encoder *e, unsigned int pos, unsigned int end,
             unsigned int pending, unsigned int pos_hash,
             unsigned int *length, unsigned int *distance, long *gain)
@@ -1237,7 +1546,8 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
   unsigned int max;
   unsigned long base_ll_price = 0;
   const unsigned short *buf;
-  unsigned int p0, p1, p2;
+  unsigned int p0, p1, p2, i;
+  unsigned int history_start = e->window_n - e->hlen;
 
   if (pos + 2U >= end)
     {
@@ -1257,12 +1567,23 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
 
   buf = e->buffer;
   p0 = buf[pos];
-  p1 = buf[pos + 1];
-  p2 = buf[pos + 2];
+  p1 = buf[pos + 1U];
+  p2 = buf[pos + 2U];
 
   if (e->use_cost)
     {
       base_ll_price = ll_price (e, pending);
+    }
+
+  for (i = 0; i < 3U; ++i)
+    {
+      unsigned int rep = e->reps[i];
+
+      if (rep && rep <= pos - history_start)
+        {
+          consider_match (e, pos, max, base_ll_price, pos - rep,
+                          p0, p1, p2, &best, &d, &best_gain);
+        }
     }
 
   cand = e->head[pos_hash];
@@ -1270,7 +1591,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
   while (cand >= 0 && checks < (int)e->search_depth && (unsigned int)cand < pos
          && pos <= (unsigned int)cand + e->window_n)
     {
-      if (!e->use_cost && best >= 3
+      if (best >= 3U && best < max
           && buf[(unsigned int)cand + best] != buf[pos + best])
         {
           cand = e->link[((unsigned int)cand) & (e->window_n - 1U)];
@@ -1279,60 +1600,12 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
           continue;
         }
 
-      if (buf[cand] == p0 && buf[cand + 1] == p1 && buf[cand + 2] == p2)
+      consider_match (e, pos, max, base_ll_price, (unsigned int)cand,
+                      p0, p1, p2, &best, &d, &best_gain);
+
+      if (!e->use_cost && best == max)
         {
-          unsigned int k = 3;
-
-          while (k < max && buf[(unsigned int)cand + k] == buf[pos + k])
-            {
-              ++k;
-            }
-
-          if (e->use_cost)
-            {
-              unsigned int trial[3], t, trial_count = e->level >= 8 ? 3U : 1U;
-
-              trial[0] = k;
-              trial[1] = k > 3 ? k - 1 : k;
-              trial[2] = k >= 19 ? 18 : k;
-
-              for (t = 0; t < trial_count; ++t)
-                {
-                  unsigned int length_here = trial[t];
-                  long saving;
-
-                  if (t && length_here == trial[t - 1])
-                    {
-                      continue;
-                    }
-
-                  saving
-                      = (long)literal_price (e, pos - e->window_n,
-                                             pos - e->window_n + length_here)
-                        - (long)(base_ll_price
-                                 + match_price (e, length_here,
-                                                pos - (unsigned int)cand));
-
-                  if (saving > best_gain
-                      || (saving == best_gain && saving > 0
-                          && length_here > best))
-                    {
-                      best_gain = saving;
-                      best = length_here;
-                      d = pos - (unsigned int)cand;
-                    }
-                }
-            }
-          else if (k > best)
-            {
-              best = k;
-              d = pos - (unsigned int)cand;
-            }
-
-          if (!e->use_cost && best == max)
-            {
-              break;
-            }
+          break;
         }
 
       cand = e->link[((unsigned int)cand) & (e->window_n - 1U)];
@@ -1836,11 +2109,11 @@ estimate_costs (Encoder *e)
 static int
 encode_one_stream (Encoder *e, unsigned int kind)
 {
-  unsigned int i, total, used = 0, single = 0,
+  unsigned int i, total, single = 0,
                          alphabet = stream_alphabet (kind, e->of_alphabet);
   unsigned int width, mode = MODE_RAW, stream_max = 0;
   unsigned short freq[512];
-  unsigned long start = e->stage_len, dbegin = e->desc_len;
+  unsigned long start = e->stage_len;
   unsigned long ansbits = 0;
   BitWriter w;
 
@@ -1863,6 +2136,8 @@ encode_one_stream (Encoder *e, unsigned int kind)
     }
   else
     {
+      unsigned int used = 0;
+
       for (i = 0; i < alphabet; ++i)
         {
           if (e->counts[i])
@@ -1885,26 +2160,13 @@ encode_one_stream (Encoder *e, unsigned int kind)
       if (norm_counts (e->counts, alphabet, total, freq)
           && ans_build (e->table, freq, alphabet))
         {
-          bw_init (&w, e->stage + start, STAGE_MAX - start);
+          bw_init (&w, e->stage + start, STAGE_DATA_MAX - start);
           encode_values (e, kind, &w, e->table, width);
 
           if (!w.failed)
             {
-              unsigned long pairbytes = 0, prev = 0, desc_cost;
-
-              for (i = 0; i < alphabet; ++i)
-                {
-                  if (freq[i])
-                    {
-                      unsigned int gap = i - (unsigned int)prev;
-
-                      pairbytes += (gap >= 128 ? 2UL : 1UL)
-                                   + (freq[i] >= 128 ? 2UL : 1UL);
-                      prev = i + 1U;
-                    }
-                }
-
-              desc_cost = 1UL + (used >= 128 ? 2UL : 1UL) + pairbytes;
+              unsigned long desc_cost
+                  = compact_tans_desc_size (e, kind, alphabet, freq);
               ansbits = w.bits;
 
               if (((ansbits + 7UL) / 8UL) + desc_cost
@@ -1941,35 +2203,10 @@ encode_one_stream (Encoder *e, unsigned int kind)
     }
   else if (mode == MODE_TANS)
     {
-      if (e->desc_len >= DESC_MAX)
+      if (!put_compact_tans_descriptor (e, kind, alphabet, freq))
         {
           return 0;
         }
-
-      e->desc[e->desc_len++] = MODE_TANS;
-
-      if (!put_var (e->desc, &e->desc_len, DESC_MAX, used))
-        {
-          return 0;
-        }
-
-      {
-        unsigned int prev = 0;
-
-        for (i = 0; i < alphabet; ++i)
-          {
-            if (freq[i])
-              {
-                if (!put_var (e->desc, &e->desc_len, DESC_MAX, i - prev)
-                    || !put_var (e->desc, &e->desc_len, DESC_MAX, freq[i]))
-                  {
-                    return 0;
-                  }
-
-                prev = i + 1U;
-              }
-          }
-      }
 
       e->stream_bits[kind] = ansbits;
       e->stream_bytes[kind] = (ansbits + 7UL) / 8UL;
@@ -1984,7 +2221,7 @@ encode_one_stream (Encoder *e, unsigned int kind)
 
       e->desc[e->desc_len++] = MODE_RAW;
       e->desc[e->desc_len++] = (unsigned char)width;
-      bw_init (&w, e->stage + start, STAGE_MAX - start);
+      bw_init (&w, e->stage + start, STAGE_DATA_MAX - start);
       encode_values (e, kind, &w, (AnsTable *)0, width);
 
       if (w.failed)
@@ -1996,8 +2233,6 @@ encode_one_stream (Encoder *e, unsigned int kind)
       e->stream_bytes[kind] = (w.bits + 7UL) / 8UL;
       e->stage_len += e->stream_bytes[kind];
     }
-
-  (void)dbegin;
 
   return 1;
 }
@@ -2098,12 +2333,13 @@ encode_extras (Encoder *e)
     {
       unsigned int i, nb, value;
 
-      if (e->stage_len > STAGE_MAX)
+      if (e->stage_len > STAGE_DATA_MAX)
         {
           return 0;
         }
 
-      bw_init (&w, e->stage + e->stage_len, STAGE_MAX - e->stage_len);
+      bw_init (&w, e->stage + e->stage_len,
+               STAGE_DATA_MAX - e->stage_len);
 
       for (i = 0; i < e->sn; ++i)
         {
@@ -2133,9 +2369,9 @@ encode_extras (Encoder *e)
     }
 
   {
-    unsigned int counts[2], used = 2U;
+    unsigned int counts[2];
     unsigned short freq[512];
-    unsigned long start = e->stage_len, desc_start = e->desc_len, raw_bits;
+    unsigned long start = e->stage_len, raw_bits;
     unsigned long raw_bytes, tans_bytes, tans_desc;
     unsigned short state = 0;
 
@@ -2187,7 +2423,7 @@ encode_extras (Encoder *e)
         return 0;
       }
 
-    bw_init (&w, e->stage + start, STAGE_MAX - start);
+    bw_init (&w, e->stage + start, STAGE_DATA_MAX - start);
     write_extra_tans (e, &w, e->table, &state);
     bw_add (&w, state, TABLE_LOG);
 
@@ -2198,42 +2434,10 @@ encode_extras (Encoder *e)
 
     tans_bytes = (w.bits + 7UL) / 8UL;
 
-    if (e->desc_len >= DESC_MAX)
-      {
-        return 0;
-      }
-
-    e->desc[e->desc_len++] = MODE_TANS;
-
-    if (!put_var (e->desc, &e->desc_len, DESC_MAX, used))
-      {
-        return 0;
-      }
-
-    {
-      unsigned int prev = 0, i;
-
-      for (i = 0; i < 2U; ++i)
-        {
-          if (freq[i])
-            {
-              if (!put_var (e->desc, &e->desc_len, DESC_MAX, i - prev)
-                  || !put_var (e->desc, &e->desc_len, DESC_MAX, freq[i]))
-                {
-                  return 0;
-                }
-
-              prev = i + 1U;
-            }
-        }
-    }
-
-    tans_desc = e->desc_len - desc_start;
+    tans_desc = compact_tans_desc_size (e, STREAM_EXTRA, 2U, freq);
 
     if (tans_desc + tans_bytes >= 2UL + raw_bytes)
       {
-        e->desc_len = desc_start;
-
         if (e->desc_len + 2UL > DESC_MAX)
           {
             return 0;
@@ -2241,7 +2445,7 @@ encode_extras (Encoder *e)
 
         e->desc[e->desc_len++] = MODE_RAW;
         e->desc[e->desc_len++] = 1U;
-        bw_init (&w, e->stage + start, STAGE_MAX - start);
+        bw_init (&w, e->stage + start, STAGE_DATA_MAX - start);
         write_extra_raw (e, &w);
 
         if (w.failed)
@@ -2255,6 +2459,11 @@ encode_extras (Encoder *e)
       }
     else
       {
+        if (!put_compact_tans_descriptor (e, STREAM_EXTRA, 2U, freq))
+          {
+            return 0;
+          }
+
         e->stream_bits[STREAM_EXTRA] = w.bits;
         e->stream_bytes[STREAM_EXTRA] = tans_bytes;
         e->stage_len = start + tans_bytes;
@@ -2277,7 +2486,7 @@ make_block_header (unsigned char *hdr, unsigned int type,
   (void)memset (hdr, 0, BLOCK_HEADER_N);
   (void)memcpy (hdr, "LZ9B", 4);
 
-  hdr[4] = FORMAT_V5;
+  hdr[4] = FORMAT_V6;
   hdr[5] = (unsigned char)(type | (width << 2));
 
   store16 (hdr + 6, BLOCK_HEADER_N);
@@ -2377,6 +2586,9 @@ encode_block (FILE *out, Encoder *e)
         }
     }
 
+  (void)memcpy (e->prefix, /* //-V1086 */
+    e->stage + STAGE_DATA_MAX, TABLE_CACHE_BYTES);
+
   e->desc_len = 0;
   e->stage_len = 0;
 
@@ -2411,11 +2623,14 @@ encode_block (FILE *out, Encoder *e)
   stored = ((unsigned long)e->n * width + 7UL) / 8UL;
   compressed = e->desc_len + e->stage_len;
 
-  if (!compressed_ok || e->stage_len > STAGE_MAX || e->desc_len > DESC_MAX
+  if (!compressed_ok || e->stage_len > STAGE_DATA_MAX
+      || e->desc_len > DESC_MAX
       || compressed >= stored
-      || e->stream_bits[STREAM_EXTRA] > STAGE_MAX * 8UL)
+      || e->stream_bits[STREAM_EXTRA] > STAGE_DATA_MAX * 8UL)
     {
       (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
+      (void)memcpy (e->stage + STAGE_DATA_MAX, e->prefix, /* //-V1086 */
+                    TABLE_CACHE_BYTES);
 
       return write_stored (out, e, crc, width);
     }
@@ -2474,38 +2689,136 @@ parse_descriptor (Stream *s, AnsTable *t, unsigned int kind,
     }
   else if (s->mode == MODE_TANS)
     {
-      unsigned int nused = 0, i, sym = 0;
+      unsigned int nused = 0, i, sum = 0, bitmap_bytes;
       unsigned short freq[512];
-      unsigned long sum = 0;
+      const unsigned char *bitmap;
+      BitReader r;
 
       (void)memset (freq, 0, sizeof (freq));
 
-      if (!get_var (p, offset, len, &nused) || nused < 2 || nused > alphabet)
+      bitmap_bytes = (alphabet + 7U) / 8U;
+
+      if (*offset + bitmap_bytes > len)
         {
           return 0;
         }
 
-      for (i = 0; i < nused; ++i)
+      bitmap = p + *offset;
+      *offset += bitmap_bytes;
+
+      if ((alphabet & 7U)
+          && (bitmap[bitmap_bytes - 1U]
+              & ((1U << (8U - (alphabet & 7U))) - 1U)))
         {
-          unsigned int gap, f;
-
-          if (!get_var (p, offset, len, &gap) || !get_var (p, offset, len, &f))
-            {
-              return 0;
-            }
-
-          if (gap > alphabet || sym + gap >= alphabet || f == 0 || f > TABLE_N)
-            {
-              return 0;
-            }
-
-          sym += gap;
-          freq[sym] = (unsigned short)f;
-          sum += f;
-          sym += 1;
+          return 0;
         }
 
-      if (sum != TABLE_N || !ans_build (t, freq, alphabet))
+      for (i = 0; i < alphabet; ++i)
+        {
+          if (bitmap[i >> 3] & (1U << (7U - (i & 7U))))
+            {
+              ++nused;
+            }
+        }
+
+      if (nused < 2U)
+        {
+          return 0;
+        }
+
+      br_init (&r, p + *offset, (len - *offset) * 8UL, 0);
+
+      {
+        unsigned int remaining = nused;
+
+        for (i = 0; i < alphabet; ++i)
+          {
+            if (bitmap[i >> 3] & (1U << (7U - (i & 7U))))
+              {
+                unsigned int f;
+
+                if (kind == STREAM_LIT)
+                  {
+                    unsigned int zeros = 0, bit;
+
+                    do
+                      {
+                        bit = br_get (&r, 1U);
+
+                        if (r.failed)
+                          {
+                            return 0;
+                          }
+
+                        if (!bit)
+                          {
+                            ++zeros;
+
+                            if (zeros > TABLE_LOG)
+                              {
+                                return 0;
+                              }
+                          }
+                      }
+                    while (!bit);
+
+                    f = (1U << zeros) | br_get (&r, zeros);
+                  }
+                else
+                  {
+                    unsigned int range, bits, cutoff, value;
+
+                    --remaining;
+                    range = TABLE_N - sum - remaining;
+                    bits = floor_log2 (range);
+                    cutoff = (1U << (bits + 1U)) - range;
+                    value = br_get (&r, bits);
+
+                    if (value >= cutoff)
+                      {
+                        value = (value << 1) | br_get (&r, 1U);
+                        value -= cutoff;
+                      }
+
+                    f = value + 1U;
+                  }
+
+                if (r.failed || !f || sum > TABLE_N || f > TABLE_N - sum)
+                  {
+                    return 0;
+                  }
+
+                freq[i] = (unsigned short)f;
+                sum += f;
+              }
+          }
+        }
+
+      if (sum != TABLE_N)
+        {
+          return 0;
+        }
+
+      {
+        unsigned int padding = (unsigned int)((8UL - (r.position & 7UL))
+                                               & 7UL);
+
+        if (padding && br_get (&r, padding) != 0U)
+          {
+            return 0;
+          }
+      }
+
+      if (r.failed || (r.position & 7UL) || !ans_build (t, freq, alphabet))
+        {
+          return 0;
+        }
+
+      *offset += r.position / 8UL;
+    }
+  else if (s->mode == MODE_REUSE)
+    {
+      if (t->alphabet != alphabet)
         {
           return 0;
         }
@@ -2525,9 +2838,9 @@ stream_begin (Stream *s, unsigned long bits, const unsigned char *p)
 {
   s->bits = bits;
   s->data = p;
-  br_init (&s->br, p, bits, s->mode == MODE_TANS);
+  br_init (&s->br, p, bits, stream_is_tans (s->mode));
 
-  if (s->mode == MODE_TANS)
+  if (stream_is_tans (s->mode))
     {
       if (bits < TABLE_LOG)
         {
@@ -2568,7 +2881,7 @@ stream_get (Stream *s)
       return s->rle;
     }
 
-  if (s->mode == MODE_TANS)
+  if (stream_is_tans (s->mode))
     {
       return ans_get (s);
     }
@@ -2588,7 +2901,7 @@ stream_end (const Stream *s)
       return 0;
     }
 
-  if (s->mode == MODE_TANS && s->state != 0)
+  if (stream_is_tans (s->mode) && s->state != 0)
     {
       return 0;
     }
@@ -2843,7 +3156,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   ExtraReader extra;
 
   if (!read_exact (in, h, 8U) || memcmp (h, "LZ9B", 4) != 0
-      || h[4] != FORMAT_V5)
+      || h[4] != FORMAT_V6)
     {
       return 0;
     }
@@ -3119,6 +3432,11 @@ allocated_encoder (Encoder *e, unsigned int window_n)
   e->desc = (unsigned char *)malloc (DESC_MAX);
   e->table = (AnsTable *)malloc (sizeof (AnsTable));
 
+  if (e->stage)
+    {
+      (void)memset (e->stage + STAGE_DATA_MAX, 0, TABLE_CACHE_BYTES);
+    }
+
   if (e->link)
     {
       (void)memset (e->link, 0, window_n * sizeof (int));
@@ -3174,7 +3492,7 @@ static int
 encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
              int level, int extra_ans, unsigned int window_n)
 {
-  static const unsigned char depth[9] = { 1, 2, 4, 8, 12, 16, 24, 32, 48 };
+  static const unsigned short depth[9] = { 1, 2, 4, 8, 24, 48, 96, 192, 512 };
   Encoder e;
   unsigned long done = 0;
   unsigned int acc = 0, nbits = 0;
@@ -3193,7 +3511,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   e.extra_ans = extra_ans;
   e.input_mode = mode;
   (void)memcpy (hdr, "LZ9A", 4);
-  hdr[4] = FORMAT_V5;
+  hdr[4] = FORMAT_V6;
   hdr[5] = (unsigned char)mode;
   store16 (hdr + 6, FHEAD_N);
   store32 (hdr + 8, elements);
@@ -3299,7 +3617,7 @@ decode_file (FILE *in, FILE *out)
   int okay = 0;
 
   if (!read_exact (in, hdr, sizeof (hdr)) || memcmp (hdr, "LZ9A", 4) != 0
-      || hdr[4] != FORMAT_V5
+      || hdr[4] != FORMAT_V6
       || (hdr[5] != 8 && hdr[5] != 9) || load16 (hdr + 6) != FHEAD_N
       || load32 (hdr + 16) != crc_bytes (hdr, 16))
     {
@@ -3321,14 +3639,15 @@ decode_file (FILE *in, FILE *out)
   table_count = (feature_flags & FEATURE_EXTRA_ANS)
                  ? STREAM_COUNT : ENTROPY_STREAM_COUNT;
   tables = (AnsTable *)malloc (table_count * sizeof (AnsTable));
-  o = (Output *)malloc (sizeof (Output));
+  o = (Output *)calloc (1U, sizeof (Output));
 
   if (!stage || !desc || !tables || !o)
     {
       goto cleanup;
     }
 
-  (void)memset (o, 0, sizeof (*o));
+  (void)memset (tables, 0, table_count * sizeof (AnsTable));
+
   o->out = out;
   o->out_mode = hdr[5];
   o->extra_ans = (feature_flags & FEATURE_EXTRA_ANS) != 0U;

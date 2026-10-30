@@ -12,53 +12,53 @@ import tempfile
 import time
 import zlib
 
-from inspect_lz9ans import decode as independent_decode
+from inspect_lz9ans import decode as independent_decode, parse_descriptor
 
 
 def scan_modes(data):
     assert data[:4] == b"LZ9A"
     pos = 20
-    found = {"stored": 0, "lz": 0, "tans": 0, "raw": 0, "rle": 0}
+    flags = struct.unpack_from("<I", data, 12)[0]
+    extra_ans = bool(flags & 2)
+    found = {"stored": 0, "lz": 0, "tans": 0, "reuse": 0, "raw": 0, "rle": 0}
+    tables = [None] * 5
+    kinds = (0, 1, 2, 3, 4) if extra_ans else (0, 1, 2, 3)
     while pos < len(data):
         h = data[pos : pos + 48]
         assert len(h) == 48 and h[:4] == b"LZ9B"
         flag = h[5] & 3
-        desc = struct.unpack_from("<I", h, 20)[0]
+        desc_len = struct.unpack_from("<I", h, 20)[0]
         lengths = struct.unpack_from("<5I", h, 24)
         if flag == 0:
             found["stored"] += 1
         else:
             found["lz"] += 1
-            d = data[pos + 48 : pos + 48 + desc]
-            p = 0
-
-            def var():
-                nonlocal p
-                value = shift = 0
-                while True:
-                    b = d[p]
-                    p += 1
-                    value |= (b & 127) << shift
-                    if b < 128:
-                        return value
-                    shift += 7
-
-            for _ in range(4):
-                mode = d[p]
-                p += 1
+            desc = data[pos + 48 : pos + 48 + desc_len]
+            index = 0
+            for kind in kinds:
+                alphabet = (
+                    512
+                    if kind == 0
+                    else (
+                        2
+                        if kind == 4
+                        else 21 if flags & 1 and kind == 3 else 20 if kind == 3 else 32
+                    )
+                )
+                descriptor, index = parse_descriptor(
+                    desc, index, kind, alphabet, tables
+                )
+                mode = descriptor[0]
                 if mode == 1:
                     found["raw"] += 1
-                    p += 1
                 elif mode == 2:
                     found["rle"] += 1
-                    var()
-                elif mode == 3:
+                elif mode in (3, 4):
                     found["tans"] += 1
-                    for _ in range(var()):
-                        var()
-                        var()
-            assert p == len(d)
-        pos += 48 + desc + sum((x + 7) // 8 for x in lengths)
+                    if mode == 4:
+                        found["reuse"] += 1
+            assert index == len(desc)
+        pos += 48 + desc_len + sum((x + 7) // 8 for x in lengths)
     assert pos == len(data)
     return found
 
@@ -178,8 +178,10 @@ def main():
                     raise AssertionError(f"{name}: independent decoder mismatch")
                 if name == "one-zero-block" and not offset_stats["offset_3"]:
                     raise AssertionError("the dedicated RUN opcode was not emitted")
-                if name == "literal-runs" and not offset_stats["offset_2"]:
-                    raise AssertionError("the third repeat-distance slot was not used")
+                if name == "literal-runs" and not sum(
+                    offset_stats[f"offset_{slot}"] for slot in range(3)
+                ):
+                    raise AssertionError("no repeat-distance slot was used")
                 if args.benchmark:
                     print(
                         "   independent offset codes:",

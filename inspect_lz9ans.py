@@ -62,75 +62,109 @@ class Bits:
         check(self.position == self.length, "unused meaningful bits")
 
 
+def truncated_value(bits, count):
+    check(count > 0, "invalid truncated-binary range")
+    width = count.bit_length() - 1
+    cutoff = (1 << (width + 1)) - count
+    value = bits.get(width)
+    if value >= cutoff:
+        value = ((value << 1) | bits.get(1)) - cutoff
+    return value
+
+
+def build_transition(freq):
+    check(2 <= sum(value != 0 for value in freq) <= 1024, "bad table occupancy")
+    check(sum(freq) == 1024, "bad normalized frequency sum")
+    spread = [None] * 1024
+    place = 0
+    for symbol, frequency in enumerate(freq):
+        for _ in range(frequency):
+            spread[place] = symbol
+            place = (place + 643) & 1023
+    check(place == 0, "bad ANS table spread")
+    seen = [0] * len(freq)
+    transition = []
+    for symbol in spread:
+        counter = freq[symbol] + seen[symbol]
+        seen[symbol] += 1
+        nbits = 10 - (counter.bit_length() - 1)
+        baseline = (counter << nbits) - 1024
+        transition.append((symbol, nbits, baseline))
+    return transition
+
+
+def parse_descriptor(desc, position, kind, alphabet, table_cache):
+    check(position < len(desc), "truncated descriptor")
+    mode = desc[position]
+    position += 1
+    symbol = width = None
+    transition = None
+    check(mode in (0, 1, 2, 3, 4), "invalid entropy mode")
+    if mode == 0:
+        pass
+    elif mode == 1:
+        check(position < len(desc), "truncated raw descriptor")
+        width = desc[position]
+        position += 1
+        allowed = (7, 8, 9) if kind == 0 else (1,) if kind == 4 else (5,)
+        check(width in allowed, "bad raw width")
+    elif mode == 2:
+        symbol, position = read_var(desc, position)
+        check(symbol < alphabet, "bad RLE symbol")
+    elif mode == 4:
+        transition = table_cache[kind]
+        check(transition is not None, "reuse before table initialization")
+    else:
+        bitmap_bytes = (alphabet + 7) // 8
+        check(position + bitmap_bytes <= len(desc), "truncated table bitmap")
+        bitmap = desc[position : position + bitmap_bytes]
+        position += bitmap_bytes
+        if alphabet % 8:
+            check(
+                not (bitmap[-1] & ((1 << (8 - alphabet % 8)) - 1)),
+                "nonzero unused bitmap bits",
+            )
+        present = [
+            symbol
+            for symbol in range(alphabet)
+            if bitmap[symbol // 8] & (1 << (7 - symbol % 8))
+        ]
+        check(2 <= len(present) <= alphabet, "bad table occupancy")
+        freq = [0] * alphabet
+        bits = Bits(desc[position:], (len(desc) - position) * 8)
+        assigned = 0
+        remaining = len(present)
+        for symbol in present:
+            if kind == 0:
+                zeros = 0
+                while bits.get(1) == 0:
+                    zeros += 1
+                    check(zeros <= 10, "oversized Elias-gamma frequency")
+                value = (1 << zeros) | bits.get(zeros)
+            else:
+                remaining -= 1
+                limit = 1024 - assigned - remaining
+                value = truncated_value(bits, limit) + 1
+            check(1 <= value <= 1024 - assigned, "invalid normalized frequency")
+            freq[symbol] = value
+            assigned += value
+        check(assigned == 1024, "bad normalized frequency sum")
+        padding = (-bits.position) & 7
+        if padding:
+            check(bits.get(padding) == 0, "nonzero descriptor padding")
+        position += bits.position // 8
+        transition = build_transition(freq)
+        table_cache[kind] = transition
+    return (mode, symbol, width, transition), position
+
+
 class Symbols:
-    def __init__(self, descriptor, kind, count, data, meaningful, of_alphabet=20):
+    def __init__(self, descriptor, count, data, meaningful):
         self.count = count
         self.used = 0
-        self.mode = descriptor[0]
-        self.bits = Bits(data, meaningful, self.mode == 3)
-        is_literal = kind == 0
-        is_extra = kind == 4
-        alphabet = (
-            512 if is_literal else 2 if is_extra else of_alphabet if kind == 3 else 32
-        )
-        check(self.mode in range(4), "invalid entropy mode")
-        if count is not None:
-            check((self.mode == 0) == (count == 0), "empty descriptor mismatch")
-        if self.mode == 0:
-            check(len(descriptor) == 1 and meaningful == 0, "bad empty stream")
-        elif self.mode == 1:
-            check(len(descriptor) == 2, "bad raw descriptor")
-            self.width = descriptor[1]
-            check(
-                (
-                    self.width in (7, 8, 9)
-                    if is_literal
-                    else self.width == 1 if is_extra else self.width == 5
-                ),
-                "bad raw width",
-            )
-        elif self.mode == 2:
-            self.symbol, end = read_var(descriptor, 1)
-            check(
-                end == len(descriptor) and self.symbol < alphabet and meaningful == 0,
-                "bad RLE descriptor",
-            )
-        else:
-            position = 1
-            nused, position = read_var(descriptor, position)
-            check(2 <= nused <= alphabet, "bad normalized symbol count")
-            freq = [0] * alphabet
-            symbol = 0
-            for _ in range(nused):
-                gap, position = read_var(descriptor, position)
-                value, position = read_var(descriptor, position)
-                symbol += gap
-                check(
-                    symbol < alphabet and 1 <= value <= 1024,
-                    "invalid normalized frequency",
-                )
-                freq[symbol] = value
-                symbol += 1
-            check(
-                position == len(descriptor) and sum(freq) == 1024,
-                "bad normalized frequency sum",
-            )
-            spread = [None] * 1024
-            place = 0
-            for symbol, frequency in enumerate(freq):
-                for _ in range(frequency):
-                    spread[place] = symbol
-                    place = (place + 643) & 1023
-            check(place == 0, "bad ANS table spread")
-            seen = [0] * alphabet
-            self.transition = []
-            for symbol in spread:
-                counter = freq[symbol] + seen[symbol]
-                seen[symbol] += 1
-                nbits = 10 - (counter.bit_length() - 1)
-                baseline = (counter << nbits) - 1024
-                self.transition.append((symbol, nbits, baseline))
-            self.state = self.bits.get(10)
+        self.mode, self.symbol, self.width, self.transition = descriptor
+        self.bits = Bits(data, meaningful, self.mode in (3, 4))
+        self.state = self.bits.get(10) if self.mode in (3, 4) else 0
 
     def get(self):
         if self.count is not None:
@@ -140,7 +174,7 @@ class Symbols:
             return self.bits.get(self.width)
         if self.mode == 2:
             return self.symbol
-        check(self.mode == 3, "read from empty entropy stream")
+        check(self.mode in (3, 4), "read from empty entropy stream")
         symbol, count, baseline = self.transition[self.state]
         self.state = baseline + self.bits.get(count)
         check(self.state < 1024, "ANS state out of range")
@@ -152,7 +186,7 @@ class Symbols:
             check(self.used == count, "wrong entropy symbol count")
             check((self.mode == 0) == (count == 0), "empty descriptor mismatch")
         self.bits.finish()
-        if self.mode == 3:
+        if self.mode in (3, 4):
             check(self.state == 0, "bad terminal ANS state")
 
 
@@ -215,7 +249,7 @@ def decode(data):
     check(len(data) >= 20 and data[:4] == b"LZ9A", "invalid frame magic")
     version, mode = data[4], data[5]
     check(
-        version == 5 and mode in (8, 9) and u16(data, 6) == 20,
+        version == 6 and mode in (8, 9) and u16(data, 6) == 20,
         "unsupported frame header",
     )
     flags = u32(data, 12)
@@ -229,6 +263,7 @@ def decode(data):
     output = []
     reps = [0, 0, 0]
     stats = Counter()
+    table_cache = [None] * 5
     while len(output) < target:
         stream_count = 5
         entropy_count = 4
@@ -295,22 +330,16 @@ def decode(data):
                 kinds = kinds + (4,)
             descriptors = []
             index = 0
-            for _ in range(descriptor_count):
-                check(index < len(desc), "truncated descriptor")
-                start = index
-                entropy_mode = desc[index]
-                index += 1
-                if entropy_mode == 1:
-                    index += 1
-                elif entropy_mode == 2:
-                    _, index = read_var(desc, index)
-                elif entropy_mode == 3:
-                    pairs, index = read_var(desc, index)
-                    for _ in range(pairs):
-                        _, index = read_var(desc, index)
-                        _, index = read_var(desc, index)
-                check(index <= len(desc), "truncated entropy descriptor")
-                descriptors.append(desc[start:index])
+            for kind in kinds:
+                alphabet = (
+                    512
+                    if kind == 0
+                    else 2 if kind == 4 else of_alphabet if kind == 3 else 32
+                )
+                descriptor, index = parse_descriptor(
+                    desc, index, kind, alphabet, table_cache
+                )
+                descriptors.append(descriptor)
             check(index == len(desc), "extra entropy descriptor bytes")
             counts = [
                 (
@@ -323,11 +352,7 @@ def decode(data):
             streams = []
             for i, kind in enumerate(kinds):
                 b = raw[i]
-                streams.append(
-                    Symbols(
-                        descriptors[i], kind, counts[i], b.data, b.length, of_alphabet
-                    )
-                )
+                streams.append(Symbols(descriptors[i], counts[i], b.data, b.length))
             extra = ExtraBits(
                 raw[stream_count - 1], streams[entropy_count] if extra_ans else None
             )

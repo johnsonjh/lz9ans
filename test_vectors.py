@@ -8,46 +8,45 @@ from pathlib import Path
 import struct
 import subprocess
 import tempfile
-import zlib
 
-from inspect_lz9ans import FormatError, decode
+from inspect_lz9ans import FormatError, decode, parse_descriptor
 
 ROOT = Path(__file__).resolve().parent
 VECTORS = {
     "empty8": (
         "c8",
         1,
-        "3d5a4c6bfb436c5d37bf598f67176678c0b791823da1a4f82e337e72c9f2e117",
+        "c88be22be7c4dab9e4b1236d9ac2ec2432d2e6f6849461a1bac5b09972b6e59a",
     ),
     "abc8": (
         "c8",
         1,
-        "0f9e26d6f5e14c382bcda0c74e30ac064be58e5c89fcb0e0ff77e0fd1892d563",
+        "469f59ac6397f57087411ccfd2ed3e604572f54fd30ec1fdfe168dce9ffca512",
     ),
     "run8": (
         "c8",
         6,
-        "bd1c000a5da8bc944ff97da8442eafe7261459fcb1a117184bf81ac47433921c",
+        "19eb8e29683afc1f79b0d0216e27e70ec4da59f7734accea25e18d7a40abfde5",
     ),
     "mixed9": (
         "c9",
         6,
-        "b1b33489ebb293371ddb6e2d4ade65de43be81b2e35933f310a5674c83e5ecd9",
+        "9a6a0a436ae6d438d5b1c183867d9d85c80276e0ae8df7b826fa786a9164e9de",
     ),
     "switch8": (
         "c8",
         6,
-        "78557387e91d9ff33db2f97c804dc327ff3450b506cd8d42d37c53dd59cae669",
+        "54a9994f257c71f54f0d1b67fe56dc9f4558655d779ca3de68ea822d04e8b9e1",
     ),
     "longdist16k": (
         "c8",
         9,
-        "83e3f89be3579929a981fc3c222e301e442a8f56ae17170791cd641167b3b909",
+        "f442d9e491a86f6d5e3c1f3e84927940d9b2699a4ae3a54bac8bf575826cb363",
     ),
     "longdist32k": (
         "c8",
         9,
-        "832d58995ae2092f2099f6b2e2f16c63d4acf1f084c4fd8f8bf9938074dc3226",
+        "ce5c60b5e7ccf915c2a3bb4dc35c9a2a3a69447c9ee69523ea94e4fa72b9e410",
     ),
 }
 
@@ -59,50 +58,23 @@ def command(*parts):
     return result.returncode
 
 
-def v5_fixture(legacy):
-    """Upgrade a hashed, feature-free v3 fixture's version metadata to v5."""
-    data = bytearray(legacy)
-    assert data[:4] == b"LZ9A" and data[4] == 3
-    assert struct.unpack_from("<I", data, 12)[0] == 0
-    data[4] = 5
-    data[16:20] = zlib.crc32(data[:16]).to_bytes(4, "little")
-    target = struct.unpack_from("<I", data, 8)[0]
-    position = 20
-    produced = 0
-    while produced < target:
-        assert data[position : position + 4] == b"LZ9B"
-        assert data[position + 4] == 3
-        header_size = struct.unpack_from("<H", data, position + 6)[0]
-        assert header_size == 48
-        count = struct.unpack_from("<I", data, position + 8)[0]
-        desc_len = struct.unpack_from("<I", data, position + 20)[0]
-        bit_lengths = struct.unpack_from("<5I", data, position + 24)
-        data[position + 4] = 5
-        position += (
-            header_size + desc_len + sum((bits + 7) // 8 for bits in bit_lengths)
-        )
-        produced += count
-    assert produced == target and position == len(data)
-    return bytes(data)
-
-
 def main():
     binary = (ROOT / "lz9ans").resolve()
     with tempfile.TemporaryDirectory(prefix="lz9ans-golden-") as tmp:
         work = Path(tmp)
         for name, (mode, level, expected_hash) in VECTORS.items():
             raw = (ROOT / "vectors" / f"{name}.input").read_bytes()
-            legacy = (ROOT / "vectors" / f"{name}.lz9a").read_bytes()
-            assert sha256(legacy).hexdigest() == expected_hash, name
-            frame = v5_fixture(legacy)
-            result, counter = decode(frame)
-            assert result == raw, name
+            vector = (ROOT / "vectors" / f"{name}.lz9a").read_bytes()
+            assert sha256(vector).hexdigest() == expected_hash, name
+            assert vector[:4] == b"LZ9A" and vector[4] == 6, name
+            decoded, stats = decode(vector)
+            assert decoded == raw, name
             frame_path = work / f"{name}.lz9a"
-            frame_path.write_bytes(frame)
+            frame_path.write_bytes(vector)
             assert (
                 command(str(binary), "d", str(frame_path), str(work / "decoded")) == 0
-            ), name
-            assert (work / "decoded").read_bytes() == raw, name
+            )
+            assert (work / "decoded").read_bytes() == raw
             assert (
                 command(
                     str(binary),
@@ -112,22 +84,35 @@ def main():
                     f"-{level}",
                 )
                 == 0
-            ), name
-            assert (work / "encoded").read_bytes() == frame, name
+            )
+            assert (work / "encoded").read_bytes() == vector, name
             if name == "run8":
-                assert counter["offset_3"] == 1
+                assert stats["offset_3"] == 1
             if name == "longdist16k":
-                assert counter["offset_18"] == 1
+                assert stats["offset_18"] == 1
             if name == "longdist32k":
-                assert counter["offset_19"] == 1
-                assert counter["stored"] == 1
-            print("PASS byte-exact v5", name)
+                assert stats["offset_19"] == 1
+                assert stats["stored"] == 1
+            print("PASS byte-exact v6", name)
 
         # The RUN fixture has no initialized MRU distance. Change its OF RLE
-        # symbol from RUN (3) to REP0 (0); no integrity adjustment is needed.
-        invalid = bytearray(v5_fixture((ROOT / "vectors" / "run8.lz9a").read_bytes()))
-        assert invalid[-2] == 3
-        invalid[-2] = 0
+        # symbol to REP0; the independent and C decoders must reject it.
+        invalid = bytearray((ROOT / "vectors" / "run8.lz9a").read_bytes())
+        desc_len = struct.unpack_from("<I", invalid, 20 + 20)[0]
+        desc_start = 20 + 48
+        descriptor = invalid[desc_start : desc_start + desc_len]
+        index = 0
+        tables = [None] * 5
+        offset_start = None
+        for kind in (0, 1, 2, 3):
+            start = index
+            alphabet = 512 if kind == 0 else 20 if kind == 3 else 32
+            parsed, index = parse_descriptor(descriptor, index, kind, alphabet, tables)
+            if kind == 3:
+                assert parsed[0] == 2 and descriptor[start + 1] == 3
+                offset_start = start
+        assert index == len(descriptor) and offset_start is not None
+        invalid[desc_start + offset_start + 1] = 0
         (work / "invalid.lz9a").write_bytes(invalid)
         assert (
             command(str(binary), "d", str(work / "invalid.lz9a"), str(work / "failed"))
@@ -140,6 +125,28 @@ def main():
         else:
             raise AssertionError("Python decoder accepted uninitialized REP0")
         print("PASS rejection of uninitialized repeat-distance code")
+
+        # A reuse descriptor is illegal until that stream has installed a table.
+        # The empty table state is represented by the first table's alphabet 0.
+        reuse = bytearray((ROOT / "vectors" / "run8.lz9a").read_bytes())
+        reuse[desc_start] = 4
+        (work / "invalid-reuse.lz9a").write_bytes(reuse)
+        assert (
+            command(
+                str(binary),
+                "d",
+                str(work / "invalid-reuse.lz9a"),
+                str(work / "failed-reuse"),
+            )
+            != 0
+        )
+        try:
+            decode(reuse)
+        except FormatError:
+            pass
+        else:
+            raise AssertionError("Python decoder accepted uninitialized table reuse")
+        print("PASS rejection of table reuse before initialization")
 
 
 if __name__ == "__main__":

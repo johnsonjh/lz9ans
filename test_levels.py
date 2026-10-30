@@ -46,7 +46,7 @@ def main():
                 result = run(mode, source, archive, f"-{level}")
                 assert result.returncode == 0, (level, name, result.stderr.decode())
                 frame = archive.read_bytes()
-                assert frame[4] == 5, (level, name, "wrong format version")
+                assert frame[4] == 6, (level, name, "wrong format version")
                 independent, _ = decode(frame)
                 assert independent == raw, (level, name, "independent decode mismatch")
                 result = run("d", archive, decoded)

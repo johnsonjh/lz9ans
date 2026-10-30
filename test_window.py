@@ -64,23 +64,23 @@ def main():
             f"{len(encoded32)} bytes; offset_19={stats32['offset_19']}"
         )
 
-        # A v4 frame must not be accepted by the v5 implementation. Recompute
+        # A v5 frame must not be accepted by the v6 implementation. Recompute
         # the header CRC so rejection is specifically for the version number.
         bad_version = bytearray(encoded32)
-        bad_version[4] = 4
+        bad_version[4] = 5
         import zlib
 
         bad_version[16:20] = zlib.crc32(bad_version[:16]).to_bytes(4, "little")
         archive.write_bytes(bad_version)
         result = run(binary, "d", archive, recovered)
-        assert result.returncode != 0, "C decoder accepted v4 frame"
+        assert result.returncode != 0, "C decoder accepted v5 frame"
         try:
             decode(bytes(bad_version))
         except ValueError:
             pass
         else:
-            raise AssertionError("independent decoder accepted v4 frame")
-        print("PASS explicit rejection of version 4")
+            raise AssertionError("independent decoder accepted v5 frame")
+        print("PASS explicit rejection of version 5")
 
 
 if __name__ == "__main__":

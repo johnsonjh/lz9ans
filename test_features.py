@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import zlib
 
-from inspect_lz9ans import decode, FormatError, pack9
+from inspect_lz9ans import decode, FormatError, pack9, parse_descriptor
 
 ROOT = Path(__file__).resolve().parent
 BINARY = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
@@ -48,7 +48,7 @@ def main():
         previous = record
     short_long = bytes(short_long)
 
-    # V5 flags: bit 0 selects the 64K history; bit 1 enables EXTRA-ANS.
+    # V6 flags: bit 0 selects the 64K history; bit 1 enables EXTRA-ANS.
     cases = [
         ("base-8", 8, bytes(range(256)) * 400, [], 0),
         ("base-9", 9, packed9, [], 0),
@@ -64,7 +64,7 @@ def main():
         ),
         ("empty-extra-ans", 8, b"", ["--extra-ans"], 2),
     ]
-    with tempfile.TemporaryDirectory(prefix="lz9ans-v5-test-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="lz9ans-v6-test-") as temporary:
         temp = Path(temporary)
         source, archive, decoded = (temp / name for name in ("in", "arc", "out"))
         for name, mode, raw, options, flags in cases:
@@ -72,7 +72,7 @@ def main():
             run("c" + str(mode), source, archive, "-6", *options)
             data = archive.read_bytes()
             assert data[:4] == b"LZ9A"
-            assert data[4] == 5, (name, "encoder did not emit v5")
+            assert data[4] == 6, (name, "encoder did not emit v6")
             assert struct.unpack_from("<I", data, 12)[0] == flags, (name, "wrong flags")
             independent, stats = decode(data)
             assert independent == raw, (name, "independent decoder mismatch")
@@ -82,6 +82,8 @@ def main():
                 assert stats["offset_19"] >= 1, stats
             if name == "window64-exact64k":
                 assert stats["offset_20"] >= 1, stats
+            if name == "extra-ans":
+                assert stats["offset_2"] >= 1, stats
             print(
                 "PASS",
                 name,
@@ -92,6 +94,81 @@ def main():
                 "stats",
                 dict(stats),
             )
+
+        # The third block must reuse the first block's LIT model even though
+        # an intervening incompressible block is emitted as STORED.
+        model_values = []
+        for symbol, count in (
+            [(value, 400) for value in range(8)]
+            + [(value, 300) for value in range(8, 24)]
+            + [(value, 131) for value in range(24, 88)]
+        ):
+            model_values.extend([symbol] * count)
+        rng.shuffle(model_values)
+        permutation = {}
+        for group in (range(8), range(8, 24), range(24, 88)):
+            source_symbols = list(group)
+            target_symbols = source_symbols[:]
+            rng.shuffle(target_symbols)
+            permutation.update(zip(source_symbols, target_symbols))
+        remapped_values = [permutation[value] for value in model_values]
+        stored_values = [rng.randrange(512) for _ in range(32768)]
+        reuse_raw = pack9(
+            model_values
+            + model_values
+            + stored_values
+            + remapped_values
+            + remapped_values
+        )
+        source.write_bytes(reuse_raw)
+        run("c9", source, archive, "-5")
+        reuse_frame = archive.read_bytes()
+        reuse_decoded, reuse_stats = decode(reuse_frame)
+        assert reuse_decoded == reuse_raw
+        run("d", archive, decoded)
+        assert decoded.read_bytes() == reuse_raw
+        assert reuse_stats["lz"] == 2 and reuse_stats["stored"] == 1, reuse_stats
+        table_cache = [None] * 5
+        position = 20
+        first_lit_descriptor_size = None
+        reused_lit_table = False
+        for block_index in range(3):
+            header = reuse_frame[position : position + 48]
+            block_type = header[5] & 3
+            desc_len = struct.unpack_from("<I", header, 20)[0]
+            bit_lengths = struct.unpack_from("<5I", header, 24)
+            if block_index == 1:
+                assert block_type == 0 and desc_len == 0
+            else:
+                assert block_type == 1
+                descriptor = reuse_frame[position + 48 : position + 48 + desc_len]
+                descriptor_offset = 0
+                parsed_lit, descriptor_offset = parse_descriptor(
+                    descriptor, descriptor_offset, 0, 512, table_cache
+                )
+                for kind in (1, 2, 3):
+                    _, descriptor_offset = parse_descriptor(
+                        descriptor,
+                        descriptor_offset,
+                        kind,
+                        32 if kind != 3 else 20,
+                        table_cache,
+                    )
+                assert descriptor_offset == desc_len
+                if block_index == 0:
+                    assert parsed_lit[0] == 3
+                    first_lit_descriptor_size = desc_len
+                else:
+                    assert parsed_lit[0] == 4
+                    assert desc_len < first_lit_descriptor_size
+                    reused_lit_table = True
+            position += 48 + desc_len + sum((bits + 7) // 8 for bits in bit_lengths)
+        assert reused_lit_table and position == len(reuse_frame)
+        print(
+            "PASS compact LIT descriptor and table reuse across STORED block",
+            "archive",
+            len(reuse_frame),
+        )
 
         # Unknown feature bits must be rejected even with a valid frame CRC.
         source.write_bytes(b"feature flags must be validated")
@@ -109,8 +186,8 @@ def main():
         else:
             raise AssertionError("independent decoder accepted unknown feature bit")
 
-        # V5 deliberately has no v3/v4 compatibility path.
-        for old_version in (3, 4):
+        # V6 deliberately has no v3/v4/v5 compatibility path.
+        for old_version in (3, 4, 5):
             malformed = bytearray(original)
             malformed[4] = old_version
             struct.pack_into("<I", malformed, 16, zlib.crc32(malformed[:16]))
@@ -129,7 +206,7 @@ def main():
         run("c8", source, archive, "--window=64k", "--window=64k", expect=2)
         run("c8", source, archive, "--extra-ans", "--extra-ans", expect=2)
 
-        # Differential malformed-stream tests for the combined v5 features.
+        # Differential malformed-stream tests for the combined v6 features.
         source.write_bytes(short_long + block_a + block_b + block_a)
         run("c8", source, archive, "-6", "--window=64k", "--extra-ans")
         original = archive.read_bytes()
@@ -170,7 +247,7 @@ def main():
                     "mutated archive changed decoded data",
                 )
     print(
-        "PASS v5 feature flags, EXTRA-ANS, 32K/64K distances, removed-option rejection, and malformed-stream tests"
+        "PASS v6 feature flags, EXTRA-ANS, 32K/64K distances, removed-option rejection, and malformed-stream tests"
     )
 
 
