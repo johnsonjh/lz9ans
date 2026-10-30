@@ -2,16 +2,16 @@
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
 CC = cc
-CFLAGS = $${CFLAGS:-} -O3 -ansi -pedantic -flto=auto -Wall -Wextra -Werror
+CFLAGS = -O3 -ansi -pedantic -flto=auto -Wall -Wextra -Werror
 
 all: lz9ans
 
 lz9ans: lz9ans.c
 	@eval echo \
-		$${CC:-$(CC)} $(CFLAGS) -o $@ lz9ans.c \
-		$${LDFLAGS:-} $(LDFLAGS) -lm || :
-	@eval $${CC:-$(CC)} $(CFLAGS) -o $@ lz9ans.c \
-		$${LDFLAGS:-} $(LDFLAGS) -lm
+		$${CC:-$(CC)} $${EXTRA_CFLAGS:-} $(CFLAGS) -o $@ lz9ans.c \
+		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm || :
+	@eval $${CC:-$(CC)} $${EXTRA_CFLAGS:-} $(CFLAGS) -o $@ lz9ans.c \
+		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
 
 test: lz9ans
 	./test_lz9ans.py --fuzz --independent
@@ -24,7 +24,7 @@ test: lz9ans
 sanitizers: lz9ans.c
 	eval $${CC:-$(CC)} -Og -g -ansi -pedantic -Wall -Wextra -Werror \
 		-fsanitize=address,undefined -fno-omit-frame-pointer \
-		-o lz9ans_asan lz9ans.c $${LDFLAGS:-} $(LDFLAGS) -lm
+		-o lz9ans_asan lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
 
 cppcheck: lz9ans.c
 	cppcheck \
@@ -47,7 +47,7 @@ lint: lz9ans.c
 	$(MAKE) oracle
 	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
 		-Wno-missing-noreturn -Wno-padded -Werror lz9ans.c \
-		$${LDFLAGS:-} $(LDFLAGS) -lm
+		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
 	$(MAKE) clean
 	scan-build bear -- $(MAKE) all
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
