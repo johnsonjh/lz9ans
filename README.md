@@ -3,4 +3,4 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS
 
-LZ9ANS - 9-bit LZ77+tANS codec
+**LZ9ANS** - 9-bit [LZ77](https://en.wikipedia.org/wiki/LZ77_and_LZ78#LZ77)+[tANS](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems#Tabled_variant_(tANS)) codec
