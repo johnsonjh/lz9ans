@@ -49,4 +49,4 @@ dobench()
 dobench "--window=32k"
 dobench "--window=32k --extra-ans"
 dobench "--window=64k"
-dobench "--window=32k --extra-ans"
+dobench "--window=62k --extra-ans"
