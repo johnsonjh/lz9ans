@@ -5,6 +5,8 @@
 
 set -eu
 
+export POSIXLY_CORRECT=1
+
 command -v ts > /dev/null 2>&1 || {
   printf '%s\n' "ERROR: ts (moreutils) not found."
   exit 1
@@ -38,7 +40,7 @@ dobench()
 
       printf '-'
       printf '%s: ' "$n"
-      wc -c ./*.out | grep 'total$'
+      wc -c ./*.out | grep 'total$' | awk '{ print $1*8" bits" }'
     done | env ts -i -m '%.T'
 
     rm -f ./*.out > /dev/null 2>&1
@@ -46,7 +48,10 @@ dobench()
   )
 }
 
+printf 'Total corpus size: %s bits\n\n' \
+  "$(cd obj && wc -c ./*.archive | grep 'total$' | awk '{ print $1*8 }')"
+
 dobench "--window=32k"
 dobench "--window=32k --extra-ans"
 dobench "--window=64k"
-dobench "--window=62k --extra-ans"
+dobench "--window=64k --extra-ans"
