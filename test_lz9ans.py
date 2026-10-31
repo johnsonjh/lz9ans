@@ -17,12 +17,11 @@ from inspect_lz9ans import decode as independent_decode, parse_descriptor
 
 def scan_modes(data):
     assert data[:4] == b"LZ9A"
-    pos = 20
-    flags = struct.unpack_from("<I", data, 12)[0]
-    extra_ans = bool(flags & 2)
+    pos = 17
+    flags = data[12]
     found = {"stored": 0, "lz": 0, "tans": 0, "reuse": 0, "raw": 0, "rle": 0}
-    tables = [None] * 5
-    kinds = (0, 1, 2, 3, 4) if extra_ans else (0, 1, 2, 3)
+    tables = [None] * 4
+    kinds = (0, 1, 2, 3)
     while pos < len(data):
         h = data[pos : pos + 48]
         assert len(h) == 48 and h[:4] == b"LZ9B"
@@ -39,11 +38,7 @@ def scan_modes(data):
                 alphabet = (
                     512
                     if kind == 0
-                    else (
-                        2
-                        if kind == 4
-                        else 21 if flags & 1 and kind == 3 else 20 if kind == 3 else 32
-                    )
+                    else 21 if flags & 1 and kind == 3 else 20 if kind == 3 else 32
                 )
                 descriptor, index = parse_descriptor(
                     desc, index, kind, alphabet, tables

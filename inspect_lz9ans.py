@@ -106,7 +106,7 @@ def parse_descriptor(desc, position, kind, alphabet, table_cache):
         check(position < len(desc), "truncated raw descriptor")
         width = desc[position]
         position += 1
-        allowed = (7, 8, 9) if kind == 0 else (1,) if kind == 4 else (5,)
+        allowed = (7, 8, 9) if kind == 0 else (5,)
         check(width in allowed, "bad raw width")
     elif mode == 2:
         symbol, position = read_var(desc, position)
@@ -190,29 +190,6 @@ class Symbols:
             check(self.state == 0, "bad terminal ANS state")
 
 
-class ExtraBits:
-    def __init__(self, raw, stream=None):
-        self.raw = raw
-        self.stream = stream
-        self.used = 0
-
-    def get(self, count):
-        if self.stream is None:
-            self.used += count
-            return self.raw.get(count)
-        value = 0
-        for _ in range(count):
-            value = (value << 1) | self.stream.get()
-            self.used += 1
-        return value
-
-    def finish(self):
-        if self.stream is None:
-            self.raw.finish()
-        else:
-            self.stream.finish(self.used)
-
-
 def pack9(values):
     result = bytearray()
     pending = bits = 0
@@ -246,32 +223,29 @@ def decode_length(code, bias, extra):
 
 
 def decode(data):
-    check(len(data) >= 20 and data[:4] == b"LZ9A", "invalid frame magic")
+    check(len(data) >= 17 and data[:4] == b"LZ9A", "invalid frame magic")
     version, mode = data[4], data[5]
     check(
-        version == 6 and mode in (8, 9) and u16(data, 6) == 20,
+        version == 7 and mode in (8, 9) and u16(data, 6) == 17,
         "unsupported frame header",
     )
-    flags = u32(data, 12)
-    check(zlib.crc32(data[:16]) == u32(data, 16), "corrupt frame header")
-    # Frame bit 2 is reserved; aligned-distance mode is signaled by bits 3/4.
-    check((flags & ~0x1B) == 0, "unsupported or reserved feature flags")
+    flags = data[12]
+    check(zlib.crc32(data[:13]) == u32(data, 13), "corrupt frame header")
+    check((flags & ~0x19) == 0, "unsupported or reserved feature flags")
     auto_aligned = bool(flags & 16)
     aligned_global = bool(flags & 8)
     check(not auto_aligned or aligned_global, "invalid auto-alignment flags")
     window = 65536 if flags & 1 else 32768
-    extra_ans = bool(flags & 2)
     of_alphabet = 21 if window == 65536 else 20
     target = u32(data, 8)
-    position = 20
+    position = 17
     output = []
     reps = [0, 0, 0]
     stats = Counter()
-    table_cache = [None] * 5
+    table_cache = [None] * 4
     while len(output) < target:
         stream_count = 5
         entropy_count = 4
-        descriptor_count = entropy_count + int(extra_ans)
         header_size = 48
         check(position + header_size <= len(data), "missing block header")
         h = data[position : position + header_size]
@@ -342,36 +316,25 @@ def decode(data):
             stats["lz"] += 1
             check(width == 0, "nonzero LZ block width")
             kinds = (0, 1, 2, 3)
-            if extra_ans:
-                kinds = kinds + (4,)
             descriptors = []
             index = 0
             for kind in kinds:
                 alphabet = (
                     512
                     if kind == 0
-                    else 2 if kind == 4 else of_alphabet if kind == 3 else 32
+                    else of_alphabet if kind == 3 else 32
                 )
                 descriptor, index = parse_descriptor(
                     desc, index, kind, alphabet, table_cache
                 )
                 descriptors.append(descriptor)
             check(index == len(desc), "extra entropy descriptor bytes")
-            counts = [
-                (
-                    None
-                    if extra_ans and i == entropy_count
-                    else (literal_count if kind == 0 else sequence_count)
-                )
-                for i, kind in enumerate(kinds)
-            ]
+            counts = [literal_count if kind == 0 else sequence_count for kind in kinds]
             streams = []
             for i, kind in enumerate(kinds):
                 b = raw[i]
                 streams.append(Symbols(descriptors[i], counts[i], b.data, b.length))
-            extra = ExtraBits(
-                raw[stream_count - 1], streams[entropy_count] if extra_ans else None
-            )
+            extra = raw[stream_count - 1]
             used_literals = 0
             ll_index = 1
             ml_index = 2

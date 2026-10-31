@@ -32,7 +32,7 @@ def run(*args, expect=0):
 
 def aligned_block_flags(data):
     flags = []
-    position = 20
+    position = 17
     while position < len(data):
         header = data[position : position + 48]
         assert len(header) == 48 and header[:4] == b"LZ9B"
@@ -63,25 +63,17 @@ def main():
         previous = record
     short_long = bytes(short_long)
 
-    # V6 flags: bit 0 selects the 64K history; bit 1 enables EXTRA-ANS;
-    # bits 3 and 4 advertise automatic per-block aligned-distance selection.
+    # V7 uses a one-octet frame feature mask. Bits 3 and 4 advertise
+    # automatic per-block aligned-distance selection.
     cases = [
         ("base-8", 8, bytes(range(256)) * 400, [], 24),
         ("base-9", 9, packed9, [], 24),
         ("window32-explicit", 8, block_a + block_a, ["--window=32k"], 24),
         ("window64-exact32k", 8, block_a + block_a, ["--window=64k"], 25),
         ("window64-exact64k", 8, block_a + block_b + block_a, ["--window=64k"], 25),
-        ("extra-ans", 8, short_long, ["--extra-ans"], 26),
-        (
-            "window64-plus-extra",
-            8,
-            block_a + block_b + block_a,
-            ["--window=64k", "--extra-ans"],
-            27,
-        ),
-        ("empty-extra-ans", 8, b"", ["--extra-ans"], 26),
+        ("raw-extra", 8, short_long, [], 24),
     ]
-    with tempfile.TemporaryDirectory(prefix="lz9ans-v6-test-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="lz9ans-v7-test-") as temporary:
         temp = Path(temporary)
         source, archive, decoded = (temp / name for name in ("in", "arc", "out"))
         for name, mode, raw, options, flags in cases:
@@ -89,8 +81,10 @@ def main():
             run("c" + str(mode), source, archive, "-6", *options)
             data = archive.read_bytes()
             assert data[:4] == b"LZ9A"
-            assert data[4] == 6, (name, "encoder did not emit v6")
-            assert struct.unpack_from("<I", data, 12)[0] == flags, (name, "wrong flags")
+            assert data[4] == 7, (name, "encoder did not emit v7")
+            assert struct.unpack_from("<H", data, 6)[0] == 17
+            assert data[12] == flags, (name, "wrong flags")
+            assert struct.unpack_from("<I", data, 13)[0] == zlib.crc32(data[:13])
             independent, stats = decode(data)
             assert independent == raw, (name, "independent decoder mismatch")
             run("d", archive, decoded)
@@ -99,8 +93,19 @@ def main():
                 assert stats["offset_19"] >= 1, stats
             if name == "window64-exact64k":
                 assert stats["offset_20"] >= 1, stats
-            if name == "extra-ans":
-                assert stats["offset_2"] >= 1, stats
+            if name == "raw-extra":
+                position = 17
+                found_raw_extra = False
+                while position < len(data):
+                    header = data[position : position + 48]
+                    descriptor_size = struct.unpack_from("<I", header, 20)[0]
+                    bit_lengths = struct.unpack_from("<5I", header, 24)
+                    if (header[5] & 3) == 1 and bit_lengths[4] != 0:
+                        found_raw_extra = True
+                    position += 48 + descriptor_size + sum(
+                        (bits + 7) // 8 for bits in bit_lengths
+                    )
+                assert found_raw_extra, "raw EXTRA payload was not exercised"
             print(
                 "PASS",
                 name,
@@ -145,8 +150,8 @@ def main():
         run("d", archive, decoded)
         assert decoded.read_bytes() == reuse_raw
         assert reuse_stats["lz"] == 2 and reuse_stats["stored"] == 1, reuse_stats
-        table_cache = [None] * 5
-        position = 20
+        table_cache = [None] * 4
+        position = 17
         first_lit_descriptor_size = None
         reused_lit_table = False
         for block_index in range(3):
@@ -195,33 +200,33 @@ def main():
         source.write_bytes(aligned_9)
         run("c9", source, archive, "-5")
         auto_frame = archive.read_bytes()
-        assert struct.unpack_from("<I", auto_frame, 12)[0] == 24
+        assert auto_frame[12] == 24
         assert aligned_block_flags(auto_frame) == [(1, True)]
         auto_independent, _ = decode(auto_frame)
         assert auto_independent == aligned_9
         run("d", archive, decoded)
         assert decoded.read_bytes() == aligned_9
 
-        # V6 streams using the older frame-wide aligned-distance flag remain
-        # readable.  Convert this one-block per-block frame to its legacy form:
+        # V7 streams using frame-wide aligned-distance mode remain readable.
+        # Convert this one-block per-block frame to that form:
         # retain the aligned payload, clear the block selector, and clear the
         # per-block frame flag while leaving the global alignment flag set.
-        legacy_global = bytearray(auto_frame)
-        legacy_global[12:16] = struct.pack("<I", 8)
-        legacy_global[16:20] = struct.pack("<I", zlib.crc32(legacy_global[:16]))
-        legacy_global[20 + 5] &= ~16
-        archive.write_bytes(legacy_global)
+        frame_wide_aligned = bytearray(auto_frame)
+        frame_wide_aligned[12] = 8
+        frame_wide_aligned[13:17] = struct.pack("<I", zlib.crc32(frame_wide_aligned[:13]))
+        frame_wide_aligned[17 + 5] &= ~16
+        archive.write_bytes(frame_wide_aligned)
         run("d", archive, decoded)
         assert decoded.read_bytes() == aligned_9
-        legacy_independent, _ = decode(bytes(legacy_global))
-        assert legacy_independent == aligned_9
+        frame_wide_independent, _ = decode(bytes(frame_wide_aligned))
+        assert frame_wide_independent == aligned_9
 
         aligned_8_values = [rng.randrange(256) for _ in range(16384)]
         aligned_8 = pack9(aligned_8_values + aligned_8_values)
         source.write_bytes(aligned_8)
         run("c9", source, archive, "-5")
         gated_frame = archive.read_bytes()
-        assert struct.unpack_from("<I", gated_frame, 12)[0] == 24
+        assert gated_frame[12] == 24
         assert aligned_block_flags(gated_frame) == [(1, False)]
         gated_independent, _ = decode(gated_frame)
         assert gated_independent == aligned_8
@@ -229,15 +234,15 @@ def main():
         assert decoded.read_bytes() == aligned_8
 
         # Frames with neither aligned-distance feature flag retain baseline
-        # v6 semantics and remain readable by both decoders.
-        legacy_base = bytearray(gated_frame)
-        struct.pack_into("<I", legacy_base, 12, 0)
-        struct.pack_into("<I", legacy_base, 16, zlib.crc32(legacy_base[:16]))
-        archive.write_bytes(legacy_base)
+        # v7 semantics and remain readable by both decoders.
+        alignment_disabled = bytearray(gated_frame)
+        alignment_disabled[12] = 0
+        alignment_disabled[13:17] = struct.pack("<I", zlib.crc32(alignment_disabled[:13]))
+        archive.write_bytes(alignment_disabled)
         run("d", archive, decoded)
         assert decoded.read_bytes() == aligned_8
-        legacy_base_decoded, _ = decode(bytes(legacy_base))
-        assert legacy_base_decoded == aligned_8
+        alignment_disabled_decoded, _ = decode(bytes(alignment_disabled))
+        assert alignment_disabled_decoded == aligned_8
 
         unaligned_prefix = [rng.randrange(512) for _ in range(16385)]
         unaligned_9 = pack9(unaligned_prefix + unaligned_prefix[:16383])
@@ -250,15 +255,15 @@ def main():
         run("d", archive, decoded)
         assert decoded.read_bytes() == unaligned_9
 
-        # Exercise aligned code-20 distance selection in a 64K window with
-        # EXTRA-ANS enabled.  Alignment is selected for the match-bearing LZ
+        # Exercise aligned code-20 distance selection in a 64K window.
+        # Alignment is selected for the match-bearing LZ
         # block, not as a frame-wide setting.
         prefix_values = [rng.randrange(512) for _ in range(32768)]
         distance_raw = pack9(prefix_values + prefix_values[:4] + prefix_values)
         source.write_bytes(distance_raw)
-        run("c9", source, archive, "-5", "--window=64k", "--extra-ans")
+        run("c9", source, archive, "-5", "--window=64k")
         distance_frame = archive.read_bytes()
-        assert struct.unpack_from("<I", distance_frame, 12)[0] == 27
+        assert distance_frame[12] == 25
         assert aligned_block_flags(distance_frame) == [
             (0, False),
             (1, True),
@@ -270,15 +275,15 @@ def main():
         run("d", archive, decoded)
         assert decoded.read_bytes() == distance_raw
         print(
-            "PASS default per-block alignment, ninth-bit gate, legacy global decode, and 64K code 20"
+            "PASS default per-block alignment, ninth-bit gate, frame-wide alignment decode, and 64K code 20"
         )
 
         auto_distance_values = prefix_values + [1, 2, 3, 4] + prefix_values[:32764]
         auto_distance_raw = pack9(auto_distance_values)
         source.write_bytes(auto_distance_raw)
-        run("c9", source, archive, "-5", "--window=64k", "--extra-ans")
+        run("c9", source, archive, "-5", "--window=64k")
         auto_distance_frame = archive.read_bytes()
-        assert struct.unpack_from("<I", auto_distance_frame, 12)[0] == 27
+        assert auto_distance_frame[12] == 25
         assert aligned_block_flags(auto_distance_frame) == [
             (0, False),
             (1, True),
@@ -287,15 +292,15 @@ def main():
         assert auto_distance_independent == auto_distance_raw
         run("d", archive, decoded)
         assert decoded.read_bytes() == auto_distance_raw
-        print("PASS per-block aligned code-20 selection with EXTRA-ANS")
+        print("PASS per-block aligned code-20 selection")
 
         # Unknown feature bits must be rejected even with a valid frame CRC.
         source.write_bytes(b"feature flags must be validated")
         run("c8", source, archive, "--window=64k")
         original = bytearray(archive.read_bytes())
         malformed = bytearray(original)
-        struct.pack_into("<I", malformed, 12, 32)
-        struct.pack_into("<I", malformed, 16, zlib.crc32(malformed[:16]))
+        malformed[12] = 32
+        malformed[13:17] = struct.pack("<I", zlib.crc32(malformed[:13]))
         archive.write_bytes(malformed)
         run("d", archive, decoded, expect=1)
         try:
@@ -306,8 +311,8 @@ def main():
             raise AssertionError("independent decoder accepted unknown feature bit")
 
         malformed = bytearray(original)
-        struct.pack_into("<I", malformed, 12, 16)
-        struct.pack_into("<I", malformed, 16, zlib.crc32(malformed[:16]))
+        malformed[12] = 16
+        malformed[13:17] = struct.pack("<I", zlib.crc32(malformed[:13]))
         archive.write_bytes(malformed)
         run("d", archive, decoded, expect=1)
         try:
@@ -319,19 +324,21 @@ def main():
                 "independent decoder accepted auto flag without aligned flag"
             )
 
-        # Reserved frame feature bit 2 formerly identified word-position
-        # literal coding.  That coding path is intentionally unsupported.
-        malformed = bytearray(original)
-        struct.pack_into("<I", malformed, 12, 4)
-        struct.pack_into("<I", malformed, 16, zlib.crc32(malformed[:16]))
-        archive.write_bytes(malformed)
-        run("d", archive, decoded, expect=1)
-        try:
-            decode(bytes(malformed))
-        except FormatError:
-            pass
-        else:
-            raise AssertionError("independent decoder accepted reserved feature bit 2")
+        # Reserved low-order feature bits must remain zero.
+        for reserved_bit in (2, 4):
+            malformed = bytearray(original)
+            malformed[12] = reserved_bit
+            malformed[13:17] = struct.pack("<I", zlib.crc32(malformed[:13]))
+            archive.write_bytes(malformed)
+            run("d", archive, decoded, expect=1)
+            try:
+                decode(bytes(malformed))
+            except FormatError:
+                pass
+            else:
+                raise AssertionError(
+                    f"independent decoder accepted reserved feature value {reserved_bit}"
+                )
 
         # Experimental coding controls are no longer part of the CLI.
         for removed_option in (
@@ -343,11 +350,11 @@ def main():
         ):
             run("c8", source, archive, removed_option, expect=2)
 
-        # V6 deliberately has no v3/v4/v5 compatibility path.
-        for old_version in (3, 4, 5):
+        # V7 deliberately has no prior-version compatibility path.
+        for old_version in (3, 4, 5, 6):
             malformed = bytearray(original)
             malformed[4] = old_version
-            struct.pack_into("<I", malformed, 16, zlib.crc32(malformed[:16]))
+            malformed[13:17] = struct.pack("<I", zlib.crc32(malformed[:13]))
             archive.write_bytes(malformed)
             run("d", archive, decoded, expect=1)
             try:
@@ -361,11 +368,10 @@ def main():
         run("c8", source, archive, "--context-literals", expect=2)
         run("c8", source, archive, "--distance-context", expect=2)
         run("c8", source, archive, "--window=64k", "--window=64k", expect=2)
-        run("c8", source, archive, "--extra-ans", "--extra-ans", expect=2)
 
-        # Differential malformed-stream tests for the combined v6 features.
+        # Differential malformed-stream tests for the V7 feature combination.
         source.write_bytes(short_long + block_a + block_b + block_a)
-        run("c8", source, archive, "-6", "--window=64k", "--extra-ans")
+        run("c8", source, archive, "-6", "--window=64k")
         original = archive.read_bytes()
         original_decoded, _ = decode(original)
         assert original_decoded == source.read_bytes()
@@ -404,7 +410,7 @@ def main():
                     "mutated archive changed decoded data",
                 )
     print(
-        "PASS v6 feature flags, EXTRA-ANS, 32K/64K distances, removed-option rejection, and malformed-stream tests"
+        "PASS v7 feature flags, raw bypass bits, 32K/64K distances, unsupported-option handling, and malformed-stream tests"
     )
 
 
