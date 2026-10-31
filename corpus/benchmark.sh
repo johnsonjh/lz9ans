@@ -42,22 +42,37 @@ dobench()
     cd obj
     printf '%s\n' "Benchmarking lz9ans $1 ..."
     touch out.out
+    PBITS=""
 
     for n in $(seq 1 9); do
       rm -f ./*.out > /dev/null 2>&1
 
       for i in ${CORPUS:?}; do
         # shellcheck disable=SC2086
-        ../../lz9ans c9 "$i" "$i".out -"$n" $1 > /dev/null 2>&1
+        ../../lz9ans c9 "${i:?}" "${i:?}".out -"${n:?}" $1 > /dev/null 2>&1
       done
 
       printf ' -'
-      printf '%s: ' "$n"
-      wc -c ./*.out | grep 'total$' \
-        | awk '{ bits = $1 * 8; pct = 100 - ((bits / '"${TCSIZE:?}"') * 100);
-                 ratio = (pct == 100) ? 0 : 100 / (100 - pct);
-                 printf "%d bits  (%.3f%%)  [%.3f:1]\n", bits, pct, ratio; }'
-    done | env ts -i -m '%.T'
+      printf '%s: ' "${n:?}"
+
+      WCTO="$(wc -c ./*.out | grep 'total$')"
+      BITS="$(printf '%s\n' "${WCTO:?}" \
+        | awk '{ print $1 * 8 }')"
+
+      printf '%s\n' "${WCTO:?}" \
+        | awk -v prev="${PBITS:-0}" -v tc="${TCSIZE:?}" '{
+            bits = $1 * 8; pct = 100 - ((bits / tc) * 100);
+            ratio = (pct == 100) ? 0 : 100 / (100 - pct);
+
+            diff = bits - (prev == 0 ? tc : prev);
+            diff_str = sprintf("%+10d delta", diff);
+
+            printf "%d bits  (%.3f%%)  [%.3f:1]  %s\n",
+                    bits, pct, ratio, diff_str;
+          }'
+
+      PBITS="${BITS:?}"
+    done | ts -i -m '%.T'
 
     rm -f ./*.out > /dev/null 2>&1
     printf '%s\n' ""
@@ -68,7 +83,8 @@ dobench()
 
 CORPUS="./*.archive"
 # shellcheck disable=SC2086
-TCSIZE="$(cd obj && wc -c ${CORPUS:?} | grep 'total$' | awk '{ print $1*8 }')"
+TCSIZE="$(cd obj && wc -c ${CORPUS:?} | grep 'total$' \
+  | awk '{ print $1 * 8 }')"
 # shellcheck disable=SC2086
 printf 'Corpus : Complete\nSize   : %s bits\n\n' "${TCSIZE:?}"
 
@@ -79,7 +95,8 @@ dobench "--window=64k"
 
 CORPUS="./*.s.archive"
 # shellcheck disable=SC2086
-TCSIZE="$(cd obj && wc -c ${CORPUS:?} | grep 'total$' | awk '{ print $1*8 }')"
+TCSIZE="$(cd obj && wc -c ${CORPUS:?} | grep 'total$' \
+  | awk '{ print $1 * 8 }')"
 # shellcheck disable=SC2086
 printf 'Corpus : Sources\nSize   : %s bits\n\n' "${TCSIZE:?}"
 
