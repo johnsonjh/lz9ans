@@ -16,37 +16,37 @@ VECTORS = {
     "empty8": (
         "c8",
         1,
-        "c88be22be7c4dab9e4b1236d9ac2ec2432d2e6f6849461a1bac5b09972b6e59a",
+        "9bc9b0a79566eda38946773b3ace46c25652eb95a7f9d9a020e57fd746807b61",
     ),
     "abc8": (
         "c8",
         1,
-        "469f59ac6397f57087411ccfd2ed3e604572f54fd30ec1fdfe168dce9ffca512",
+        "6bc328d99e4a01b9733b6534290c8531a2a47f29a9fe61d6296c06cce8cbb3bc",
     ),
     "run8": (
         "c8",
         6,
-        "19eb8e29683afc1f79b0d0216e27e70ec4da59f7734accea25e18d7a40abfde5",
+        "a589c141902aa34fe17e37601f247c6a4e8d7217adf378a4cb61bc8607d17659",
     ),
     "mixed9": (
         "c9",
         6,
-        "9a6a0a436ae6d438d5b1c183867d9d85c80276e0ae8df7b826fa786a9164e9de",
+        "f63c3c56a8d2ee11e547b7c5712d1e0fc05e6e2891558e2e0c9458ee4d7c8ce9",
     ),
     "switch8": (
         "c8",
         6,
-        "54a9994f257c71f54f0d1b67fe56dc9f4558655d779ca3de68ea822d04e8b9e1",
+        "9e5ab81c964c216a4f59db7dac2342eb40284468aeab4a1ca8fbf42484639056",
     ),
     "longdist16k": (
         "c8",
         9,
-        "f442d9e491a86f6d5e3c1f3e84927940d9b2699a4ae3a54bac8bf575826cb363",
+        "3cfb9c5336e9fecc333df7160dc8f542c97ee1f4ede9c199aa027b5b3cc85c50",
     ),
     "longdist32k": (
         "c8",
         9,
-        "ce5c60b5e7ccf915c2a3bb4dc35c9a2a3a69447c9ee69523ea94e4fa72b9e410",
+        "bb544e11fffd452aeed4a9694da5a95461b3e72ef373469375397b690fa639d0",
     ),
 }
 
@@ -67,6 +67,12 @@ def main():
             vector = (ROOT / "vectors" / f"{name}.lz9a").read_bytes()
             assert sha256(vector).hexdigest() == expected_hash, name
             assert vector[:4] == b"LZ9A" and vector[4] == 6, name
+            assert struct.unpack_from("<I", vector, 12)[0] == 0x18, name
+            if name == "mixed9":
+                block_header = vector[20:68]
+                assert block_header[:4] == b"LZ9B"
+                assert (block_header[5] & 3) == 1
+                assert block_header[5] & 16
             decoded, stats = decode(vector)
             assert decoded == raw, name
             frame_path = work / f"{name}.lz9a"

@@ -30,6 +30,21 @@ def run(*args, expect=0):
     return result
 
 
+def aligned_block_flags(data):
+    flags = []
+    position = 20
+    while position < len(data):
+        header = data[position : position + 48]
+        assert len(header) == 48 and header[:4] == b"LZ9B"
+        block_type = header[5] & 3
+        flags.append((block_type, bool(block_type == 1 and (header[5] & 16))))
+        descriptor_size = struct.unpack_from("<I", header, 20)[0]
+        bit_lengths = struct.unpack_from("<5I", header, 24)
+        position += 48 + descriptor_size + sum((bits + 7) // 8 for bits in bit_lengths)
+    assert position == len(data)
+    return flags
+
+
 def main():
     rng = random.Random(0x9A64)
     block_a = bytes(rng.randrange(256) for _ in range(32768))
@@ -48,21 +63,23 @@ def main():
         previous = record
     short_long = bytes(short_long)
 
-    # V6 flags: bit 0 selects the 64K history; bit 1 enables EXTRA-ANS.
+    # V6 flags: bit 0 selects the 64K history; bit 1 enables EXTRA-ANS;
+    # bits 3 and 4 advertise automatic per-block aligned-distance selection.
     cases = [
-        ("base-8", 8, bytes(range(256)) * 400, [], 0),
-        ("base-9", 9, packed9, [], 0),
-        ("window64-exact32k", 8, block_a + block_a, ["--window=64k"], 1),
-        ("window64-exact64k", 8, block_a + block_b + block_a, ["--window=64k"], 1),
-        ("extra-ans", 8, short_long, ["--extra-ans"], 2),
+        ("base-8", 8, bytes(range(256)) * 400, [], 24),
+        ("base-9", 9, packed9, [], 24),
+        ("window32-explicit", 8, block_a + block_a, ["--window=32k"], 24),
+        ("window64-exact32k", 8, block_a + block_a, ["--window=64k"], 25),
+        ("window64-exact64k", 8, block_a + block_b + block_a, ["--window=64k"], 25),
+        ("extra-ans", 8, short_long, ["--extra-ans"], 26),
         (
             "window64-plus-extra",
             8,
             block_a + block_b + block_a,
             ["--window=64k", "--extra-ans"],
-            3,
+            27,
         ),
-        ("empty-extra-ans", 8, b"", ["--extra-ans"], 2),
+        ("empty-extra-ans", 8, b"", ["--extra-ans"], 26),
     ]
     with tempfile.TemporaryDirectory(prefix="lz9ans-v6-test-") as temporary:
         temp = Path(temporary)
@@ -78,7 +95,7 @@ def main():
             assert independent == raw, (name, "independent decoder mismatch")
             run("d", archive, decoded)
             assert decoded.read_bytes() == raw, (name, "C decoder mismatch")
-            if name == "window64-exact32k":
+            if name in ("window32-explicit", "window64-exact32k"):
                 assert stats["offset_19"] >= 1, stats
             if name == "window64-exact64k":
                 assert stats["offset_20"] >= 1, stats
@@ -170,10 +187,140 @@ def main():
             len(reuse_frame),
         )
 
+        # Automatic aligned-distance coding is now the default.  The frame
+        # advertises per-block selection, and the ninth-bit gate prevents the
+        # transformation from being considered for ordinary 8-bit blocks.
+        aligned_prefix = [rng.randrange(512) for _ in range(16384)]
+        aligned_9 = pack9(aligned_prefix + aligned_prefix)
+        source.write_bytes(aligned_9)
+        run("c9", source, archive, "-5")
+        auto_frame = archive.read_bytes()
+        assert struct.unpack_from("<I", auto_frame, 12)[0] == 24
+        assert aligned_block_flags(auto_frame) == [(1, True)]
+        auto_independent, _ = decode(auto_frame)
+        assert auto_independent == aligned_9
+        run("d", archive, decoded)
+        assert decoded.read_bytes() == aligned_9
+
+        # V6 streams using the older frame-wide aligned-distance flag remain
+        # readable.  Convert this one-block per-block frame to its legacy form:
+        # retain the aligned payload, clear the block selector, and clear the
+        # per-block frame flag while leaving the global alignment flag set.
+        legacy_global = bytearray(auto_frame)
+        legacy_global[12:16] = struct.pack("<I", 8)
+        legacy_global[16:20] = struct.pack("<I", zlib.crc32(legacy_global[:16]))
+        legacy_global[20 + 5] &= ~16
+        archive.write_bytes(legacy_global)
+        run("d", archive, decoded)
+        assert decoded.read_bytes() == aligned_9
+        legacy_independent, _ = decode(bytes(legacy_global))
+        assert legacy_independent == aligned_9
+
+        aligned_8_values = [rng.randrange(256) for _ in range(16384)]
+        aligned_8 = pack9(aligned_8_values + aligned_8_values)
+        source.write_bytes(aligned_8)
+        run("c9", source, archive, "-5")
+        gated_frame = archive.read_bytes()
+        assert struct.unpack_from("<I", gated_frame, 12)[0] == 24
+        assert aligned_block_flags(gated_frame) == [(1, False)]
+        gated_independent, _ = decode(gated_frame)
+        assert gated_independent == aligned_8
+        run("d", archive, decoded)
+        assert decoded.read_bytes() == aligned_8
+
+        # Frames with neither aligned-distance feature flag retain baseline
+        # v6 semantics and remain readable by both decoders.
+        legacy_base = bytearray(gated_frame)
+        struct.pack_into("<I", legacy_base, 12, 0)
+        struct.pack_into("<I", legacy_base, 16, zlib.crc32(legacy_base[:16]))
+        archive.write_bytes(legacy_base)
+        run("d", archive, decoded)
+        assert decoded.read_bytes() == aligned_8
+        legacy_base_decoded, _ = decode(bytes(legacy_base))
+        assert legacy_base_decoded == aligned_8
+
+        unaligned_prefix = [rng.randrange(512) for _ in range(16385)]
+        unaligned_9 = pack9(unaligned_prefix + unaligned_prefix[:16383])
+        source.write_bytes(unaligned_9)
+        run("c9", source, archive, "-5")
+        unaligned_frame = archive.read_bytes()
+        assert aligned_block_flags(unaligned_frame) == [(1, False)]
+        unaligned_independent, _ = decode(unaligned_frame)
+        assert unaligned_independent == unaligned_9
+        run("d", archive, decoded)
+        assert decoded.read_bytes() == unaligned_9
+
+        # Exercise aligned code-20 distance selection in a 64K window with
+        # EXTRA-ANS enabled.  Alignment is selected for the match-bearing LZ
+        # block, not as a frame-wide setting.
+        prefix_values = [rng.randrange(512) for _ in range(32768)]
+        distance_raw = pack9(prefix_values + prefix_values[:4] + prefix_values)
+        source.write_bytes(distance_raw)
+        run("c9", source, archive, "-5", "--window=64k", "--extra-ans")
+        distance_frame = archive.read_bytes()
+        assert struct.unpack_from("<I", distance_frame, 12)[0] == 27
+        assert aligned_block_flags(distance_frame) == [
+            (0, False),
+            (1, True),
+            (0, False),
+        ]
+        distance_independent, distance_stats = decode(distance_frame)
+        assert distance_independent == distance_raw
+        assert distance_stats["offset_20"] >= 1
+        run("d", archive, decoded)
+        assert decoded.read_bytes() == distance_raw
+        print(
+            "PASS default per-block alignment, ninth-bit gate, legacy global decode, and 64K code 20"
+        )
+
+        auto_distance_values = prefix_values + [1, 2, 3, 4] + prefix_values[:32764]
+        auto_distance_raw = pack9(auto_distance_values)
+        source.write_bytes(auto_distance_raw)
+        run("c9", source, archive, "-5", "--window=64k", "--extra-ans")
+        auto_distance_frame = archive.read_bytes()
+        assert struct.unpack_from("<I", auto_distance_frame, 12)[0] == 27
+        assert aligned_block_flags(auto_distance_frame) == [
+            (0, False),
+            (1, True),
+        ]
+        auto_distance_independent, _ = decode(auto_distance_frame)
+        assert auto_distance_independent == auto_distance_raw
+        run("d", archive, decoded)
+        assert decoded.read_bytes() == auto_distance_raw
+        print("PASS per-block aligned code-20 selection with EXTRA-ANS")
+
         # Unknown feature bits must be rejected even with a valid frame CRC.
         source.write_bytes(b"feature flags must be validated")
         run("c8", source, archive, "--window=64k")
         original = bytearray(archive.read_bytes())
+        malformed = bytearray(original)
+        struct.pack_into("<I", malformed, 12, 32)
+        struct.pack_into("<I", malformed, 16, zlib.crc32(malformed[:16]))
+        archive.write_bytes(malformed)
+        run("d", archive, decoded, expect=1)
+        try:
+            decode(bytes(malformed))
+        except FormatError:
+            pass
+        else:
+            raise AssertionError("independent decoder accepted unknown feature bit")
+
+        malformed = bytearray(original)
+        struct.pack_into("<I", malformed, 12, 16)
+        struct.pack_into("<I", malformed, 16, zlib.crc32(malformed[:16]))
+        archive.write_bytes(malformed)
+        run("d", archive, decoded, expect=1)
+        try:
+            decode(bytes(malformed))
+        except FormatError:
+            pass
+        else:
+            raise AssertionError(
+                "independent decoder accepted auto flag without aligned flag"
+            )
+
+        # Reserved frame feature bit 2 formerly identified word-position
+        # literal coding.  That coding path is intentionally unsupported.
         malformed = bytearray(original)
         struct.pack_into("<I", malformed, 12, 4)
         struct.pack_into("<I", malformed, 16, zlib.crc32(malformed[:16]))
@@ -184,7 +331,17 @@ def main():
         except FormatError:
             pass
         else:
-            raise AssertionError("independent decoder accepted unknown feature bit")
+            raise AssertionError("independent decoder accepted reserved feature bit 2")
+
+        # Experimental coding controls are no longer part of the CLI.
+        for removed_option in (
+            "--word-literals",
+            "--aligned-distances",
+            "--auto-aligned-distances",
+            "--auto-aligned-distances-any",
+            "--word-aware",
+        ):
+            run("c8", source, archive, removed_option, expect=2)
 
         # V6 deliberately has no v3/v4/v5 compatibility path.
         for old_version in (3, 4, 5):

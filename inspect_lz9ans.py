@@ -254,7 +254,11 @@ def decode(data):
     )
     flags = u32(data, 12)
     check(zlib.crc32(data[:16]) == u32(data, 16), "corrupt frame header")
-    check((flags & ~3) == 0, "invalid feature flags")
+    # Frame bit 2 is reserved; aligned-distance mode is signaled by bits 3/4.
+    check((flags & ~0x1B) == 0, "unsupported or reserved feature flags")
+    auto_aligned = bool(flags & 16)
+    aligned_global = bool(flags & 8)
+    check(not auto_aligned or aligned_global, "invalid auto-alignment flags")
     window = 65536 if flags & 1 else 32768
     extra_ans = bool(flags & 2)
     of_alphabet = 21 if window == 65536 else 20
@@ -276,7 +280,19 @@ def decode(data):
             h[:4] == b"LZ9B" and h[4] == version and u16(h, 6) == header_size,
             "unsupported block header",
         )
-        flag, width = h[5] & 3, h[5] >> 2
+        flag = h[5] & 3
+        block_aligned = False
+        if flag == 0:
+            width = h[5] >> 2
+        else:
+            width = (h[5] >> 2) & 3
+            block_aligned = bool(h[5] & 16)
+            check((h[5] & 0xE0) == 0, "invalid LZ block flags")
+            check(
+                not block_aligned or auto_aligned,
+                "block alignment flag without per-block mode",
+            )
+        aligned_distances = block_aligned if auto_aligned else aligned_global
         n, sequence_count, literal_count = struct.unpack_from("<III", h, 8)
         desc_length = u32(h, 20)
         lengths = struct.unpack_from("<5I", h, 24)
@@ -389,13 +405,27 @@ def decode(data):
                     check(distance <= window, "distance exceeds window")
                     promote(reps, distance)
                 elif code == 20 and window == 65536:
-                    distance = 32769 + extra.get(15)
+                    if aligned_distances:
+                        if extra.get(1):
+                            distance = 32772 + (extra.get(13) << 2)
+                        else:
+                            distance = 32769 + extra.get(15)
+                            check(distance % 4 != 0, "noncanonical unaligned distance")
+                    else:
+                        distance = 32769 + extra.get(15)
                     check(distance <= window, "distance exceeds window")
                     promote(reps, distance)
                 else:
                     check(4 <= code <= 18, "bad explicit offset code")
                     exponent = code - 4
-                    distance = (1 << exponent) + extra.get(exponent)
+                    if aligned_distances and code >= 6:
+                        if extra.get(1):
+                            distance = (1 << exponent) + (extra.get(exponent - 2) << 2)
+                        else:
+                            distance = (1 << exponent) + extra.get(exponent)
+                            check(distance % 4 != 0, "noncanonical unaligned distance")
+                    else:
+                        distance = (1 << exponent) + extra.get(exponent)
                     promote(reps, distance)
                 check(
                     1 <= distance <= window

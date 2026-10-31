@@ -27,14 +27,21 @@
 #define WINDOW_64K 65536U
 #define FEATURE_WINDOW_64K 1U
 #define FEATURE_EXTRA_ANS 2U
+#define FEATURE_ALIGNED_DISTANCES 8U
+#define FEATURE_AUTO_ALIGNED_DISTANCES 16U
+#define OPTION_EXTRA_ANS 1U
+#define OPTION_ALIGNED_DISTANCES 4U
+#define OPTION_AUTO_ALIGNED_DISTANCES 8U
+#define BLOCK_FLAG_ALIGNED_DISTANCES 16U
 #define HASH_N 8192U
 #define HASH_MASK (HASH_N - 1U)
 #define TABLE_LOG 10
 #define TABLE_N (1U << TABLE_LOG)
 #define SEQ_MAX (BLOCK_N / 3U + 1U)
 #define STAGE_MAX 81920U
-#define TABLE_CACHE_BYTES (STREAM_COUNT * 512U * sizeof (unsigned short))
-#define STAGE_DATA_MAX (STAGE_MAX - TABLE_CACHE_BYTES)
+#define TABLE_CACHE_COUNT 5U
+#define TABLE_CACHE_BYTES (TABLE_CACHE_COUNT * 512U * sizeof (unsigned short))
+#define STAGE_DATA_MAX ((STAGE_MAX - TABLE_CACHE_BYTES - 7UL) & ~7UL)
 #define DESC_MAX 8192U
 #define BLOCK_HEADER_N 48U
 #define FHEAD_N 20
@@ -161,7 +168,7 @@ typedef struct
   unsigned long desc_len;
   unsigned long stage_len;
   unsigned int input_mode;
-  int extra_ans;
+  unsigned int extra_ans;
   unsigned int window_n;
   unsigned int of_alphabet;
   unsigned int current_kind;
@@ -176,16 +183,20 @@ typedef struct
 
 /*****************************************************************************/
 
-/* The prefix array is also scratch storage for table-cache snapshots! */
 typedef char encoder_prefix_must_hold_table_cache_compile_time_assertion[
   sizeof (((Encoder *)0)->prefix) >= TABLE_CACHE_BYTES ? 1 : -1];
+
+/*****************************************************************************/
+
+typedef char stage_must_hold_maximum_stored_block_compile_time_assertion[
+  STAGE_DATA_MAX >= (BLOCK_N * 9U + 7U) / 8U ? 1 : -1];
 
 /*****************************************************************************/
 
 typedef struct
 {
   unsigned short *ring;
-  int extra_ans;
+  unsigned int extra_ans;
   unsigned int window_n;
   unsigned int of_alphabet;
   unsigned char outbuf[8192];
@@ -199,6 +210,19 @@ typedef struct
   FILE *out;
   unsigned int reps[3];
 } Output;
+
+/*****************************************************************************/
+
+#define ENCODER_EXTRA_ANS(e) \
+  (((e)->extra_ans & OPTION_EXTRA_ANS) != 0U)
+#define ENCODER_ALIGNED_DISTANCES(e) \
+  (((e)->extra_ans & OPTION_ALIGNED_DISTANCES) != 0U)
+#define OUTPUT_EXTRA_ANS(o) \
+  (((o)->extra_ans & OPTION_EXTRA_ANS) != 0U)
+#define OUTPUT_ALIGNED_DISTANCES(o) \
+  (((o)->extra_ans & OPTION_ALIGNED_DISTANCES) != 0U)
+#define OUTPUT_AUTO_ALIGNED_DISTANCES(o) \
+  (((o)->extra_ans & OPTION_AUTO_ALIGNED_DISTANCES) != 0U)
 
 /*****************************************************************************/
 
@@ -1198,6 +1222,33 @@ distance_code (unsigned int d, unsigned int tag, unsigned int window_n,
 
 /*****************************************************************************/
 
+static int
+aligned_distance_cost_wins (const Encoder *e)
+{
+  unsigned int i, eligible = 0, aligned = 0;
+
+  for (i = 0; i < e->sn; ++i)
+    {
+      unsigned int d = sequence_distance (&e->seq[i]);
+
+      if (!sequence_tag (&e->seq[i])
+          && ((d >= 4U && d < WINDOW_DEFAULT)
+              || (e->window_n == WINDOW_64K && d > WINDOW_DEFAULT)))
+        {
+          ++eligible;
+
+          if ((d & 3U) == 0U)
+            {
+              ++aligned;
+            }
+        }
+    }
+
+  return aligned > eligible - aligned;
+}
+
+/*****************************************************************************/
+
 static unsigned int
 extra_get (ExtraReader *x, unsigned int n)
 {
@@ -1263,7 +1314,8 @@ decode_len (unsigned int code, unsigned int bias, ExtraReader *extra)
 
 static unsigned int
 decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
-             unsigned int window_n, unsigned int of_alphabet)
+             unsigned int window_n, unsigned int of_alphabet,
+             int aligned_distances)
 {
   unsigned int d, bucket;
 
@@ -1297,7 +1349,21 @@ decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
 
   if (code == 20 && window_n == WINDOW_64K)
     {
-      d = 32769U + extra_get (extra, 15U);
+      if (aligned_distances && extra_get (extra, 1U))
+        {
+          d = 32772U + (extra_get (extra, 13U) << 2);
+        }
+      else
+        {
+          d = 32769U + extra_get (extra, 15U);
+
+          if (aligned_distances && (d & 3U) == 0U)
+            {
+              extra->failed = 1;
+
+              return 0;
+            }
+        }
 
       if (d > WINDOW_64K)
         {
@@ -1319,7 +1385,29 @@ decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
     }
 
   bucket = code - 4U;
-  d = (1U << bucket) + extra_get (extra, bucket);
+
+  if (aligned_distances && bucket >= 2U && code <= 18U)
+    {
+      if (extra_get (extra, 1U))
+        {
+          d = (1U << bucket) + (extra_get (extra, bucket - 2U) << 2);
+        }
+      else
+        {
+          d = (1U << bucket) + extra_get (extra, bucket);
+
+          if ((d & 3U) == 0U)
+            {
+              extra->failed = 1;
+
+              return 0;
+            }
+        }
+    }
+  else
+    {
+      d = (1U << bucket) + extra_get (extra, bucket);
+    }
 
   if (d > window_n)
     {
@@ -2240,16 +2328,42 @@ encode_one_stream (Encoder *e, unsigned int kind)
 /*****************************************************************************/
 
 static void
-extra_parts (const Encoder *e, const Sequence *q, unsigned int values[3],
-             unsigned int widths[3])
+extra_parts (const Encoder *e, const Sequence *q, unsigned int values[4],
+             unsigned int widths[4])
 {
-  unsigned int code;
+  unsigned int code, d = sequence_distance (q);
 
   (void)len_code (q->ll, 0, &values[0], &widths[0]);
   (void)len_code (q->ml, 3, &values[1], &widths[1]);
-  code = distance_code (sequence_distance (q), sequence_tag (q), e->window_n,
-                        &values[2], &widths[2]);
-  (void)code;
+  values[2] = 0U;
+  widths[2] = 0U;
+  code = distance_code (d, sequence_tag (q), e->window_n,
+                        &values[3], &widths[3]);
+
+  if (ENCODER_ALIGNED_DISTANCES (e)
+      && ((code >= 6U && code <= 18U)
+          || (code == 20U && e->window_n == WINDOW_64K)))
+    {
+      widths[2] = 1U;
+
+      if ((d & 3U) == 0U)
+        {
+          values[2] = 1U;
+
+          if (code == 20U)
+            {
+              values[3] = (d - 32772U) >> 2;
+              widths[3] = 13U;
+            }
+          else
+            {
+              unsigned int bucket = code - 4U;
+
+              values[3] = (d - (1U << bucket)) >> 2;
+              widths[3] = bucket - 2U;
+            }
+        }
+    }
 }
 
 /*****************************************************************************/
@@ -2257,7 +2371,7 @@ extra_parts (const Encoder *e, const Sequence *q, unsigned int values[3],
 static unsigned long
 count_extra_bits (Encoder *e, unsigned int counts[2])
 {
-  unsigned int i, j, part, values[3], widths[3];
+  unsigned int i, j, part, values[4], widths[4];
   unsigned long total = 0;
 
   counts[0] = counts[1] = 0;
@@ -2266,7 +2380,7 @@ count_extra_bits (Encoder *e, unsigned int counts[2])
     {
       extra_parts (e, &e->seq[i], values, widths);
 
-      for (part = 0; part < 3; ++part)
+      for (part = 0; part < 4; ++part)
         {
           for (j = widths[part]; j; --j)
             {
@@ -2286,13 +2400,13 @@ count_extra_bits (Encoder *e, unsigned int counts[2])
 static void
 write_extra_raw (Encoder *e, BitWriter *w)
 {
-  unsigned int i, part, values[3], widths[3];
+  unsigned int i, part, values[4], widths[4];
 
   for (i = 0; i < e->sn; ++i)
     {
       extra_parts (e, &e->seq[i], values, widths);
 
-      for (part = 0; part < 3; ++part)
+      for (part = 0; part < 4; ++part)
         {
           bw_add (w, values[part], widths[part]);
         }
@@ -2304,13 +2418,13 @@ write_extra_raw (Encoder *e, BitWriter *w)
 static void
 write_extra_tans (Encoder *e, BitWriter *w, AnsTable *t, unsigned short *state)
 {
-  unsigned int i, j, part, values[3], widths[3];
+  unsigned int i, j, part, values[4], widths[4];
 
   for (i = e->sn; i; --i)
     {
       extra_parts (e, &e->seq[i - 1], values, widths);
 
-      for (part = 3; part; --part)
+      for (part = 4; part; --part)
         {
           unsigned int p = part - 1U;
 
@@ -2329,9 +2443,9 @@ encode_extras (Encoder *e)
 {
   BitWriter w;
 
-  if (!e->extra_ans)
+  if (!ENCODER_EXTRA_ANS (e))
     {
-      unsigned int i, nb, value;
+      unsigned int i, part, values[4], widths[4];
 
       if (e->stage_len > STAGE_DATA_MAX)
         {
@@ -2343,17 +2457,12 @@ encode_extras (Encoder *e)
 
       for (i = 0; i < e->sn; ++i)
         {
-          (void)len_code (e->seq[i].ll, 0, &value, &nb);
-          bw_add (&w, value, nb);
+          extra_parts (e, &e->seq[i], values, widths);
 
-          (void)len_code (e->seq[i].ml, 3, &value, &nb);
-          bw_add (&w, value, nb);
-
-          (void)distance_code (sequence_distance (&e->seq[i]),
-                               sequence_tag (&e->seq[i]), e->window_n, &value,
-                               &nb);
-
-          bw_add (&w, value, nb);
+          for (part = 0; part < 4U; ++part)
+            {
+              bw_add (&w, values[part], widths[part]);
+            }
         }
 
       if (w.failed)
@@ -2479,7 +2588,8 @@ static void
 make_block_header (unsigned char *hdr, unsigned int type,
                    unsigned int width, unsigned int n, unsigned int q,
                    unsigned int lc, unsigned long dl,
-                   const unsigned long *bits, unsigned long crc)
+                   const unsigned long *bits, unsigned long crc,
+                   int aligned_distances)
 {
   unsigned int i;
 
@@ -2487,7 +2597,9 @@ make_block_header (unsigned char *hdr, unsigned int type,
   (void)memcpy (hdr, "LZ9B", 4);
 
   hdr[4] = FORMAT_V6;
-  hdr[5] = (unsigned char)(type | (width << 2));
+  hdr[5] = (unsigned char)(type | (width << 2)
+                           | (aligned_distances
+                                  ? BLOCK_FLAG_ALIGNED_DISTANCES : 0U));
 
   store16 (hdr + 6, BLOCK_HEADER_N);
   store32 (hdr + 8, n);
@@ -2538,7 +2650,8 @@ write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
     }
 
   bits[STREAM_LIT] = bw.bits;
-  make_block_header (h, BLOCK_STORED, width, e->n, 0, e->n, 0, bits, crc);
+  make_block_header (h, BLOCK_STORED, width, e->n, 0, e->n, 0, bits, crc,
+                     0);
 
   return write_exact (out, h, sizeof (h))
          && write_exact (out, e->stage, (size_t)nbytes);
@@ -2550,7 +2663,7 @@ encode_block (FILE *out, Encoder *e)
 {
   unsigned long crc = input_crc (e->buffer + e->window_n, e->n);
   unsigned int i, width = 7;
-  int compressed_ok = 1;
+  int compressed_ok = 1, block_has_9bit = 0, block_aligned = 0;
   unsigned long stored, compressed;
   unsigned char h[BLOCK_HEADER_N];
   unsigned int saved_reps[3];
@@ -2586,6 +2699,33 @@ encode_block (FILE *out, Encoder *e)
         }
     }
 
+  for (i = 0; i < e->n; ++i)
+    {
+      unsigned int value = e->buffer[e->window_n + i];
+
+      if (value >= 256U)
+        {
+          width = 9U;
+          block_has_9bit = 1;
+
+          break;
+        }
+
+      if (value >= 128U)
+        {
+          width = 8U;
+        }
+    }
+
+  e->extra_ans &= ~OPTION_ALIGNED_DISTANCES;
+
+  if (block_has_9bit && aligned_distance_cost_wins (e))
+    {
+      e->extra_ans |= OPTION_ALIGNED_DISTANCES;
+    }
+
+  block_aligned = ENCODER_ALIGNED_DISTANCES (e);
+
   (void)memcpy (e->prefix, /* //-V1086 */
     e->stage + STAGE_DATA_MAX, TABLE_CACHE_BYTES);
 
@@ -2605,21 +2745,6 @@ encode_block (FILE *out, Encoder *e)
       compressed_ok = 0;
     }
 
-  for (i = 0; i < e->n; ++i)
-    {
-      if (e->buffer[e->window_n + i] >= 256)
-        {
-          width = 9;
-
-          break;
-        }
-
-      if (e->buffer[e->window_n + i] >= 128)
-        {
-          width = 8;
-        }
-    }
-
   stored = ((unsigned long)e->n * width + 7UL) / 8UL;
   compressed = e->desc_len + e->stage_len;
 
@@ -2636,7 +2761,7 @@ encode_block (FILE *out, Encoder *e)
     }
 
   make_block_header (h, BLOCK_LZ, 0, e->n, e->sn, e->lit_count,
-                     e->desc_len, e->stream_bits, crc);
+                     e->desc_len, e->stream_bits, crc, block_aligned);
 
   return write_exact (out, h, sizeof (h))
          && write_exact (out, e->desc, (size_t)e->desc_len)
@@ -2673,7 +2798,7 @@ parse_descriptor (Stream *s, AnsTable *t, unsigned int kind,
       s->width = p[(*offset)++];
 
       if (s->width != raw_width (kind, 511)
-          && !(kind == STREAM_LIT && (s->width == 7 || s->width == 8)))
+          && !(kind == STREAM_LIT && (s->width == 7U || s->width == 8U)))
         {
           return 0;
         }
@@ -3150,6 +3275,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   unsigned long bitlen[STREAM_COUNT], lengths[STREAM_COUNT], total = 0;
   unsigned long desc_len, expected;
   unsigned int i, n, q, lc, type, width;
+  int aligned_distances;
   unsigned long off = 0, pos = 0;
   Stream s[ENTROPY_STREAM_COUNT], extra_stream;
   BitReader raw_extra;
@@ -3168,14 +3294,32 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
     }
 
   type = h[5] & 3U;
-  width = h[5] >> 2;
+
+  if (type == BLOCK_LZ)
+    {
+      width = (h[5] >> 2) & 3U;
+      aligned_distances
+          = OUTPUT_AUTO_ALIGNED_DISTANCES (o)
+                ? ((h[5] & BLOCK_FLAG_ALIGNED_DISTANCES) != 0U)
+                : OUTPUT_ALIGNED_DISTANCES (o);
+    }
+  else
+    {
+      width = h[5] >> 2;
+      aligned_distances = 0U;
+    }
+
   n = (unsigned int)load32 (h + 8);
   q = (unsigned int)load32 (h + 12);
   lc = (unsigned int)load32 (h + 16);
   desc_len = load32 (h + 20);
   expected = load32 (h + 24 + 4U * STREAM_COUNT);
 
-  if (!n || n > max_n || n > BLOCK_N || q > n / 3U || lc > n
+  if ((type == BLOCK_LZ && (h[5] & 0xe0U))
+      || (type == BLOCK_LZ
+          && (h[5] & BLOCK_FLAG_ALIGNED_DISTANCES)
+          && !OUTPUT_AUTO_ALIGNED_DISTANCES (o))
+      || !n || n > max_n || n > BLOCK_N || q > n / 3U || lc > n
       || desc_len > DESC_MAX || type > BLOCK_LZ)
     {
       return 0;
@@ -3286,7 +3430,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             }
         }
 
-      if (o->extra_ans
+      if (OUTPUT_EXTRA_ANS (o)
           && !parse_descriptor (&extra_stream, &tables[STREAM_EXTRA],
                                 STREAM_EXTRA, o->of_alphabet, desc, &off,
                                 desc_len))
@@ -3313,7 +3457,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
       (void)memset (&extra, 0, sizeof (extra));
 
-      if (o->extra_ans)
+      if (OUTPUT_EXTRA_ANS (o))
         {
           if (!stream_begin (&extra_stream, bitlen[STREAM_EXTRA], stage + pos))
             {
@@ -3358,7 +3502,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
           ml = decode_len (code, 3, &extra);
           code = stream_get (&s[STREAM_OF]);
           d = decode_dist (code, &extra, o->reps, o->window_n,
-                           o->of_alphabet);
+                           o->of_alphabet, aligned_distances);
 
           {
             unsigned int max_d
@@ -3508,7 +3652,9 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   e.search_depth = depth[level - 1];
   e.lazy = level >= 5;
   e.level = level;
-  e.extra_ans = extra_ans;
+  e.extra_ans = extra_ans ? OPTION_EXTRA_ANS : 0U;
+  e.of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K
+                                         : OF_ALPHABET_32K;
   e.input_mode = mode;
   (void)memcpy (hdr, "LZ9A", 4);
   hdr[4] = FORMAT_V6;
@@ -3517,7 +3663,9 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   store32 (hdr + 8, elements);
   store32 (hdr + 12,
            (window_n == WINDOW_64K ? FEATURE_WINDOW_64K : 0U)
-           | (extra_ans ? FEATURE_EXTRA_ANS : 0U));
+           | (extra_ans ? FEATURE_EXTRA_ANS : 0U)
+           | FEATURE_ALIGNED_DISTANCES
+           | FEATURE_AUTO_ALIGNED_DISTANCES);
   store32 (hdr + 16, crc_bytes (hdr, 16));
 
   if (!write_exact (out, hdr, sizeof (hdr)))
@@ -3626,7 +3774,11 @@ decode_file (FILE *in, FILE *out)
 
   feature_flags = (unsigned int)load32 (hdr + 12);
 
-  if ((feature_flags & ~(FEATURE_WINDOW_64K | FEATURE_EXTRA_ANS)) != 0U)
+  if ((feature_flags & ~(FEATURE_WINDOW_64K | FEATURE_EXTRA_ANS
+                         | FEATURE_ALIGNED_DISTANCES
+                         | FEATURE_AUTO_ALIGNED_DISTANCES)) != 0U
+      || ((feature_flags & FEATURE_AUTO_ALIGNED_DISTANCES)
+          && !(feature_flags & FEATURE_ALIGNED_DISTANCES)))
     {
       return 0;
     }
@@ -3650,9 +3802,14 @@ decode_file (FILE *in, FILE *out)
 
   o->out = out;
   o->out_mode = hdr[5];
-  o->extra_ans = (feature_flags & FEATURE_EXTRA_ANS) != 0U;
+  o->extra_ans = ((feature_flags & FEATURE_EXTRA_ANS) ? OPTION_EXTRA_ANS : 0U)
+                 | ((feature_flags & FEATURE_ALIGNED_DISTANCES)
+                    ? OPTION_ALIGNED_DISTANCES : 0U)
+                 | ((feature_flags & FEATURE_AUTO_ALIGNED_DISTANCES)
+                    ? OPTION_AUTO_ALIGNED_DISTANCES : 0U);
   o->window_n = window_n;
-  o->of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K : OF_ALPHABET_32K;
+  o->of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K
+                                          : OF_ALPHABET_32K;
   o->ring = (unsigned short *)calloc (window_n, sizeof (unsigned short));
 
   if (!o->ring)
@@ -3809,7 +3966,7 @@ main (int argc, char **argv)
       return 0;
     }
 
-  if (argc < 4 || argc > 10
+  if (argc < 4 || argc > 14
       || (strcmp (argv[1], "c8") != 0 && strcmp (argv[1], "c9") != 0
           && strcmp (argv[1], "d") != 0))
     {
@@ -3817,8 +3974,8 @@ main (int argc, char **argv)
               "LZ9ANS reference implementation " LZ9VER "\n\n");
       (void)fprintf (stderr,
               "Usage:\n"
-              "  lz9ans [c8|c9] <input> <output> [-1..-9] [-v] "
-              "[--extra-ans] [--window=64k]\n");
+              "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v] "
+              "[--extra-ans] [--window=N]\n");
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v]\n\n");
       (void)fprintf (stderr,
@@ -3826,14 +3983,14 @@ main (int argc, char **argv)
       (void)fprintf (stderr,
               " default level -5\n\n");
       (void)fprintf (stderr,
-              "  --window=64k:"
-              "        enables a 65,536-symbol history window\n");
+              "  -v:       "
+              "           report file size and compression ratio details\n");
       (void)fprintf (stderr,
               "  --extra-ans:"
-              "         entropy-codes bypass bits with a binary tANS model\n");
+              "         entropy-codes bypass-bits with a binary tANS model\n");
       (void)fprintf (stderr,
-              "  -v:"
-              "                  report file sizes and compression ratio\n\n");
+              "  --window=<32k|64k>:"
+              "  use 32k or 64k symbol history window (default: 32k)\n");
 
       return 2;
     }
