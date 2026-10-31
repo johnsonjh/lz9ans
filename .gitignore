@@ -12,6 +12,7 @@
 /lz9ans_asan
 /lz9ans.plist
 *.orig
+out.txt
 /pvsreport
 __pycache__/
 *.rej
