@@ -18,7 +18,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.7.0-dev (2026-10-31) - DEVELOPMENT BUILD"
+#define LZ9VER "v0.7.0 (2026-10-31)"
 
 /*****************************************************************************/
 
@@ -3392,7 +3392,7 @@ static int
 encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
              int level, unsigned int window_n)
 {
-  static const unsigned short depth[9] = { 1, 2, 4, 8, 24, 48, 96, 192, 512 };
+  static const unsigned short depth[9] = { 2, 4, 8, 12, 24, 48, 96, 192, 512 };
   Encoder e;
   unsigned long done = 0;
   unsigned int acc = 0, nbits = 0;

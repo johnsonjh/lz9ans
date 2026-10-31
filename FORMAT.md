@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com> -->
 <!-- Copyright (c) 2025-2026 The DPS8M Development Team -->
 <!-- SPDX-License-Identifier: MIT -->
-# LZ9ANS version 7-dev (2026‑10‑31) stream format
+# LZ9ANS version 7 (2026‑10‑31) stream format
 
 <!-- toc -->
 
@@ -35,7 +35,7 @@
 
 ## 1. Scope and terminology
 
-LZ9ANS compresses a stream of **symbols** with values from **0 to 511**.
+**LZ9ANS** compresses a stream of **symbols** with values from **0 to 511**.
 Every symbol occupies nine meaningful bits logically, regardless of how it
 is represented in the compressor's working RAM.  The UNIX host tool supports:
 
@@ -55,7 +55,7 @@ The format does **not** attach file names, timestamps, source‑system types,
 record boundaries, 36‑bit word attributes, or Multics segment bit counts.  It
 currently preserves complete 9‑bit symbols only, not an arbitrary final one
 8‑bit fragment.  Although the bit representation is intended to suit
-`mxload`‑style 9‑in‑8 transport, compatibility with a particular mxload
+`mxload`‑style "9‑in‑8" transports, compatibility with a particular `mxload`
 version or tape encoding is *not* asserted.
 
 ### 1.1 Constants
@@ -69,18 +69,18 @@ version or tape encoding is *not* asserted.
 | `MAX_MATCH`          | 32,768 | Maximum matched symbols in one sequence              |
 | `TABLE_LOG`          | 10     | Base‑two log of tANS state count                     |
 | `TABLE_N`            | 1,024  | tANS states, numbered 0–1023                         |
-| `STREAM_COUNT`       | 5      | LIT, LL, ML, OF, raw EXTRA payload                               |
+| `STREAM_COUNT`       | 5      | `LIT`, `LL`, `ML`, `OF`, raw `EXTRA` payload         |
 | `MAX_DESC_OCTETS`    | 8,192  | Maximum total entropy descriptors in a block         |
 | `MAX_PAYLOAD_OCTETS` | 81,920 | Maximum combined compressed substreams in a block    |
 
 The block limit is 32,768 symbols in v7.  The default window is 32,768 symbols;
 frame flag bit 0 enables a 65,536‑symbol window.  The reference encoder selects
-aligned‑distance coding automatically for each LZ block when the block contains
-at least one ninth‑bit symbol and the aligned representation reduces the raw
-EXTRA bit count.  A match may refer to the immediately preceding history and
-may refer backward within the current block.
-The history at the start of a frame is **empty**, not populated with synthetic
-zeros.
+aligned‑distance coding automatically for each `LZ` block when the block
+contains at least one ninth‑bit symbol and the aligned representation reduces
+the raw `EXTRA` bit count.  A match may refer to the immediately preceding
+history and may refer backward within the current block.  The history at the
+start of a frame is **empty**, **not** populated with synthetic zeros or other
+values.
 
 ## 2. 9-bit bit packing and checksums
 
@@ -97,8 +97,8 @@ packed hex:  00 1f df f0 0f f8 06 80 11
 ```
 
 The reverse process reads nine MSB‑first bits at a time.  For the compressed
-frame in mode 9, a final partly used octet MUST have zero unused bits.  If `N`
-is the symbol count, packed mode‑9 output occupies `ceil(9*N/8)` octets;
+frame in mode 9, a final partly used octet **MUST** have zero unused bits.  If
+`N` is the symbol count, packed mode‑9 output occupies `ceil(9*N/8)` octets;
 mode‑8 output occupies `N` octets.
 
 The frame header's CRC covers **its first 13 octets**.  Each block CRC covers
@@ -139,105 +139,108 @@ wire‑format restriction.
 
 ### 3.2 Block header (48 octets)
 
-| Offset | Octets | Interpretation                                                                                                                                                                              |
-|-------:|:-------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0      | 4      | ASCII `LZ9B` (`4c 5a 39 42`)                                                                                                                                                                |
-| 4      | 1      | Version **7**                                                                                                                                                                               |
-| 5      | 1      | Bits 0–1: type 0=STORED, 1=LZ. STORED uses bits 2–7 for width (7/8/9). LZ uses width 0; when frame feature bit 4 is set, bit 4 of this octet selects aligned‑distance coding for that block |
-| 6      | 2      | Header length **48** (`0x0030`); fixed for every v7 block                                                                                                                                   |
-| 8      | 4      | `n`: decoded symbols in this block, 1–32,768                                                                                                                                                |
-| 12     | 4      | `q`: number of LZ match sequences, 0–`floor(n/3)`                                                                                                                                           |
-| 16     | 4      | `lc`: total number of literal symbols, at most `n`                                                                                                                                          |
-| 20     | 4      | `dl`: descriptor length; exactly four entropy descriptors for every LZ block                                                                                                           |
-| 24     | 4      | Meaningful bits in LIT stream                                                                                                                                                               |
-| 28     | 4      | Meaningful bits in LL stream                                                                                                                                                                |
-| 32     | 4      | Meaningful bits in ML stream                                                                                                                                                                |
-| 36     | 4      | Meaningful bits in OF stream                                                                                                                                                                |
-| 40     | 4      | Meaningful bits in EXTRA stream                                                                                                                                                             |
-| 44     | 4      | CRC‑32/ISO‑HDLC of this block's decoded canonical packed‑9 symbols                                                                                                                          |
+| Offset | Octets | Interpretation                                                                                                                                                                                      |
+|-------:|:-------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0      | 4      | ASCII `LZ9B` (`4c 5a 39 42`)                                                                                                                                                                        |
+| 4      | 1      | Version **7**                                                                                                                                                                                       |
+| 5      | 1      | Bits 0–1: type 0=`STORED`, 1=`LZ`. `STORED` uses bits 2–7 for width (7/8/9). `LZ` uses width 0; when frame feature bit 4 is set, bit 4 of this octet selects aligned‑distance coding for that block |
+| 6      | 2      | Header length **48** (`0x0030`); fixed for every v7 block                                                                                                                                           |
+| 8      | 4      | `n`: decoded symbols in this block, 1–32,768                                                                                                                                                        |
+| 12     | 4      | `q`: number of `LZ` match sequences, 0–`floor(n/3)`                                                                                                                                                 |
+| 16     | 4      | `lc`: total number of literal symbols, at most `n`                                                                                                                                                  |
+| 20     | 4      | `dl`: descriptor length; exactly four entropy descriptors for every `LZ` block                                                                                                                      |
+| 24     | 4      | Meaningful bits in `LIT` stream                                                                                                                                                                     |
+| 28     | 4      | Meaningful bits in `LL` stream                                                                                                                                                                      |
+| 32     | 4      | Meaningful bits in `ML` stream                                                                                                                                                                      |
+| 36     | 4      | Meaningful bits in `OF` stream                                                                                                                                                                      |
+| 40     | 4      | Meaningful bits in `EXTRA` stream                                                                                                                                                                   |
+| 44     | 4      | CRC‑32/ISO‑HDLC of this block's decoded canonical packed‑9 symbols                                                                                                                                  |
 
 The values in the five bit‑length fields do **not** include per‑stream
 byte‑alignment padding.  The physical length of each is `ceil(bits/8)`.
 
 The five payloads are concatenated in header order, *each* beginning on a new
-octet boundary.  Any unused low bits in the last octet of a payload MUST be
+octet boundary.  Any unused low bits in the last octet of a payload **MUST** be
 zero.  A zero‑length stream contributes no octets.
 
 The number of blocks is not stored.  Continue until the accumulated `n` equals
 frame `N`.  Neither an incomplete frame nor trailing octets are valid.  A block
-MUST NOT claim more symbols than remain in the frame.
+**MUST NOT** claim more symbols than remain in the frame.
 
 ### 3.3 STORED blocks
 
-`type=0`, `width=7`, `8`, or `9`; `dl=0`; `q=0`; `lc=n`; and only LIT
+`type=0`, `width=7`, `8`, or `9`; `dl=0`; `q=0`; `lc=n`; and only `LIT`
 bit‑length is nonzero, equal to `n * width`.  All symbols are packed MSB‑first
 at the specified width.  A width‑7 block contains values 0–127, width‑8 values
-0–255, and width‑9 values 0–511.  Mode‑8 frames MUST NOT output values above
-255.  STORED blocks leave the LZ history **intact** and do **not** change the
-three repeat‑distance slots.  They are *not* reset points for the dictionary.
+0–255, and width‑9 values 0–511.  Mode‑8 frames **MUST NOT** output values
+above 255.  `STORED` blocks leave the `LZ` history **intact** and do **not**
+change the three repeat‑distance slots.  They are *not* reset points for the
+dictionary.
 
-The encoder chooses the narrowest width that can represent all block symbols.
-The decoder accepts any permitted width with valid symbol values.
+The encoder chooses *the narrowest width* that can represent all block symbols.
+
+The decoder accepts *any permitted width* with valid symbol values.
 
 ### 3.4 LZ blocks
 
 `type=1`, `width=0`.  Immediately after the 48‑octet block header:
 
-1. Descriptors for **LIT**, **LL**, **ML**, and **OF**, exactly `dl` octets in
-   total.  There is no EXTRA descriptor.
+1. Descriptors for **`LIT`**, **`LL`**, **`ML`**, and **`OF`**, exactly `dl`
+   octets in total.  There is no `EXTRA` descriptor.
 
 2. The four encoded entropy bitstreams in that same order.
 
-3. The fifth, forward‑oriented **EXTRA** bitstream, always encoded as raw bits.
+3. The fifth, forward‑oriented **`EXTRA`** bitstream, always encoded as
+   raw bits.
 
-The count of LIT symbols is `lc`.  Each of LL, ML, and OF has exactly `q`
-symbols.  EXTRA has no standalone symbols or entropy descriptor; it holds only
-the additional bits required by length and explicit‑distance codes.
+The count of `LIT` symbols is `lc`.  Each of `LL`, `ML`, and `OF` has exactly
+`q` symbols.  `EXTRA` has no standalone symbols or entropy descriptor; it holds
+only the additional bits required by length and explicit‑distance codes.
 
-When `q=0`, `lc` MUST equal `n`, and the three sequence streams MUST be EMPTY;
-an LZ block containing only entropy‑coded literals is legal.
+When `q=0`, `lc` **MUST** equal `n`, and the three sequence streams **MUST** be
+`EMPTY`; an `LZ` block containing only entropy‑coded literals is legal.
 
 ## 4. Decoded sequence semantics
 
-Each of the `q` sequences consists of one **literal‑run length** LL, one
-**match length** ML, and one **offset** OF.  These are logically synchronous,
-even though their codes occupy separate entropy streams.
+Each of the `q` sequences consists of one **literal‑run length** `LL`, one
+**match length** `ML`, and one **offset** `OF`.  These are logically
+synchronous, even though their codes occupy separate entropy streams.
 
 For each sequence in forward order:
 
-1. Decode LL and emit exactly LL symbols from LIT.
+1. Decode `LL` and emit exactly `LL` symbols from `LIT`.
 
-2. Decode ML; it MUST be at least three.
+2. Decode `ML`; it **MUST** be at least three.
 
-3. Decode OF to a backward **distance** `d` between 1 and the selected
+3. Decode `OF` to a backward **distance** `d` between 1 and the selected
    window limit (32,768 or 65,536 symbols).
 
-4. Copy ML symbols from `d` logical positions behind the current output
+4. Copy `ML` symbols from `d` logical positions behind the current output
    cursor, one symbol at a time, allowing source and destination to overlap.
 
 Once all `q` sequences are emitted, the decoder emits the remaining
 `lc - sum(LL)` literal symbols, sometimes called the *terminal literal run*.
-The output symbol count MUST be exactly `n`.  No separate end‑of‑block or
+The output symbol count **MUST** be exactly `n`.  No separate end‑of‑block or
 literal‑vs‑match flag exists.  The sequence count supplies framing.
 
 The dictionary includes preceding decoded blocks in the **same frame**.
-Distances MUST NOT reach before the start of the frame (there is no preset
+Distances **MUST NOT** reach before the start of the frame (there is no preset
 dictionary), but may reach across a block boundary.  No match can reference
 future symbols.
 
 Matches referencing positions before the beginning of the stream/frame (where
 `distance > produced_symbols_in_frame`) are termed **pre‑history** matches.
 
-In LZ9ANS, pre‑history offsets are strictly illegal: decoders MUST validate
-every match distance and reject the stream immediately if `d` exceeds the
-number of already decoded symbols in the frame.  Pre‑history references
+In **LZ9ANS**, *pre‑history* offsets are strictly illegal: decoders **MUST**
+validate every match distance and reject the stream immediately if `d` exceeds
+the number of already decoded symbols in the frame.  Pre‑history references
 **MUST NOT** be resolved by reading uninitialized memory, by wrapping around
 the history buffer, or by pre‑seeding dummy symbols (such as zeros or spaces).
 
 ### 4.1 Literal-run and match-length codes
 
-LL and ML each use an alphabet of **32** codes numbered 0–31.  The same
-conversion uses `bias=0` for LL and `bias=3` for ML.  Given non‑negative
+`LL` and `ML` each use an alphabet of **32** codes numbered 0–31.  The same
+conversion uses `bias=0` for `LL` and `bias=3` for `ML`.  Given non‑negative
 `t = length - bias`:
 
 ```text
@@ -258,31 +261,32 @@ k      = code - 16
 length = bias + 15 + 2^k + read_extra(k)
 ```
 
-For example, LL=0 maps to code 0, ML=3 maps to code 0, and LL=16 maps to code
-16 with zero additional bits (`k=0`).  Codes permit larger values than can fit
-into one block; decoders MUST reject any decoded length that exceeds the
-remaining block capacity.  ML values larger than 32,768 cannot occur in a valid
-v7 encoder output.
+For example, `LL=0` maps to code 0, `ML=3` maps to code 0, and `LL=16` maps to
+code 16 with zero additional bits (`k=0`).  Codes permit larger values than
+can fit into one block; decoders **MUST** reject any decoded length that
+exceeds the remaining block capacity.  `ML` values larger than 32,768 cannot
+occur in a valid v7 encoder output.
 
 ### 4.2 Offset alphabet, repeat slots, and RUN
 
-OF has **20** codes by default and 21 codes (0–20) with a 64K window:
+`OF` has **20** codes by default and 21 codes (0–20) with a 64K window:
 
-| OF code | Meaning                                             | EXTRA bits  | Repeat‑slot action                |
-|--------:|:----------------------------------------------------|:------------|:----------------------------------|
-| 0       | Distance currently in slot `R0`                     | 0           | Promote that distance to `R0`     |
-| 1       | Distance currently in slot `R1`                     | 0           | Promote that distance to `R0`     |
-| 2       | Distance currently in slot `R2`                     | 0           | Promote that distance to `R0`     |
-| 3       | **RUN:** distance exactly 1                         | 0           | **Do not modify** repeat slots    |
-| 4–18    | Explicit distance bucket `k=code-4`, `0 <= k <= 14` | Exactly `k` | Promote explicit distance to `R0` |
-| 19      | Explicit distance exactly **32,768**                | 0           | Promote 32,768 to `R0`            |
-| 20      | Explicit distance 32,769–65,536 (64K window only)   | 15          | Promote explicit distance to `R0` |
+| OF code   | Meaning                                             | EXTRA bits    | Repeat‑slot action                |
+|----------:|:----------------------------------------------------|:--------------|:----------------------------------|
+| `0`       | Distance currently in slot `R0`                     | `0`           | Promote that distance to `R0`     |
+| `1`       | Distance currently in slot `R1`                     | `0`           | Promote that distance to `R0`     |
+| `2`       | Distance currently in slot `R2`                     | `0`           | Promote that distance to `R0`     |
+| `3`       | **`RUN`:** distance exactly 1                       | `0`           | **Do not modify** repeat slots    |
+| `4–18`    | Explicit distance bucket `k=code-4`, `0 <= k <= 14` | Exactly `k`   | Promote explicit distance to `R0` |
+| `19`      | Explicit distance exactly **32,768**                | `0`           | Promote 32,768 to `R0`            |
+| `20`      | Explicit distance 32,769–65,536 (64K window only)   | `15`          | Promote explicit distance to `R0` |
 
 Initial slots at the beginning of each frame: **`R0=R1=R2=INVALID`**.  Code
 0/1/2 is invalid unless its referenced slot has been initialized by a prior
-explicit or repeat match.  Repeat slots persist across **both** LZ and STORED
-block boundaries, but not across frames.  Code 3 works whenever there is at
-least one previously decoded symbol; it is not dependent on the repeat slots.
+explicit or repeat match.  Repeat slots persist across **both** `LZ` and
+`STORED` block boundaries, but not across frames.  Code 3 works whenever there
+is at least one previously decoded symbol; it is **not** dependent on the
+repeat slots.
 
 For explicit code `c` in 4–18, `k=c-4`:
 
@@ -293,8 +297,8 @@ distance = 2^k + read_extra(k)
 Thus c=4 represents distance 1 with zero bits, c=5 represents 2–3, c=6
 represents 4–7, c=17 represents 8,192–16,383, and c=18 represents
 16,384–32,767.  Code 19 is the exact 32,768 endpoint.  An explicit distance1
-(code4) is permitted and *does* update the repeat slots; RUN (code3) expresses
-the same distance without updating them.  This semantic distinction
+(code4) is permitted and *does* update the repeat slots; `RUN` (code3)
+expresses the same distance without updating them.  This semantic distinction
 is intentional.
 
 **MRU promotion** takes a selected distance `d`, removes its previous
@@ -311,76 +315,77 @@ repeat code2:       [5,       3,       8      ] (returned distance5)
 RUN code3:          [5,       3,       8      ] (returned distance1; NO promotion)
 ```
 
-Unlike Zstandard, **there is no special mapping or shift when LL=0**.  Repeat
-code0 always means slot R0, including following a zero‑length literal run.  An
-encoder and decoder must implement this same rule.
+Unlike Zstandard, **there is no special mapping or shift when `LL`=0**.  Repeat
+code0 always means slot `R0`, including following a zero‑length literal run.
+An encoder and decoder must implement this same rule.
 
 ### 4.3 EXTRA bit ordering
 
 For each sequence in forward order, append the following *to the one shared
-EXTRA stream*, with no inter‑field padding:
+`EXTRA` stream*, with no inter‑field padding:
 
-1. LL additional bits, if the LL code requires any.
+1. `LL` additional bits, if the `LL` code requires any.
 
-2. ML additional bits, if the ML code requires any.
+2. `ML` additional bits, if the `ML` code requires any.
 
-3. If aligned‑distance coding is enabled and OF selects an eligible explicit
+3. If aligned‑distance coding is enabled and `OF` selects an eligible explicit
    bucket (codes 6–18, or code 20 with the 64K window), one alignment flag bit.
 
-4. OF additional bits, if an explicit distance bucket requires any.
+4. `OF` additional bits, if an explicit distance bucket requires any.
 
-The bit groups are MSB‑first.  No EXTRA bits are emitted for RUN or repeat
-codes.  Literal payloads never contribute to EXTRA.  The alignment flag is
-part of the raw EXTRA bitstream.
+The bit groups are MSB‑first.  No `EXTRA` bits are emitted for `RUN` or repeat
+codes.  *Literal payloads never contribute to `EXTRA`*.  The alignment flag is
+part of the raw `EXTRA` bitstream.
 
 ## 5. Entropy streams and descriptors
 
-The entropy alphabet sizes are **512 LIT**, **32 LL**, **32 ML**, and **20 OF**
-(21 OF with the 64K‑window flag).  EXTRA is not an entropy stream; it is always
-a raw forward‑oriented bitstream.  Each entropy stream independently chooses
-one of five descriptor modes.  The selected mode is specified by its descriptor, not inferred from the
-data.
+The entropy alphabet sizes are **512 `LIT`**, **32 `LL`**, **32 `ML`**, and
+**20 `OF`** (21 `OF` with the 64K‑window flag).  `EXTRA` is not an entropy
+stream; it is always a raw forward‑oriented bitstream.  Each entropy stream
+independently chooses one of five descriptor modes.  The selected mode is
+specified by its descriptor, not inferred from the data.
 
 Descriptors are concatenated and parsed without alignment gaps:
 
-| Mode byte | Name  | Rest of descriptor                                          | Payload                                            |
-|----------:|:------|:------------------------------------------------------------|:---------------------------------------------------|
-| 0         | EMPTY | Nothing                                                     | Zero bits; allowed only when symbol count is zero  |
-| 1         | RAW   | One octet: symbol width                                     | Forward MSB‑first fixed‑width codes                |
-| 2         | RLE   | One unsigned varint: sole symbol value                      | Zero bits, repeat symbol for entire count          |
-| 3         | tANS  | Presence bitmap followed by packed normalized frequencies   | Reverse‑consumed tANS bit groups                   |
-| 4         | REUSE | Nothing                                                     | Reverse‑consumed tANS bit groups using prior table |
+| Mode byte   | Name    | Rest of descriptor                                          | Payload                                            |
+|------------:|:--------|:------------------------------------------------------------|:---------------------------------------------------|
+| `0`         | `EMPTY` | Nothing                                                     | Zero bits; allowed only when symbol count is zero  |
+| `1`         | `RAW`   | One octet: symbol width                                     | Forward MSB‑first fixed‑width codes                |
+| `2`         | `RLE`   | One unsigned varint: sole symbol value                      | Zero bits, repeat symbol for entire count          |
+| `3`         | `tANS`  | Presence bitmap followed by packed normalized frequencies   | Reverse‑consumed tANS bit groups                   |
+| `4`         | `REUSE` | Nothing                                                     | Reverse‑consumed tANS bit groups using prior table |
 
-RAW LIT accepts width 7/8/9; RAW LL, ML, OF always use width **5**.  Five bits
-suffice for the 21‑symbol OF alphabet used with a 64K window; codes 21–31 are
-always invalid, and code 20 is invalid unless the 64K‑window flag is set.
-EXTRA has no entropy descriptor or RAW entropy mode; it is carried only in
-the fifth raw payload.  The decoder checks that all entropy symbols lie within
-the required alphabet, that mode EMPTY matches a zero count and no payload,
-and that all meaningful payload bits are consumed.
+`RAW` `LIT` accepts width 7/8/9; `RAW` `LL`, `ML`, `OF` always use width **5**.
+Five bits suffice for the 21‑symbol `OF` alphabet used with a 64K window; codes
+21–31 are always invalid, and code 20 is invalid unless the 64K‑window flag is
+set.  `EXTRA` has no entropy descriptor or RAW entropy mode; it is carried only
+in the fifth raw payload.  The decoder checks that all entropy symbols lie
+within the required alphabet, that mode `EMPTY` matches a zero count and no
+payload, and that all meaningful payload bits are consumed.
 
-RLE values use the existing unsigned little‑endian base‑128 varint.  Each
+`RLE` values use the existing unsigned little‑endian base‑128 varint.  Each
 octet contributes its low seven bits; bit 7 means continue.  The decoder
 permits at most three octets per integer.  Values are further bounded by the
 field's semantic range.  Encoders normally emit the shortest representation.
 
 ### 5.1 Compact tANS descriptors, table reuse, and normalization
 
-A mode‑3 tANS descriptor begins with a fixed‑size **presence bitmap** of
+A mode‑3 `tANS` descriptor begins with a fixed‑size **presence bitmap** of
 `ceil(alphabet/8)` octets.  Within each octet, the most significant bit names
 the lowest‑numbered symbol in that octet.  A set bit means that symbol has a
 nonzero normalized frequency.  Symbols are then enumerated in ascending
-numerical order.  Unused low‑order bits in the final bitmap octet MUST be zero.
+numerical order.  Unused low‑order bits in the final bitmap octet **MUST**
+be zero.
 
 The frequency stream immediately follows the bitmap.  It is a continuous
 MSB‑first bitstream; it is padded with zero bits to the next octet boundary
-when the descriptor ends.  Frequencies MUST be positive, and their sum MUST be
-exactly **1024**.  The encoding depends on the stream kind:
+when the descriptor ends.  Frequencies **MUST** be positive, and their sum
+**MUST** be exactly **1024**.  The encoding depends on the stream kind:
 
-- **LIT:** Each positive frequency is represented by Elias gamma coding of
+- **`LIT`:** Each positive frequency is represented by *Elias gamma coding* of
   the frequency itself.  For positive integer `f`, let `k=floor(log2(f))`;
   write `k` zero bits followed by the `k+1`‑bit binary representation of `f`.
-- **LL, ML, OF:** Frequencies use truncated‑binary coding in ascending
+- **`LL`, `ML`, `OF`:** Frequencies use truncated‑binary coding in ascending
   symbol order.  Let `assigned` be the sum of frequencies already decoded and
   `remaining` the number of set bitmap entries not yet decoded.  For the next
   frequency, define `R = 1024 - assigned - remaining` and `x = f - 1`.
@@ -388,25 +393,25 @@ exactly **1024**.  The encoding depends on the stream kind:
   `x` in `b` bits; otherwise read/write `x+cutoff` in `b+1` bits.  Then add
   `f` to `assigned`.
 
-The decoder MUST reject a descriptor if a decoded frequency is zero, a value
-exceeds the remaining normalization budget, the frequencies do not sum to
+The decoder **MUST** reject a descriptor if a decoded frequency is zero, a
+value exceeds the remaining normalization budget, the frequencies do not sum to
 1024, fewer than two symbols are present, unused bitmap bits are nonzero, or
 nonzero padding follows the final frequency.  The exact frequency normalization
 algorithm used by the encoder is **not normative**; all decoders use the
 serialized normalized frequencies.
 
-Mode 4, **REUSE**, has no descriptor payload.  It selects the most recently
-installed mode‑3 tANS model for the same stream kind in the current frame.
-The first use of REUSE for a stream is invalid until that stream has installed
-a model with mode 3.  A mode‑3 descriptor replaces that stream's cached model.
-EMPTY, RAW, and RLE do not replace it.  Models persist across LZ and STORED
-block boundaries within one frame, but never across frames.  The ANS state
-itself is initialized independently for every block; REUSE saves only the
-normalized model description, not ANS state.
+Mode 4, **`REUSE`**, has no descriptor payload.  It selects the most recently
+installed mode‑3 `tANS` model for the same stream kind in the current frame.
+The first use of `REUSE` for a stream is invalid until that stream has
+installed a model with mode 3.  A mode‑3 descriptor replaces that stream's
+cached model. `EMPTY`, `RAW`, and `RLE` do not replace it.  Models persist
+across `LZ` and `STORED` block boundaries within one frame, but never across
+frames.  The `ANS` state itself is initialized independently for every block;
+`REUSE` saves only the normalized model description, not ANS state.
 
-The encoder may use REUSE only when the candidate normalized frequency vector
-matches the model already installed for that stream.  If a speculative LZ
-block is ultimately emitted as STORED, its untransmitted candidate models are
+The encoder may use `REUSE` only when the candidate normalized frequency vector
+matches the model already installed for that stream.  If a speculative `LZ`
+block is ultimately emitted as `STORED`, its untransmitted candidate models are
 not considered installed.
 
 ### 5.2 Deterministic 1024-state table construction
@@ -482,7 +487,7 @@ Here `cumulative[s]` is the sum of frequencies for symbols below `s`;
 state‑index order.  Finally append `encoder_state` as exactly ten bits.
 Each tANS stream resets its ANS state to zero at every block boundary.
 Its normalized frequency model may persist across blocks and be selected with
-mode‑4 REUSE; LZ history and repeat distances also persist across blocks.
+mode‑4 `REUSE`; `LZ` history and repeat distances also persist across blocks.
 
 The current C implementation can be used to test all table equations;
 `inspect_lz9ans.py` deliberately reconstructs the same tables without calling
@@ -509,11 +514,12 @@ checks before trusting an offset, size, state, or output count:
 5. Check the unused low‑order pad bits of **every** substream, including
    stored data.
 
-6. For STORED, read `n` fixed‑width symbols, updating history but not MRU.
+6. For `STORED`, read `n` fixed‑width symbols, updating history but not MRU.
 
-7. For LZ, reconstruct exactly the LIT/LL/ML/OF descriptors.  Validate
-   frequencies and counts, initialize entropy states, and decode sequences plus
-   the terminal literal run while consuming EXTRA from its raw bitstream.
+7. For `LZ`, reconstruct exactly the `LIT`/`LL`/`ML`/`OF` descriptors.
+   Validate frequencies and counts, initialize entropy states, and decode
+   sequences plus the terminal literal run while consuming `EXTRA` from its
+   raw bitstream.
 
 8. For every copy, validate `1 <= distance <= window_limit`, and ensure the
    distance does not exceed the already reconstructed frame prefix
@@ -522,7 +528,7 @@ checks before trusting an offset, size, state, or output count:
    output capacity.  Copy forwards one symbol at a time to support overlaps.
 
 9. Verify each entropy stream consumes exactly its meaningful bits and its
-   prescribed symbol count; tANS must finish in state zero; EXTRA must be
+   prescribed symbol count; tANS must finish in state zero; `EXTRA` must be
    exhausted.  Verify the actual literal and block symbol counts.
 
 10. Compute the canonical packed‑9 block CRC; reject a mismatch.
@@ -540,11 +546,11 @@ write to a temporary name if destination atomicity is required.
 
 ## 7. Encoder reference choices (informative, not required for decoding)
 
-LZ9ANS v7 uses an **8,192‑entry hash table** keyed from three consecutive
+**LZ9ANS** v7 uses an **8,192‑entry hash table** keyed from three consecutive
 symbols and a hash‑chain ring sized to the selected history window to locate
 match candidates.  The parser maintains a 32K‑symbol block plus up to 64K
 history in 16‑bit C containers, records `(LL, ML, distance)` sequences, and
-emits four entropy streams and the shared EXTRA bitstream.  The distance is
+emits four entropy streams and the shared `EXTRA` bitstream.  The distance is
 stored in a 32‑bit C field so the encoder can carry a 17‑bit distance plus the
 repeat‑slot tag; this is an implementation detail, not a wire field.
 
@@ -556,9 +562,9 @@ this budget:
 
 | Level | Hash‑chain depth | Parser behavior                                      |
 |------:|:-----------------|:-----------------------------------------------------|
-| 1     | 1                | Greedy, no entropy‑price pass                        |
-| 2     | 2                | Greedy, no entropy‑price pass                        |
-| 3     | 4                | Greedy, no entropy‑price pass                        |
+| 1     | 2                | Greedy, no entropy‑price pass                        |
+| 2     | 4                | Greedy, no entropy‑price pass                        |
+| 3     | 8                | Greedy, no entropy‑price pass                        |
 | 4     | 8                | Initial greedy pass; entropy‑price reparse           |
 | 5     | 24               | Level 4 plus one‑position lazy choice; default       |
 | 6     | 48               | Level 5 with deeper candidate search                 |
@@ -577,39 +583,39 @@ the available input and candidate history.
 The cost estimator produces per‑symbol prices in fixed‑point **Q8 bits** (256
 cost units per bit).  It counts codes in a preliminary parse, normalizes their
 tANS frequencies to 1024, estimates negative log probability plus an amortized
-descriptor cost, and compares tANS with RAW and RLE.  It adds exact extra‑bit
-counts for the chosen LL/ML/OF codes and estimates a fixed per‑sequence
-overhead.  Literal sums are accelerated with a cumulative prefix every 16
-symbols.  Levels 8–9 consider slightly shorter alternatives when costed.  When
-distance 1 could use either RUN or an initialized repeat slot, the cost‑aware
-parser may choose the lower estimated offset‑code cost.
+descriptor cost, and compares `tANS` with `RAW` and `RLE`.  It adds exact
+extra‑bit counts for the chosen `LL`/`ML`/`OF` codes and estimates a fixed
+per‑sequence overhead.  Literal sums are accelerated with a cumulative prefix
+every 16 symbols.  Levels 8–9 consider slightly shorter alternatives when
+costed.  When distance 1 could use either `RUN` or an initialized repeat slot,
+the cost‑aware parser may choose the lower estimated offset‑code cost.
 
 This is **bounded heuristic optimization**, not exact optimal parsing.  Prices
 come from one or two block‑level frequency snapshots; the final entropy
 distribution may differ after reparse.  Compression size is not mathematically
 guaranteed to improve monotonically with increasing level.
 
-For each symbol stream the encoder chooses EMPTY, RLE, RAW, a new compact tANS
-model, or REUSE by estimated serialized size.  REUSE is available only when the
-normalized model equals the most recently installed model for that stream.  If
-the *whole* LZ payload (including descriptors) is no smaller than storing the
-block at its narrowest 7/8/9 bit width, it writes STORED instead; speculative
-repeat‑slot changes and untransmitted table models are discarded.  The decoder
-never needs to know which parser or level was used.
+For each symbol stream the encoder chooses `EMPTY`, `RLE`, `RAW`, or `TANS`
+models, or `REUSE` by estimated serialized size.  `REUSE` is available only
+when the normalized model equals the most recently installed model for that
+stream.  If the *whole* `LZ` payload (including descriptors) is no smaller than
+storing the block at its narrowest 7/8/9 bit width, it writes `STORED` instead;
+speculative repeat‑slot changes and untransmitted table models are discarded.
+The decoder never needs to know which parser or level was used.
 
 Linux reference implementation explicit state on one x86‑64/8‑bit‑octet build:
 **497,730 octets of encoder state** and **207,304 octets of decoder state**
 as reported by `./lz9ans --memory` (plus stack, C library file buffers, and
 allocator overhead).  The decoder figure includes four `AnsTable` instances;
-there is no EXTRA entropy table.  The encoder remains below 512 KiB
+there is no `EXTRA` entropy table.  The encoder remains below 512 KiB
 (524,288 bytes) by 26,558 bytes.  Its four 512-entry frequency vectors occupy
-4,096 bytes at the tail of the existing staging allocation.  The usable staged payload area is reduced accordingly, but remains larger than
-the maximum STORED block.  The
-reported allocation totals are unchanged.  The figure includes the `Encoder`
-structure and its associated arrays, but excludes small helper stack
-temporaries, C runtime state, `FILE` buffers, allocator overhead, and the
-process itself.  It is therefore a useful state budget, not a guarantee of
-total resident memory.  This is **not** a proof of native Multics segment
+4,096 bytes at the tail of the existing staging allocation.  The usable staged
+payload area is reduced accordingly, but remains larger than the maximum
+`STORED` block.  The reported allocation totals are unchanged.  The figure
+includes the `Encoder` structure and its associated arrays, but excludes small
+helper stack temporaries, C runtime state, `FILE` buffers, allocator overhead,
+and the process itself.  It is therefore a useful state budget, not a guarantee
+of total resident memory.  This is **not** a proof of native Multics segment
 occupancy: ANSI C89's 8‑bit‑octet host assumptions and Multics PL/I word
 representation are different and must be sized separately.
 
@@ -617,10 +623,10 @@ representation are different and must be sized separately.
 
 The checked‑in `.lz9a` vectors are the byte‑exact **v7** frames produced by
 the reference encoder with automatic per‑block aligned‑distance selection.  The
-frames advertise feature mask `0x18`; `mixed9` also exercises an LZ block whose
-aligned‑distance selector is set.  `test_vectors.py` verifies their SHA‑256
-digests, decodes them with both the C decoder and the independent Python
-decoder, and re‑encodes the original inputs to ensure byte‑for‑byte
+frames advertise feature mask `0x18`; `mixed9` also exercises an `LZ` block
+whose aligned‑distance selector is set.  `test_vectors.py` verifies their
+SHA‑256 digests, decodes them with both the C decoder and the independent
+Python decoder, and re‑encodes the original inputs to ensure byte‑for‑byte
 reproducibility.  These vectors exercise the published wire representation;
 they are not intended as a general compression benchmark.  The V7 decoder
 rejects every other frame version; no legacy decoding is implemented.
@@ -635,17 +641,18 @@ rejects every other frame version; no legacy decoding is implemented.
 | `longdist16k` | 8          | 9     | 32,768     | 16,462        | `5291fbb28f736bd0e9eed950189744f0b20404ffd976fb8c6de7d885e5d536d7` |
 | `longdist32k` | 8          | 9     | 65,536     | 32,890        | `3d58c47ff1a0d272f814f0b06aec12a3d646dd5a7366920f5be30e0e299048f0` |
 
-The `run8` frame uses one LZ sequence and **OF code 3** (RUN).  The `mixed9`
-fixture exercises actual values over 255.  The `longdist16k` and `longdist32k`
-fixtures exercise explicit offset codes 18 and 19, respectively; `longdist32k`
-references the full preceding stored block.  Bigger real ELFs in the regression
-suite exercise all three MRU codes and literal, length, and offset
-tANS streams.  `test_features.py` also builds a two‑block frame whose second
-block reuses an installed LIT model, then checks both C and Python decoding.
+The `run8` frame uses one `LZ` sequence and **`OF` code 3** (`RUN`).  The
+`mixed9` fixture exercises actual values over 255.  The `longdist16k` and
+`longdist32k` fixtures exercise explicit offset codes 18 and 19, respectively;
+`longdist32k` references the full preceding stored block.  Bigger real files in
+the regression suite exercise all three MRU codes and literal, length, and
+offset `tANS` streams.  `test_features.py` also builds a two‑block frame whose
+second block reuses an installed `LIT` model, then checks both C and Python
+decoding.
 
 Independent implementations should decode the published **bytes**, not just
 their own re‑encodings, and should reject the negative cases above.  For
-interoperability the actual uncompressed content, packed9 bit order, block
+interoperability the actual uncompressed content, *packed9* bit order, block
 checksums, MRU state across block types, and tANS state termination all have
 to match exactly.
 
@@ -653,7 +660,7 @@ to match exactly.
 
 - **Format stability:** V7 is the only format emitted and accepted by this
   implementation.  It uses a 17‑octet frame header, a fixed 48‑octet block
-  header, four entropy streams, and one raw EXTRA stream.  Frames with any
+  header, four entropy streams, and one raw `EXTRA` stream.  Frames with any
   version other than 7 are rejected.  Future incompatible changes require a
   new format version.
 
@@ -668,13 +675,13 @@ to match exactly.
   must explicitly define how to handle backward distances referencing positions
   before the beginning of the file ("pre‑history").
 
-  LZ9ANS prevents this attack surface through several distinct layers:
+  **LZ9ANS** prevents this attack surface through several distinct layers:
 
   1. *Grammar and validation:* Pre‑history references are strictly illegal.
      Every distance `d` must satisfy `1 <= d <= produced` (where `produced` is
      the count of symbols emitted so far in the current frame).  Any stream
-     with `d > produced` is malformed and MUST be rejected immediately prior
-     to any buffer access or copy.
+     with `d > produced` is malformed and **MUST** be rejected immediately
+     prior to any buffer access or copy.
 
   2. *Repeat‑slot integrity:* Repeat distance slots are initialized to
      `INVALID` at frame start; referencing an uninitialized slot is an
@@ -702,66 +709,67 @@ Version 7 is the only format emitted or accepted by this implementation. Its
 a one-octet feature mask at offset 12, and CRC-32/ISO-HDLC at offsets 13–16.
 The CRC covers octets 0–12. The feature mask is interpreted as follows:
 
-| Bit | Mask   | Meaning                                                        |
-|----:|:-------|:---------------------------------------------------------------|
-| 0   | `0x01` | 65,536-symbol history window                                   |
-| 1   | `0x02` | Reserved; MUST be zero                                         |
-| 2   | `0x04` | Reserved; MUST be zero                                         |
-| 3   | `0x08` | Aligned-distance coding is available throughout the frame      |
-| 4   | `0x10` | Aligned-distance coding is selected independently per LZ block |
-| 5–7 | —      | Reserved; MUST be zero                                         |
+| Bit   | Mask   | Meaning                                                          |
+|------:|:-------|:-----------------------------------------------------------------|
+| `0`   | `0x01` | 65,536-symbol history window                                     |
+| `1`   | `0x02` | Reserved; **MUST** be zero                                       |
+| `2`   | `0x04` | Reserved; **MUST** be zero                                       |
+| `3`   | `0x08` | Aligned-distance coding is available throughout the frame        |
+| `4`   | `0x10` | Aligned-distance coding is selected independently per `LZ` block |
+| `5–7` | —      | Reserved; **MUST** be zero                                       |
 
-Only mask `0x19` is currently defined. Bits outside that mask MUST be zero;
-reserved bits 1, 2, and 5–7 MUST be zero. Bit 4 MUST NOT be set unless bit 3 is
-also set. Bit 0 selects the window for the whole frame. When bit 4 is clear,
-bit 3 selects frame-wide aligned-distance coding; when both bits 3 and 4 are
-clear, the ordinary distance representation is used throughout the frame.
+Only mask `0x19` is currently defined. Bits outside that mask **MUST** be zero;
+reserved bits 1, 2, and 5–7 **MUST** be zero. Bit 4 **MUST NOT** be set unless
+bit 3 is also set. Bit 0 selects the window for the whole frame. When bit 4 is
+clear, bit 3 selects frame-wide aligned-distance coding; when both bits 3 and
+4 are clear, the ordinary distance representation is used throughout the frame.
 The reference encoder sets bits 3 and 4 and records its decision separately
-in each LZ block. The maximum block size remains 32,768 symbols. Frames and
-blocks whose version byte is not 7 MUST be rejected; no earlier format version
-is supported.
+in each `LZ` block. The maximum block size remains 32,768 symbols. Frames and
+blocks whose version byte is not 7 **MUST** be rejected; no earlier format
+version is supported.
 
 ### 10.1 Fixed block-header size and stream layout
 
 Every V7 block has a 48-octet header. The five bit-length fields at offsets
-24, 28, 32, 36, and 40 always describe **LIT, LL, ML, OF, EXTRA**,
+24, 28, 32, 36, and 40 always describe **`LIT`, `LL`, `ML`, `OF`, `EXTRA`**,
 respectively; the block CRC is always at offset 44. The header layout and all
 five payload bit lengths are fixed. All payloads begin on octet boundaries and
-their unused low-order padding bits MUST be zero. A STORED block uses only LIT;
-all other bit lengths and `dl` MUST be zero.
+their unused low-order padding bits **MUST** be zero. A `STORED` block uses
+only `LIT`; all other bit lengths and `dl` **MUST** be zero.
 
-An LZ block has exactly four entropy streams: LIT, LL, ML, and OF. Its
-descriptor area contains exactly one descriptor for each stream, in that
-order. The fifth payload is always the raw, forward-oriented EXTRA bitstream;
-it never has an entropy descriptor or model. The EXTRA bit-length field is
-always present, and the decoder derives the number of EXTRA bits from the
-decoded LL, ML, and OF codes.
+An `LZ` block has exactly four entropy streams: `LIT`, `LL`, `ML`, and `OF`.
+Its descriptor area contains exactly one descriptor for each stream, in that
+order. The fifth payload is always the raw, forward-oriented `EXTRA` bitstream;
+it never has an entropy descriptor or model. The `EXTRA` bit-length field is
+always present, and the decoder derives the number of `EXTRA` bits from the
+decoded `LL`, `ML`, and `OF` codes.
 
 ### 10.2 64K history window (`0x01`)
 
 The window flag increases the history limit to **65,536 logical symbols**;
-blocks and maximum match length remain 32,768 symbols. The OF alphabet grows
-from 20 to 21 symbols; repeat slots and RUN semantics are unchanged. Codes
+blocks and maximum match length remain 32,768 symbols. The `OF` alphabet grows
+from 20 to 21 symbols; repeat slots and `RUN` semantics are unchanged. Codes
 0–19 retain the ordinary offset meanings, with code 19 representing exactly
 32,768. Code 20 represents distances 32,769 through 65,536 and carries exactly
-15 EXTRA bits:
+15 `EXTRA` bits:
 
 ```text
 distance = 32769 + read_extra(15)
 ```
 
 The encoder writes `distance - 32769` in 15 MSB-first bits. Code 20 is invalid
-unless the 64K-window flag is set. With the default 32K window the OF alphabet
-remains 20 and code 20 is invalid. An implementation must use at least 17 bits
-for the logical distance; 16-bit storage is insufficient for distance 65,536.
+unless the 64K-window flag is set. With the default 32K window the `OF`
+alphabet remains 20 and code 20 is invalid. An implementation must use at least
+17 bits for the logical distance; 16-bit storage is insufficient for distance
+65,536.
 
 ### 10.3 Aligned explicit distances (`0x08`)
 
-With this flag, selected explicit distances carry one alignment flag in EXTRA.
-It is present for OF codes 6–18 (the explicit buckets with at least two
-ordinary extra bits) and, when the 64K window is enabled, code 20. It is not
-present for repeat codes 0–2, RUN code 3, explicit codes 4–5, or exact-distance
-code 19.
+With this flag, selected explicit distances carry one alignment flag in
+`EXTRA`.  It is present for `OF` codes 6–18 (the explicit buckets with at least
+two ordinary extra bits) and, when the 64K window is enabled, code 20.  It is
+not present for repeat codes 0–2, `RUN` code 3, explicit codes 4–5, or
+exact-distance code 19.
 
 For codes 6–18, let `k = code - 4`. The alignment flag precedes the ordinary
 distance extra bits:
@@ -769,43 +777,45 @@ distance extra bits:
 - Flag 1 means the distance is divisible by four and is decoded as
   `distance = 2^k + 4 * read_extra(k - 2)`.
 - Flag 0 means the ordinary representation is used:
-  `distance = 2^k + read_extra(k)`. The resulting distance MUST NOT be
+  `distance = 2^k + read_extra(k)`. The resulting distance **MUST NOT** be
   divisible by four; this canonicality rule prevents duplicate encodings.
 
 For code 20 with the 64K window:
 
 - Flag 1 means `distance = 32772 + 4 * read_extra(13)`.
 - Flag 0 means `distance = 32769 + read_extra(15)` and the resulting distance
-  MUST NOT be divisible by four.
+  **MUST NOT** be divisible by four.
 
 The encoder sets the flag from the distance residue. This feature does not
-change the OF alphabet or its RAW width. The additional flag is included in
-the ordinary forward EXTRA bit order. A decoder MUST reject noncanonical
+change the `OF` alphabet or its RAW width. The additional flag is included in
+the ordinary forward `EXTRA` bit order. A decoder **MUST** reject noncanonical
 flag-0 forms whose decoded distance is divisible by four.
 
 ### 10.4 Per-block aligned-distance selection (`0x18`)
 
 When frame feature bits 3 and 4 are both set, alignment is selected separately
-for each LZ block. The decoder MUST use aligned-distance decoding only when
-bit 4 of block-header octet 5 is set. For an LZ block this bit is otherwise
-zero; bits 5–7 of that octet MUST be zero. For a STORED block, octet 5
-continues to encode the stored symbol width in bits 2–7, and bit 4 MUST NOT be
-interpreted as an alignment selector. The reference encoder always emits
-both frame feature bits and makes a fresh selection for every LZ block.
+for each `LZ` block. The decoder **MUST** use aligned-distance decoding only
+when bit 4 of block-header octet 5 is set. For an `LZ` block this bit is
+otherwise zero; bits 5–7 of that octet **MUST** be zero. For a `STORED` block,
+octet 5 continues to encode the stored symbol width in bits 2–7, and bit 4
+**MUST NOT** be interpreted as an alignment selector. The reference encoder
+always emits both frame feature bits and makes a fresh selection for every
+`LZ` block.
 
 The per-block selector is a coding decision, not a new payload stream. The
-encoder can select the aligned form using the exact raw-EXTRA bit-count delta:
-let `E` be the number of eligible explicit-distance codes (6–18, plus code 20
-with a 64K window), and let `A` be the number of those distances divisible by
-four. Aligned coding adds one selector bit for each eligible distance and
-removes two residual bits for each aligned distance, so its raw-EXTRA bit
-delta is `E - 2*A`. A cost-based encoder SHOULD select aligned coding only
-when this delta is negative; ties select the ordinary representation.
+encoder can select the aligned form using the exact raw-`EXTRA` bit-count
+delta: let `E` be the number of eligible explicit-distance codes (6–18, plus
+code 20 with a 64K window), and let `A` be the number of those distances
+divisible by four. Aligned coding adds one selector bit for each eligible
+distance and removes two residual bits for each aligned distance, so its
+raw-`EXTRA` bit delta is `E - 2*A`. A cost-based encoder SHOULD select aligned
+coding only when this delta is negative; ties select the ordinary
+representation.
 
 The reference encoder requires at least one symbol with value 256–511 in the
 block before considering aligned coding. This ninth-bit gate is a
 compression-selection heuristic, not a decoder requirement; the decoder
 follows only the block-header selector. The encoder then selects aligned
-coding only when the exact raw-EXTRA bit delta is negative. Blocks containing
+coding only when the exact raw-`EXTRA` bit delta is negative. Blocks containing
 only values below 256 therefore always use the ordinary distance
-representation. The selection rule applies to the single raw EXTRA stream.
+representation. The selection rule applies to the single raw `EXTRA` stream.
