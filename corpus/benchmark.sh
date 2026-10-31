@@ -25,7 +25,7 @@ dobench()
 {
   (
     cd obj
-    printf '%s\n' "Benchmarking $1 ..."
+    printf '%s\n' "Benchmarking lz9ans $1 ..."
     touch out.out
 
     for n in $(seq 1 9); do
