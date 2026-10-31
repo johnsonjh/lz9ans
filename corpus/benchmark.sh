@@ -17,7 +17,7 @@ test -x ../lz9ans > /dev/null 2>&1 || {
 }
 
 test -d ./obj > /dev/null 2>&1 || {
-  printf '%s\n' "ERROR: ./obj directory not found."
+  printf '%s\n' "ERROR: ./obj directory not found; extract 9bit_corpus.tar.lz."
   exit 1
 }
 
