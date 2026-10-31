@@ -319,11 +319,7 @@ def decode(data):
             descriptors = []
             index = 0
             for kind in kinds:
-                alphabet = (
-                    512
-                    if kind == 0
-                    else of_alphabet if kind == 3 else 32
-                )
+                alphabet = 512 if kind == 0 else of_alphabet if kind == 3 else 32
                 descriptor, index = parse_descriptor(
                     desc, index, kind, alphabet, table_cache
                 )

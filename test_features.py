@@ -102,8 +102,10 @@ def main():
                     bit_lengths = struct.unpack_from("<5I", header, 24)
                     if (header[5] & 3) == 1 and bit_lengths[4] != 0:
                         found_raw_extra = True
-                    position += 48 + descriptor_size + sum(
-                        (bits + 7) // 8 for bits in bit_lengths
+                    position += (
+                        48
+                        + descriptor_size
+                        + sum((bits + 7) // 8 for bits in bit_lengths)
                     )
                 assert found_raw_extra, "raw EXTRA payload was not exercised"
             print(
@@ -213,7 +215,9 @@ def main():
         # per-block frame flag while leaving the global alignment flag set.
         frame_wide_aligned = bytearray(auto_frame)
         frame_wide_aligned[12] = 8
-        frame_wide_aligned[13:17] = struct.pack("<I", zlib.crc32(frame_wide_aligned[:13]))
+        frame_wide_aligned[13:17] = struct.pack(
+            "<I", zlib.crc32(frame_wide_aligned[:13])
+        )
         frame_wide_aligned[17 + 5] &= ~16
         archive.write_bytes(frame_wide_aligned)
         run("d", archive, decoded)
@@ -237,7 +241,9 @@ def main():
         # v7 semantics and remain readable by both decoders.
         alignment_disabled = bytearray(gated_frame)
         alignment_disabled[12] = 0
-        alignment_disabled[13:17] = struct.pack("<I", zlib.crc32(alignment_disabled[:13]))
+        alignment_disabled[13:17] = struct.pack(
+            "<I", zlib.crc32(alignment_disabled[:13])
+        )
         archive.write_bytes(alignment_disabled)
         run("d", archive, decoded)
         assert decoded.read_bytes() == aligned_8
