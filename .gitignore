@@ -8,6 +8,7 @@
 /compile_commands.json
 /corpus/obj/
 /corpus/*.txt
+*.gcda
 /log.pvs
 /lz9ans
 /lz9ans_asan
