@@ -44,13 +44,17 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 Compare the same corpus packed with popular (8‑bit) compression algorithms
 (at their highest settings)**:**
 
-| Utility | Algorithm       | Compressed size         | Memory usage | Performance     |
-|--------:|:----------------|:------------------------|-------------:|:----------------|
-| `gzip`  | DEFLATE         | `202,579,712`&nbsp;bits | 350&nbsp;KiB | 46%&nbsp;larger |
-| `bzip2` | BWT+MTF+HC      | `177,850,592`&nbsp;bits | 1.2&nbsp;MiB | 28%&nbsp;larger |
-| `zstd`  | LZ77+FSE+HC     | `170,129,736`&nbsp;bits | 10&nbsp;MiB  | 22%&nbsp;larger |
-| `lzip`  | LZMA            | `158,016,800`&nbsp;bits | 13&nbsp;MiB  | 14%&nbsp;larger |
-| `zpaq`  | M5&nbsp;(CM+AC) | `131,954,176`&nbsp;bits | 246&nbsp;MiB | 5%&nbsp;smaller |
+|    Utility | Algorithm       | Compressed size         | Memory usage | Performance      |
+|-----------:|:----------------|:------------------------|-------------:|:-----------------|
+| `compress` | LZW             | `279,608,608`&nbsp;bits | 400&nbsp;KiB | 101%&nbsp;larger |
+| `lz4`      | LZ77            | `221,797,064`&nbsp;bits | 512&nbsp;KiB |  60%&nbsp;larger |
+| `gzip`     | DEFLATE         | `202,579,712`&nbsp;bits | 350&nbsp;KiB |  46%&nbsp;larger |
+| `bzip2`    | BWT+MTF+HC      | `177,850,592`&nbsp;bits | 1.2&nbsp;MiB |  28%&nbsp;larger |
+| `zstd`     | LZ77+FSE+ANS    | `170,129,736`&nbsp;bits | 10&nbsp;MiB  |  23%&nbsp;larger |
+| `bzip3`    | BWT+MTF+HC      | `169,815,400`&nbsp;bits | 8.2&nbsp;MiB |  22%&nbsp;larger |
+| `brotli`   | LZ77+HC+CD      | `161,977,528`&nbsp;bits | 210&nbsp;MiB |  17%&nbsp;larger |
+| `lzip`     | LZMA            | `158,016,800`&nbsp;bits | 13&nbsp;MiB  |  14%&nbsp;larger |
+| `zpaq`     | M5&nbsp;(CM+AC) | `131,954,176`&nbsp;bits | 246&nbsp;MiB |  5%&nbsp;smaller |
 
 ## Specification
 
