@@ -14,7 +14,7 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 **LZ9ANS‑32K** (corpus of `446,584,168` input bits) [486 KiB memory usage]**:**
 
 | Level  | Compressed bits | Percent   | Ratio     | Delta          |
-|-------:|:----------------|:----------|:----------|---------------:|
+|-------:|:---------------:|:---------:|:---------:|---------------:|
 | **‑1** | `156,524,320`   | `64.951%` | `2.853:1` | `‑290,059,848` |
 | **‑2** | `153,334,488`   | `65.665%` | `2.912:1` |   `‑3,189,832` |
 | **‑3** | `151,348,568`   | `66.110%` | `2.951:1` |   `‑1,985,920` |
@@ -28,7 +28,7 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 **LZ9ANS‑64K** (corpus of `446,584,168` input bits) [678 KiB memory usage]**:**
 
 | Level  | Compressed bits | Percent   | Ratio     | Delta          |
-|-------:|:----------------|:----------|:----------|---------------:|
+|-------:|:---------------:|:---------:|:---------:|---------------:|
 | **‑1** | `155,032,776`   | `65.285%` | `2.881:1` | `‑291,551,392` |
 | **‑2** | `151,466,024`   | `66.083%` | `2.948:1` |   `‑3,566,752` |
 | **‑3** | `149,144,208`   | `66.603%` | `2.994:1` |   `‑2,321,816` |
@@ -44,17 +44,17 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 Compare the same corpus packed with popular (8‑bit) compression algorithms
 (at their highest settings)**:**
 
-|    Utility | Algorithm       | Compressed size         | Memory       | Performance      |
-|-----------:|:----------------|:------------------------|-------------:|:-----------------|
-| `compress` | LZW             | `279,608,608`&nbsp;bits | 400&nbsp;KiB | 101%&nbsp;larger |
-| `lz4`      | LZ77            | `221,797,064`&nbsp;bits | 512&nbsp;KiB |  60%&nbsp;larger |
-| `gzip`     | DEFLATE         | `202,579,712`&nbsp;bits | 350&nbsp;KiB |  46%&nbsp;larger |
-| `bzip2`    | BWT+MTF+HC      | `177,850,592`&nbsp;bits | 1.2&nbsp;MiB |  28%&nbsp;larger |
-| `zstd`     | LZ77+FSE+ANS    | `170,129,736`&nbsp;bits | 10&nbsp;MiB  |  23%&nbsp;larger |
-| `bzip3`    | BWT+MTF+HC      | `169,815,400`&nbsp;bits | 8.2&nbsp;MiB |  22%&nbsp;larger |
-| `brotli`   | LZ77+HC+CD      | `161,977,528`&nbsp;bits | 210&nbsp;MiB |  17%&nbsp;larger |
-| `lzip`     | LZMA            | `158,016,800`&nbsp;bits | 13&nbsp;MiB  |  14%&nbsp;larger |
-| `zpaq`     | M5&nbsp;(CM+AC) | `131,954,176`&nbsp;bits | 246&nbsp;MiB |  5%&nbsp;smaller |
+|    Utility | Algorithm              | Compressed bits | Memory       | Performance      |
+|-----------:|:-----------------------|:---------------:|-------------:|-----------------:|
+| `compress` | LZW                    | `279,608,608`   | 400&nbsp;KiB | 101%&nbsp;larger |
+| `lz4`      | LZ77                   | `221,797,064`   | 512&nbsp;KiB |  60%&nbsp;larger |
+| `gzip`     | DEFLATE&nbsp;(LZ77+HC) | `202,579,712`   | 350&nbsp;KiB |  46%&nbsp;larger |
+| `bzip2`    | BWT+MTF+HC             | `177,850,592`   | 1.2&nbsp;MiB |  28%&nbsp;larger |
+| `zstd`     | LZ77+FSE+ANS           | `170,129,736`   | 10&nbsp;MiB  |  23%&nbsp;larger |
+| `bzip3`    | BWT+MTF+HC             | `169,815,400`   | 8.2&nbsp;MiB |  22%&nbsp;larger |
+| `brotli`   | LZ77+HC+CD             | `161,977,528`   | 210&nbsp;MiB |  17%&nbsp;larger |
+| `lzip`     | LZMA                   | `158,016,800`   | 13&nbsp;MiB  |  14%&nbsp;larger |
+| `zpaq`     | M5&nbsp;(CM+AC)        | `131,954,176`   | 246&nbsp;MiB |  5%&nbsp;smaller |
 
 ## Specification
 
