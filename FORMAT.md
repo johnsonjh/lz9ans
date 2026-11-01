@@ -6,30 +6,30 @@
 <!-- toc -->
 
 - [1. Scope and terminology](#1-scope-and-terminology)
-  * [1.1 Constants](#11-constants)
+  * [1.1. Constants](#11-constants)
 - [2. 9-bit bit packing and checksums](#2-9-bit-bit-packing-and-checksums)
 - [3. Frame and block headers](#3-frame-and-block-headers)
-  * [3.1 Frame header (17 octets)](#31-frame-header-17-octets)
-  * [3.2 Block header (48 octets)](#32-block-header-48-octets)
-  * [3.3 STORED blocks](#33-stored-blocks)
-  * [3.4 LZ blocks](#34-lz-blocks)
+  * [3.1. Frame header (17 octets)](#31-frame-header-17-octets)
+  * [3.2. Block header (48 octets)](#32-block-header-48-octets)
+  * [3.3. STORED blocks](#33-stored-blocks)
+  * [3.4. LZ blocks](#34-lz-blocks)
 - [4. Decoded sequence semantics](#4-decoded-sequence-semantics)
-  * [4.1 Literal-run and match-length codes](#41-literal-run-and-match-length-codes)
-  * [4.2 Offset alphabet, repeat slots, and RUN](#42-offset-alphabet-repeat-slots-and-run)
-  * [4.3 EXTRA bit ordering](#43-extra-bit-ordering)
+  * [4.1. Literal-run and match-length codes](#41-literal-run-and-match-length-codes)
+  * [4.2. Offset alphabet, repeat slots, and RUN](#42-offset-alphabet-repeat-slots-and-run)
+  * [4.3. EXTRA bit ordering](#43-extra-bit-ordering)
 - [5. Entropy streams and descriptors](#5-entropy-streams-and-descriptors)
-  * [5.1 Compact tANS descriptors, table reuse, and normalization](#51-compact-tans-descriptors-table-reuse-and-normalization)
-  * [5.2 Deterministic 1024-state table construction](#52-deterministic-1024-state-table-construction)
-  * [5.3 tANS decoding and the unusual reverse bit direction](#53-tans-decoding-and-the-unusual-reverse-bit-direction)
+  * [5.1. Compact tANS descriptors, table reuse, and normalization](#51-compact-tans-descriptors-table-reuse-and-normalization)
+  * [5.2. Deterministic 1024-state table construction](#52-deterministic-1024-state-table-construction)
+  * [5.3. tANS decoding and the unusual reverse bit direction](#53-tans-decoding-and-the-unusual-reverse-bit-direction)
 - [6. Decoder procedure and validation requirements](#6-decoder-procedure-and-validation-requirements)
 - [7. Encoder reference choices (informative, not required for decoding)](#7-encoder-reference-choices-informative-not-required-for-decoding)
 - [8. Golden vectors and interoperability](#8-golden-vectors-and-interoperability)
 - [9. Format gaps and future design choices](#9-format-gaps-and-future-design-choices)
 - [10. Version 7 feature flags and fixed stream layout](#10-version-7-feature-flags-and-fixed-stream-layout)
-  * [10.1 Fixed block-header size and stream layout](#101-fixed-block-header-size-and-stream-layout)
-  * [10.2 64K history window (`0x01`)](#102-64k-history-window-0x01)
-  * [10.3 Aligned explicit distances (`0x08`)](#103-aligned-explicit-distances-0x08)
-  * [10.4 Per-block aligned-distance selection (`0x18`)](#104-per-block-aligned-distance-selection-0x18)
+  * [10.1. Fixed block-header size and stream layout](#101-fixed-block-header-size-and-stream-layout)
+  * [10.2. 64K history window (`0x01`)](#102-64k-history-window-0x01)
+  * [10.3. Aligned explicit distances (`0x08`)](#103-aligned-explicit-distances-0x08)
+  * [10.4. Per-block aligned-distance selection (`0x18`)](#104-per-block-aligned-distance-selection-0x18)
 
 <!-- tocstop -->
 
@@ -40,7 +40,7 @@ Every symbol occupies nine meaningful bits logically, regardless of how it
 is represented in the compressor's working RAM.  The UNIX host tool supports:
 
 - **Mode 8:** "Ordinary" binary file, with one logical symbol per 8‑bit octet.
-  This is a subset of the support 9‑bit alphabet, values 0–255.
+  This is a subset of the supported 9‑bit alphabet, values 0–255.
 
 - **Mode 9:** A packed MSB‑first stream of consecutive 9‑bit symbols.  There
   are exactly eight symbols per nine octets, with a zero‑padded final octet
@@ -58,7 +58,7 @@ currently preserves complete 9‑bit symbols only, not an arbitrary final one
 `mxload`‑style "9‑in‑8" transports, compatibility with a particular `mxload`
 version or tape encoding is *not* asserted.
 
-### 1.1 Constants
+### 1.1. Constants
 
 | Identifier           | Value  | Meaning                                              |
 |---------------------:|:-------|:-----------------------------------------------------|
@@ -121,40 +121,40 @@ to produce exactly its stated number of symbols.  The frame has no trailer.
 For a zero‑symbol frame there are no blocks.  All header widths are unsigned
 and little‑endian except the ASCII magics and single‑byte flags.
 
-### 3.1 Frame header (17 octets)
+### 3.1. Frame header (17 octets)
 
 | Offset | Octets | Required value / interpretation                                                                                                                                                                |
 |-------:|:-------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0      | 4      | ASCII `LZ9A` (`4c 5a 39 41`)                                                                                                                                                                   |
-| 4      | 1      | Version **7**                                                                                                                                                                                  |
-| 5      | 1      | Output representation **8** or **9**                                                                                                                                                           |
-| 6      | 2      | Header length **17** (`0x0011`)                                                                                                                                                                |
-| 8      | 4      | Total logical symbol count, `N`, 0–4,294,967,295                                                                                                                                               |
-| 12     | 1      | Feature flags: bit 0 = 64K window, bit 1 = reserved (zero), bit 2 = reserved (zero), bit 3 = aligned‑distance support, bit 4 = per‑block aligned‑distance selection; bits 5–7 **MUST** be zero |
-| 13     | 4      | CRC‑32/ISO‑HDLC of octets 0–12                                                                                                                                                                 |
+| `0`    | `4`    | ASCII `LZ9A` (`4c 5a 39 41`)                                                                                                                                                                   |
+| `4`    | `1`    | Version **7**                                                                                                                                                                                  |
+| `5`    | `1`    | Output representation **8** or **9**                                                                                                                                                           |
+| `6`    | `2`    | Header length **17** (`0x0011`)                                                                                                                                                                |
+| `8`    | `4`    | Total logical symbol count, `N`, 0–4,294,967,295                                                                                                                                               |
+| `12`   | `1`    | Feature flags: bit 0 = 64K window, bit 1 = reserved (zero), bit 2 = reserved (zero), bit 3 = aligned‑distance support, bit 4 = per‑block aligned‑distance selection; bits 5–7 **MUST** be zero |
+| `13`   | `4`    | CRC‑32/ISO‑HDLC of octets 0–12                                                                                                                                                                 |
 
 The UNIX CLI uses seekable input and may impose a smaller file size limit
 through `ftell`/`long`; that is a host implementation limit, not an additional
 wire‑format restriction.
 
-### 3.2 Block header (48 octets)
+### 3.2. Block header (48 octets)
 
 | Offset | Octets | Interpretation                                                                                                                                                                                      |
 |-------:|:-------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0      | 4      | ASCII `LZ9B` (`4c 5a 39 42`)                                                                                                                                                                        |
-| 4      | 1      | Version **7**                                                                                                                                                                                       |
-| 5      | 1      | Bits 0–1: type 0=`STORED`, 1=`LZ`. `STORED` uses bits 2–7 for width (7/8/9). `LZ` uses width 0; when frame feature bit 4 is set, bit 4 of this octet selects aligned‑distance coding for that block |
-| 6      | 2      | Header length **48** (`0x0030`); fixed for every v7 block                                                                                                                                           |
-| 8      | 4      | `n`: decoded symbols in this block, 1–32,768                                                                                                                                                        |
-| 12     | 4      | `q`: number of `LZ` match sequences, 0–`floor(n/3)`                                                                                                                                                 |
-| 16     | 4      | `lc`: total number of literal symbols, at most `n`                                                                                                                                                  |
-| 20     | 4      | `dl`: descriptor length; exactly four entropy descriptors for every `LZ` block                                                                                                                      |
-| 24     | 4      | Meaningful bits in `LIT` stream                                                                                                                                                                     |
-| 28     | 4      | Meaningful bits in `LL` stream                                                                                                                                                                      |
-| 32     | 4      | Meaningful bits in `ML` stream                                                                                                                                                                      |
-| 36     | 4      | Meaningful bits in `OF` stream                                                                                                                                                                      |
-| 40     | 4      | Meaningful bits in `EXTRA` stream                                                                                                                                                                   |
-| 44     | 4      | CRC‑32/ISO‑HDLC of this block's decoded canonical packed‑9 symbols                                                                                                                                  |
+| `0`     | `4`   | ASCII `LZ9B` (`4c 5a 39 42`)                                                                                                                                                                        |
+| `4`     | `1`   | Version **7**                                                                                                                                                                                       |
+| `5`     | `1`   | Bits 0–1: type 0=`STORED`, 1=`LZ`. `STORED` uses bits 2–7 for width (7/8/9). `LZ` uses width 0; when frame feature bit 4 is set, bit 4 of this octet selects aligned‑distance coding for that block |
+| `6`     | `2`   | Header length **48** (`0x0030`); fixed for every v7 block                                                                                                                                           |
+| `8`     | `4`   | `n`: decoded symbols in this block, 1–32,768                                                                                                                                                        |
+| `12`    | `4`   | `q`: number of `LZ` match sequences, 0–`floor(n/3)`                                                                                                                                                 |
+| `16`    | `4`   | `lc`: total number of literal symbols, at most `n`                                                                                                                                                  |
+| `20`    | `4`   | `dl`: descriptor length; exactly four entropy descriptors for every `LZ` block                                                                                                                      |
+| `24`    | `4`   | Meaningful bits in `LIT` stream                                                                                                                                                                     |
+| `28`    | `4`   | Meaningful bits in `LL` stream                                                                                                                                                                      |
+| `32`    | `4`   | Meaningful bits in `ML` stream                                                                                                                                                                      |
+| `36`    | `4`   | Meaningful bits in `OF` stream                                                                                                                                                                      |
+| `40`    | `4`   | Meaningful bits in `EXTRA` stream                                                                                                                                                                   |
+| `44`    | `4`   | CRC‑32/ISO‑HDLC of this block's decoded canonical packed‑9 symbols                                                                                                                                  |
 
 The values in the five bit‑length fields do **not** include per‑stream
 byte‑alignment padding.  The physical length of each is `ceil(bits/8)`.
@@ -167,7 +167,7 @@ The number of blocks is not stored.  Continue until the accumulated `n` equals
 frame `N`.  Neither an incomplete frame nor trailing octets are valid.  A block
 **MUST NOT** claim more symbols than remain in the frame.
 
-### 3.3 STORED blocks
+### 3.3. STORED blocks
 
 `type=0`, `width=7`, `8`, or `9`; `dl=0`; `q=0`; `lc=n`; and only `LIT`
 bit‑length is nonzero, equal to `n * width`.  All symbols are packed MSB‑first
@@ -181,7 +181,7 @@ The encoder chooses *the narrowest width* that can represent all block symbols.
 
 The decoder accepts *any permitted width* with valid symbol values.
 
-### 3.4 LZ blocks
+### 3.4. LZ blocks
 
 `type=1`, `width=0`.  Immediately after the 48‑octet block header:
 
@@ -237,7 +237,7 @@ the number of already decoded symbols in the frame.  Pre‑history references
 **MUST NOT** be resolved by reading uninitialized memory, by wrapping around
 the history buffer, or by pre‑seeding dummy symbols (such as zeros or spaces).
 
-### 4.1 Literal-run and match-length codes
+### 4.1. Literal-run and match-length codes
 
 `LL` and `ML` each use an alphabet of **32** codes numbered 0–31.  The same
 conversion uses `bias=0` for `LL` and `bias=3` for `ML`.  Given non‑negative
@@ -267,7 +267,7 @@ can fit into one block; decoders **MUST** reject any decoded length that
 exceeds the remaining block capacity.  `ML` values larger than 32,768 cannot
 occur in a valid v7 encoder output.
 
-### 4.2 Offset alphabet, repeat slots, and RUN
+### 4.2. Offset alphabet, repeat slots, and RUN
 
 `OF` has **20** codes by default and 21 codes (0–20) with a 64K window:
 
@@ -319,7 +319,7 @@ Unlike Zstandard, **there is no special mapping or shift when `LL`=0**.  Repeat
 code0 always means slot `R0`, including following a zero‑length literal run.
 An encoder and decoder must implement this same rule.
 
-### 4.3 EXTRA bit ordering
+### 4.3. EXTRA bit ordering
 
 For each sequence in forward order, append the following *to the one shared
 `EXTRA` stream*, with no inter‑field padding:
@@ -368,7 +368,7 @@ octet contributes its low seven bits; bit 7 means continue.  The decoder
 permits at most three octets per integer.  Values are further bounded by the
 field's semantic range.  Encoders normally emit the shortest representation.
 
-### 5.1 Compact tANS descriptors, table reuse, and normalization
+### 5.1. Compact tANS descriptors, table reuse, and normalization
 
 A mode‑3 `tANS` descriptor begins with a fixed‑size **presence bitmap** of
 `ceil(alphabet/8)` octets.  Within each octet, the most significant bit names
@@ -414,7 +414,7 @@ matches the model already installed for that stream.  If a speculative `LZ`
 block is ultimately emitted as `STORED`, its untransmitted candidate models are
 not considered installed.
 
-### 5.2 Deterministic 1024-state table construction
+### 5.2. Deterministic 1024-state table construction
 
 Given the normalized frequencies, construct `spread[0..1023]` as follows:
 
@@ -445,7 +445,7 @@ decode_table[x] = (symbol=s, nbits=nbits, base=base)
 
 The invariant is `0 <= base` and `base + (1<<nbits) <= 1024`.
 
-### 5.3 tANS decoding and the unusual reverse bit direction
+### 5.3. tANS decoding and the unusual reverse bit direction
 
 For each tANS stream, the last **10 meaningful bits** of its stream represent
 its initial decoder state, numbered 0–1023.  The decoder then retrieves
@@ -562,15 +562,15 @@ this budget:
 
 | Level | Hash‑chain depth | Parser behavior                                      |
 |------:|:-----------------|:-----------------------------------------------------|
-| 1     | 2                | Greedy, no entropy‑price pass                        |
-| 2     | 4                | Greedy, no entropy‑price pass                        |
-| 3     | 8                | Greedy, no entropy‑price pass                        |
-| 4     | 8                | Initial greedy pass; entropy‑price reparse           |
-| 5     | 24               | Level 4 plus one‑position lazy choice; default       |
-| 6     | 48               | Level 5 with deeper candidate search                 |
-| 7     | 96               | Level 5 with deeper candidate search                 |
-| 8     | 192              | Level 5 plus near‑longest alternative match trials   |
-| 9     | 512              | Level 8 plus a further cost‑refinement pass          |
+| `1`   | `2`              | Greedy, no entropy‑price pass                        |
+| `2`   | `4`              | Greedy, no entropy‑price pass                        |
+| `3`   | `8`              | Greedy, no entropy‑price pass                        |
+| `4`   | `8`              | Initial greedy pass; entropy‑price reparse           |
+| `5`   | `24`             | Level 4 plus one‑position lazy choice; default       |
+| `6`   | `48`             | Level 5 with deeper candidate search                 |
+| `7`   | `96`             | Level 5 with deeper candidate search                 |
+| `8`   | `192`            | Level 5 plus near‑longest alternative match trials   |
+| `9`   | `512`            | Level 8 plus a further cost‑refinement pass          |
 
 The match finder explicitly probes R0, R1, and R2 before walking the hash
 chain, so repeat distances remain candidates even when their chain entries
@@ -633,13 +633,13 @@ rejects every other frame version; no legacy decoding is implemented.
 
 | Fixture       | Input mode | Level | Raw octets | Frame octets  | SHA‑256 of compressed frame                                        |
 |--------------:|:-----------|:------|:-----------|:--------------|:-------------------------------------------------------------------|
-| `empty8`      | 8          | 1     | 0          | 17            | `9eb5cbe8690f77c6e69a856d203fb8afd97db7bd41b810bc25673017206d7cce` |
-| `abc8`        | 8          | 1     | 12         | 76            | `7ce8c8b130773180db46300850ba1c9e7df258535920c5ce770c5f4cdc0361e9` |
-| `run8`        | 8          | 6     | 96         | 74            | `ec9946197edbf49bd87cb9765ff61c40f9b7a97275e1b38cbb9b47c0ba9a84a9` |
-| `mixed9`      | 9          | 6     | 216        | 84            | `8a7fc1ff272b2adc9e9e0b28df16ada9e1d3a617ff15930d9539a6e74d8dd4d6` |
-| `switch8`     | 8          | 6     | 1,152      | 95            | `9a3492b91610c647edc7071db29312d59e18e49b9c617d3671892d99699116e7` |
-| `longdist16k` | 8          | 9     | 32,768     | 16,462        | `5291fbb28f736bd0e9eed950189744f0b20404ffd976fb8c6de7d885e5d536d7` |
-| `longdist32k` | 8          | 9     | 65,536     | 32,890        | `3d58c47ff1a0d272f814f0b06aec12a3d646dd5a7366920f5be30e0e299048f0` |
+| `empty8`      | `8`        | `1`   | `0`        | `17`          | `9eb5cbe8690f77c6e69a856d203fb8afd97db7bd41b810bc25673017206d7cce` |
+| `abc8`        | `8`        | `1`   | `12`       | `76`          | `7ce8c8b130773180db46300850ba1c9e7df258535920c5ce770c5f4cdc0361e9` |
+| `run8`        | `8`        | `6`   | `96`       | `74`          | `ec9946197edbf49bd87cb9765ff61c40f9b7a97275e1b38cbb9b47c0ba9a84a9` |
+| `mixed9`      | `9`        | `6`   | `216`      | `84`          | `8a7fc1ff272b2adc9e9e0b28df16ada9e1d3a617ff15930d9539a6e74d8dd4d6` |
+| `switch8`     | `8`        | `6`   | `1,152`    | `95`          | `9a3492b91610c647edc7071db29312d59e18e49b9c617d3671892d99699116e7` |
+| `longdist16k` | `8`        | `9`   | `32,768`   | `16,462`      | `5291fbb28f736bd0e9eed950189744f0b20404ffd976fb8c6de7d885e5d536d7` |
+| `longdist32k` | `8`        | `9`   | `65,536`   | `32,890`      | `3d58c47ff1a0d272f814f0b06aec12a3d646dd5a7366920f5be30e0e299048f0` |
 
 The `run8` frame uses one `LZ` sequence and **`OF` code 3** (`RUN`).  The
 `mixed9` fixture exercises actual values over 255.  The `longdist16k` and
@@ -728,7 +728,7 @@ in each `LZ` block. The maximum block size remains 32,768 symbols. Frames and
 blocks whose version byte is not 7 **MUST** be rejected; no earlier format
 version is supported.
 
-### 10.1 Fixed block-header size and stream layout
+### 10.1. Fixed block-header size and stream layout
 
 Every V7 block has a 48-octet header. The five bit-length fields at offsets
 24, 28, 32, 36, and 40 always describe **`LIT`, `LL`, `ML`, `OF`, `EXTRA`**,
@@ -744,7 +744,7 @@ it never has an entropy descriptor or model. The `EXTRA` bit-length field is
 always present, and the decoder derives the number of `EXTRA` bits from the
 decoded `LL`, `ML`, and `OF` codes.
 
-### 10.2 64K history window (`0x01`)
+### 10.2. 64K history window (`0x01`)
 
 The window flag increases the history limit to **65,536 logical symbols**;
 blocks and maximum match length remain 32,768 symbols. The `OF` alphabet grows
@@ -763,7 +763,7 @@ alphabet remains 20 and code 20 is invalid. An implementation must use at least
 17 bits for the logical distance; 16-bit storage is insufficient for distance
 65,536.
 
-### 10.3 Aligned explicit distances (`0x08`)
+### 10.3. Aligned explicit distances (`0x08`)
 
 With this flag, selected explicit distances carry one alignment flag in
 `EXTRA`.  It is present for `OF` codes 6–18 (the explicit buckets with at least
@@ -791,7 +791,7 @@ change the `OF` alphabet or its RAW width. The additional flag is included in
 the ordinary forward `EXTRA` bit order. A decoder **MUST** reject noncanonical
 flag-0 forms whose decoded distance is divisible by four.
 
-### 10.4 Per-block aligned-distance selection (`0x18`)
+### 10.4. Per-block aligned-distance selection (`0x18`)
 
 When frame feature bits 3 and 4 are both set, alignment is selected separately
 for each `LZ` block. The decoder **MUST** use aligned-distance decoding only
