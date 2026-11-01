@@ -5,13 +5,13 @@
 
 **LZ9ANS** is a 9‑bit [LZ77](https://en.wikipedia.org/wiki/LZ77_and_LZ78) +
 [tANS](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems)
-codec designed to efficiently compress 9‑bit mainframe input data
-(*e.g.*, Multics, OS2200) to standard 8‑bit output streams.  It offers nine
-compression profiles: four "fast", four "tight", one "maximum".
+codec designed to efficiently compress **9‑bit** mainframe input data (*e.g.*,
+**Multics**, **OS2200**) to standard **8‑bit** output streams.  It offers nine
+compression profiles: four *fast*, four *tight*, one *maximum*.
 
 ## Performance
 
-**LZ9ANS‑32K** (corpus of `446,584,168` input bits) [486 KiB memory usage]:
+**LZ9ANS‑32K** (corpus of `446,584,168` input bits) [486 KiB memory usage]**:**
 
 | Level | Compressed size    | Percent   | Ratio     | Delta (vs. last level) |
 |------:|:-------------------|:----------|:----------|-----------------------:|
@@ -25,7 +25,7 @@ compression profiles: four "fast", four "tight", one "maximum".
 | ‑8    | `143,028,680` bits | `67.973%` | `3.122:1` |       `‑296,312` delta |
 | ‑9    | `142,763,040` bits | `68.032%` | `3.128:1` |       `‑265,640` delta |
 
-**LZ9ANS‑64K** (corpus of `446,584,168` input bits) [678 KiB memory usage]:
+**LZ9ANS‑64K** (corpus of `446,584,168` input bits) [678 KiB memory usage]**:**
 
 | Level | Compressed size    | Percent   | Ratio     | Delta (vs. last level) |
 |------:|:-------------------|:----------|:----------|-----------------------:|
@@ -41,8 +41,8 @@ compression profiles: four "fast", four "tight", one "maximum".
 
 ### Competition
 
-Compare the same corpus with popular (8‑bit) compression algorithms
-(at their highest settings):
+Compare the same corpus packed with popular (8‑bit) compression algorithms
+(at their highest settings)**:**
 
 | Utility | Algorithm       | Compressed size         | Memory usage | Performance     |
 |--------:|:----------------|:------------------------|-------------:|:----------------|
@@ -55,3 +55,7 @@ Compare the same corpus with popular (8‑bit) compression algorithms
 ## Specification
 
 See [`FORMAT.md`](FORMAT.md) for the complete specification.
+
+## License
+
+**LZ9ANS** is made available under the terms of the [MIT License](LICENSE).
