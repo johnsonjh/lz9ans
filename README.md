@@ -11,7 +11,8 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 
 ## Performance
 
-**LZ9ANS‑32K** (corpus of `446,584,168` input bits) [486 KiB memory usage]**:**
+**LZ9ANS‑32K** (corpus of `446,584,168` input bits)
+[**486** **KiB** memory usage]**:**
 
 | Level  | Compressed bits | Percent   | Ratio     | Delta          |
 |-------:|:---------------:|:---------:|:---------:|---------------:|
@@ -25,7 +26,8 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 | **‑8** | `143,028,680`   | `67.973%` | `3.122:1` |     `‑296,312` |
 | **‑9** | `142,763,040`   | `68.032%` | `3.128:1` |     `‑265,640` |
 
-**LZ9ANS‑64K** (corpus of `446,584,168` input bits) [678 KiB memory usage]**:**
+**LZ9ANS‑64K** (corpus of `446,584,168` input bits)
+[**678** **KiB** memory usage]**:**
 
 | Level  | Compressed bits | Percent   | Ratio     | Delta          |
 |-------:|:---------------:|:---------:|:---------:|---------------:|
@@ -48,6 +50,7 @@ Compare the same corpus packed with popular (8‑bit) compression algorithms
 |-----------:|:-----------------------|:---------------:|-------------:|-----------------:|
 | `compress` | LZW                    | `279,608,608`   | 400&nbsp;KiB | 101%&nbsp;larger |
 | `lz4`      | LZ77                   | `221,797,064`   | 512&nbsp;KiB |  60%&nbsp;larger |
+| 'lzop`     | LZO1X                  | `212,130,184`   | 70K&nbsp;KiB |  53%&nbspllarger |
 | `gzip`     | DEFLATE&nbsp;(LZ77+HC) | `202,579,712`   | 350&nbsp;KiB |  46%&nbsp;larger |
 | `bzip2`    | BWT+MTF+HC             | `177,850,592`   | 1.2&nbsp;MiB |  28%&nbsp;larger |
 | `zstd`     | LZ77+FSE+ANS           | `170,129,736`   | 10&nbsp;MiB  |  23%&nbsp;larger |
