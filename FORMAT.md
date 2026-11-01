@@ -45,7 +45,7 @@ Every symbol occupies nine meaningful bits logically, regardless of how it
 is represented in the compressor's working RAM.  The UNIX host tool supports:
 
 - **Mode 8:** "Ordinary" binary file, with one logical symbol per 8‑bit octet.
-  This is a subset of the supported 9‑bit alphabet, values 0–255.
+  This is a subset of the supported 9‑bit alphabet using only values 0–255.
 
 - **Mode 9:** A packed MSB‑first stream of consecutive 9‑bit symbols.  Eight
   complete symbols occupy nine octets.  A final incomplete group is
