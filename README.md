@@ -50,7 +50,7 @@ Compare the same corpus packed with popular (8‑bit) compression algorithms
 |-----------:|:-----------------------|:---------------:|-------------:|-----------------:|
 | `compress` | LZW                    | `279,608,608`   | 400&nbsp;KiB | 101%&nbsp;larger |
 | `lz4`      | LZ77                   | `221,797,064`   | 512&nbsp;KiB |  60%&nbsp;larger |
-| 'lzop`     | LZO1X                  | `212,130,184`   | 70K&nbsp;KiB |  53%&nbspllarger |
+| `lzop`     | LZO1X                  | `212,130,184`   | 70K&nbsp;KiB |  53%&nbspllarger |
 | `gzip`     | DEFLATE&nbsp;(LZ77+HC) | `202,579,712`   | 350&nbsp;KiB |  46%&nbsp;larger |
 | `bzip2`    | BWT+MTF+HC             | `177,850,592`   | 1.2&nbsp;MiB |  28%&nbsp;larger |
 | `zstd`     | LZ77+FSE+ANS           | `170,129,736`   | 10&nbsp;MiB  |  23%&nbsp;larger |
