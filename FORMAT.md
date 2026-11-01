@@ -3,6 +3,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
+> Document revision **17** (2026‑11‑01)
+
 <!-- toc -->
 
 - [1. Scope and terminology](#1-scope-and-terminology)
@@ -42,14 +44,17 @@
 
 **LZ9ANS** compresses a stream of **symbols** with values from **0 to 511**.
 Every symbol occupies nine meaningful bits logically, regardless of how it
-is represented in the compressor's working RAM.  The UNIX host tool supports:
+is represented in the compressor's working RAM.
 
-- **Mode 8:** "Ordinary" binary file, with one logical symbol per 8‑bit octet.
-  This is a subset of the supported 9‑bit alphabet using only values 0–255.
+The UNIX host tool supports both 8‑bit and 9‑bit input:
+
+- **Mode 8:** "Ordinary" UNIX binary files stored with one logical symbol per
+  8‑bit octet.  This is a subset of the supported 9‑bit alphabet using only
+  values 0–255.
 
 - **Mode 9:** A packed MSB‑first stream of consecutive 9‑bit symbols.  Eight
   complete symbols occupy nine octets.  A final incomplete group is
-  zero-padded to an octet boundary.  The reserved `END` truncation extension
+  zero‑padded to an octet boundary.  The reserved `END` truncation extension
   can later shorten the meaningful bit count in the final symbol; the current
   UNIX implementation does not implement it.
 
@@ -80,7 +85,7 @@ version or tape encoding is *not* asserted.
 | `STREAM_COUNT`       | 5      | `LIT`, `LL`, `ML`, `OF`, raw `EXTRA` payload         |
 | `MAX_DESC_OCTETS`    | 8,192  | Maximum total entropy descriptors in a block         |
 | `MAX_PAYLOAD_OCTETS` | 81,920 | Maximum combined compressed substreams in a block    |
-| `FRAME_HEADER_MAX_N` | 4,096 | Maximum frame-header length, including TLVs and CRC |
+| `FRAME_HEADER_MAX_N` | 4,096  | Maximum frame‑header length, including TLVs and CRC  |
 
 The block limit is 32,768 symbols in v8.  The default window is 32,768 symbols;
 frame flag bit 0 enables a 65,536‑symbol window.  The reference encoder selects
@@ -106,13 +111,13 @@ packed hex:  00 1f df f0 0f f8 06 80 11
 ```
 
 The reverse process reads nine MSB‑first bits at a time.  For the current
-complete-symbol mode‑9 representation, a final partly used octet **MUST** have
+complete‑symbol mode‑9 representation, a final partly used octet **MUST** have
 zero unused bits.  If `N` is the symbol count and no future `END` truncation
 metadata is present, packed mode‑9 output occupies `ceil(9*N/8)` octets;
-mode‑8 output occupies `N` octets.  The reserved final-symbol truncation
+mode‑8 output occupies `N` octets.  The reserved final‑symbol truncation
 extension is defined in section 10.4.
 
-The frame-header CRC covers **all header octets preceding its final four-octet
+The frame‑header CRC covers **all header octets preceding its final four‑octet
 CRC field** (the first 13 octets when there are no extensions).  Each block CRC
 covers
 its **decoded logical symbols re‑packed as a fresh 9‑bit MSB‑first stream**,
@@ -131,28 +136,28 @@ constructed octet**, final XOR `0xFFFFFFFF`).  This equals the usual
 
 Every v8 frame begins with a frame header whose length is 17–4,096 octets.
 The header is followed by block records.  In the currently implemented
-known-length form, the blocks produce exactly the symbol count in the frame
-header and there is no trailer.  A zero-symbol known-length frame has no
-blocks.  A future unknown-length form and its terminal record are reserved in
+known‑length form, the blocks produce exactly the symbol count in the frame
+header and there is no trailer.  A zero‑symbol known‑length frame has no
+blocks.  A future unknown‑length form and its terminal record are reserved in
 section 10; the current reference encoder does not emit that form and the
-current decoders reject it.  All integer fields are unsigned and little-endian
-except the ASCII magics and single-byte control/feature fields.
+current decoders reject it.  All integer fields are unsigned and little‑endian
+except the ASCII magics and single‑byte control/feature fields.
 
 ### 3.1. Frame header (17 to 4096 octets)
 
-The fixed 13-octet prefix is followed by zero or more TLV extensions and a
-four-octet CRC.  With no extensions, the header is exactly 17 octets.
+The fixed 13‑octet prefix is followed by zero or more TLV extensions and a
+four‑octet CRC.  With no extensions, the header is exactly 17 octets.
 
 | Offset              | Octets   | Required value / interpretation                                         |
 |--------------------:|:---------|:------------------------------------------------------------------------|
 | `0`                 | `4`      | ASCII `LZ9A` (`4c 5a 39 41`)                                            |
 | `4`                 | `1`      | Version **`8`**                                                         |
 | `5`                 | `1`      | Output representation **`8`** or **`9`**                                |
-| `6`                 | `2`      | Total frame-header length, 17–4,096 octets, including the final CRC     |
-| `8`                 | `4`      | Total logical symbol count `N`, 0–4,294,967,295 for known-length frames |
+| `6`                 | `2`      | Total frame‑header length, 17–4,096 octets, including the final CRC     |
+| `8`                 | `4`      | Total logical symbol count `N`, 0–4,294,967,295 for known‑length frames |
 | `12`                | `1`      | Feature flags, defined in section 10.1                                  |
 | `13`                | variable | Zero or more TLV extensions, ending immediately before the CRC          |
-| `header_length - 4` | `4`      | CRC-32/ISO-HDLC of all preceding frame-header octets                    |
+| `header_length - 4` | `4`      | CRC‑32/ISO‑HDLC of all preceding frame‑header octets                    |
 
 The TLV convention is defined in section 10.2.  The extension area may be
 empty.  A decoder **MUST** validate the complete header length before reading
@@ -161,51 +166,51 @@ the CRC over the complete header prefix, including all TLVs.  Unknown
 noncritical TLVs are skipped; unknown critical TLVs are rejected.  Duplicate
 extension identifiers and identifier zero are invalid.
 
-For known-length frames, block decoding stops when the sum of decoded block
-symbols equals `N`; any trailing octets are invalid.  The `0x81` unknown-count
+For known‑length frames, block decoding stops when the sum of decoded block
+symbols equals `N`; any trailing octets are invalid.  The `0x81` unknown‑count
 extension reserves a future streaming form in which `N` is zero and an `END`
 record is mandatory.  The current implementation recognizes but rejects that
-extension because unknown-length streaming is not yet implemented.
+extension because unknown‑length streaming is not yet implemented.
 
-The UNIX CLI currently counts its input before encoding and uses a known-length
+The UNIX CLI currently counts its input before encoding and uses a known‑length
 frame.  It uses seekable input for that count; this is a host implementation
 limitation, not a requirement of the reserved future streaming representation.
 
 ### 3.2. Block prefix and type-specific headers
 
-Every data block (`STORED` or `LZ`) begins with a seven-octet common prefix.
-The reserved `END` control record is a five-octet exception and is defined in
+Every data block (`STORED` or `LZ`) begins with a seven‑octet common prefix.
+The reserved `END` control record is a five‑octet exception and is defined in
 section 3.5.
 
 
-| Offset | Octets | Interpretation |
-|-------:|:-------|:---------------|
-| `0` | `4` | ASCII `LZ9B` (`4c 5a 39 42`) |
-| `4` | `1` | Block type and type-specific flags/width |
-| `5` | `2` | `n`: decoded logical symbols in this block, 1–32,768 |
+| Offset | Octets | Interpretation                                       |
+|-------:|:-------|:-----------------------------------------------------|
+| `0`    | `4`    | ASCII `LZ9B` (`4c 5a 39 42`)                         |
+| `4`    | `1`    | Block type and type‑specific flags/width             |
+| `5`    | `2`    | `n`: decoded logical symbols in this block, 1–32,768 |
 
-The low two bits of octet 4 identify the data-block type: `0=STORED` and
-`1=LZ`.  Type `2=END` is a reserved control record with its own five-octet
+The low two bits of octet 4 identify the data‑block type: `0=STORED` and
+`1=LZ`.  Type `2=END` is a reserved control record with its own five‑octet
 minimum syntax; type `3` is reserved and invalid.  For data blocks, the
 remainder of octet 4 is interpreted according to the block type.  The current
-reader reads the seven-octet data-block prefix first, then reads the remainder
-of the 11-octet `STORED` header or 27-octet LZ header.  There is no per-block
-version or header-length field: the enclosing frame version determines the
+reader reads the seven‑octet data‑block prefix first, then reads the remainder
+of the 11‑octet `STORED` header or 27‑octet `LZ` header.  There is no per‑block
+version or header‑length field: the enclosing frame version determines the
 block layout.
 
-A `STORED` block has an **11-octet** header:
+A `STORED` block has an **11‑octet** header:
 
 | Offset | Octets | Interpretation                                                     |
 |-------:|:-------|:-------------------------------------------------------------------|
 | `0–6`  | `7`    | Common prefix                                                      |
-| `7`    | `4`    | CRC-32/ISO-HDLC of this block's decoded canonical packed-9 symbols |
+| `7`    | `4`    | CRC‑32/ISO‑HDLC of this block's decoded canonical packed‑9 symbols |
 
 For a `STORED` block, octet 4 bits 0–1 are zero and bits 2–7 encode the symbol
 width as `width << 2`.  The resulting octet values are `0x1c` for width 7,
 `0x20` for width 8, and `0x24` for width 9.  No other width encoding is valid.
-The payload immediately follows the 11-octet header.
+The payload immediately follows the 11‑octet header.
 
-An `LZ` block has a **27-octet** header:
+An `LZ` block has a **27‑octet** header:
 
 | Offset | Octets | Interpretation                                                                |
 |-------:|:-------|:------------------------------------------------------------------------------|
@@ -217,15 +222,15 @@ An `LZ` block has a **27-octet** header:
 | `15`   | `2`    | `ML` payload byte length                                                      |
 | `17`   | `2`    | `OF` payload byte length                                                      |
 | `19`   | `2`    | `EXTRA` payload byte length                                                   |
-| `21`   | `2`    | Five packed three-bit padding counts; bit 15 is reserved and **MUST** be zero |
-| `23`   | `4`    | CRC-32/ISO-HDLC of this block's decoded canonical packed-9 symbols            |
+| `21`   | `2`    | Five packed three‑bit padding counts; bit 15 is reserved and **MUST** be zero |
+| `23`   | `4`    | CRC‑32/ISO‑HDLC of this block's decoded canonical *packed‑9* symbols          |
 
-For an LZ block, octet 4 bits 0–1 equal `1`; bits 2–3 **MUST** be zero; bit 4
-is the per-block aligned-distance selector when the frame advertises that
+For an `LZ` block, octet 4 bits 0–1 equal `1`; bits 2–3 **MUST** be zero; bit 4
+is the per‑block aligned‑distance selector when the frame advertises that
 feature; and bits 5–7 **MUST** be zero.  The `LZ` header's `n`, `q`, and `dl`
-fields are unsigned 16-bit little-endian values.
+fields are unsigned 16‑bit little‑endian values.
 
-Each payload byte length is an unsigned 16-bit value.  The corresponding
+Each payload byte length is an unsigned 16‑bit value.  The corresponding
 meaningful bit length is reconstructed as:
 
 ```text
@@ -237,34 +242,34 @@ The five padding counts occupy bits 0–14 of the padding field in stream order:
 and `EXTRA` in bits 12–14.  Each count is 0–7.  If a stream byte length is
 zero, its padding count **MUST** be zero.  A decoder **MUST** reject a padding
 count larger than the stream's total bits, nonzero reserved bit 15, or nonzero
-unused low-order bits in the last payload octet.
+unused low‑order bits in the last payload octet.
 
 The individual byte lengths are bounded by the coding limits in section 10;
 the combined five payloads **MUST NOT** exceed 81,920 octets.  All five
-payloads begin on separate octet boundaries, including zero-length payloads
+payloads begin on separate octet boundaries, including zero‑length payloads
 (which occupy no octets).  The payload order is `LIT`, `LL`, `ML`, `OF`,
 `EXTRA`.
 
 ### 3.3. STORED blocks
 
-A `STORED` block has type `0`, width 7, 8, or 9, and the 11-octet header
+A `STORED` block has type `0`, width 7, 8, or 9, and the 11‑octet header
 specified above.  Its payload contains exactly `n * width` meaningful bits,
-packed MSB-first into `ceil(n * width / 8)` octets.  Unused low-order bits of
-the last payload octet **MUST** be zero.  Width-7 blocks contain values 0–127,
-width-8 values 0–255, and width-9 values 0–511.  Mode-8 frames **MUST NOT**
+packed MSB‑first into `ceil(n * width / 8)` octets.  Unused low‑order bits of
+the last payload octet **MUST** be zero.  Width‑7 blocks contain values 0–127,
+width‑8 values 0–255, and width‑9 values 0–511.  Mode‑8 frames **MUST NOT**
 output values above 255.
 
-There are no transmitted `q`, `lc`, `dl`, entropy-stream lengths, or padding
+There are no transmitted `q`, `lc`, `dl`, entropy‑stream lengths, or padding
 counts in a `STORED` header.  Those values are either fixed at zero or derived
 from `n` and `width`.  `STORED` blocks leave the `LZ` history intact and do not
-change the three repeat-distance slots.  They are not dictionary reset points.
+change the three repeat‑distance slots.  They are not dictionary reset points.
 
 The encoder chooses the narrowest width that can represent all block symbols.
 The decoder accepts any permitted width with valid symbol values.
 
 ### 3.4. LZ blocks
 
-An LZ block has type `1`, width bits 2–3 equal to zero, and the 27-octet header
+An LZ block has type `1`, width bits 2–3 equal to zero, and the 27‑octet header
 specified above.  Immediately after the header are:
 
 1. Exactly four entropy descriptors in the order `LIT`, `LL`, `ML`, `OF`,
@@ -273,9 +278,9 @@ specified above.  Immediately after the header are:
    each occupying the byte length announced in the header.
 
 `LIT`, `LL`, `ML`, and `OF` are the four entropy streams.  `EXTRA` is always a
-raw, forward-oriented bitstream containing only the additional bits required
-by length and explicit-distance codes.  Its meaningful bit length is carried
-in the same byte-length/padding representation as the other streams.
+raw, forward‑oriented bitstream containing only the additional bits required
+by length and explicit‑distance codes.  Its meaningful bit length is carried
+in the same byte‑length/padding representation as the other streams.
 
 There is no `lc` field in v8.  The actual literal count is derivable from the
 block output equation:
@@ -288,28 +293,28 @@ Equivalently, the decoder emits each sequence's `LL` literals followed by its
 `ML` match, then emits terminal literals until exactly `n` symbols have been
 produced.  The `LIT` stream therefore contains exactly the number of literals
 implied by the decoded sequence lengths.  The decoder **MUST** validate the
-`LIT` stream's actual consumption and its `EMPTY`/non-`EMPTY` mode against
+`LIT` stream's actual consumption and its `EMPTY`/non‑`EMPTY` mode against
 that derived count; it **MUST NOT** rely on an advertised literal count.
 
 Each of `LL`, `ML`, and `OF` has exactly `q` symbols.  When `q=0`, the `LL`,
 `ML`, and `OF` descriptors **MUST** be `EMPTY`, and the `LIT` stream supplies
 all `n` symbols.  When the derived literal count is zero, the `LIT` descriptor
-**MUST** be `EMPTY`; otherwise it **MUST** be non-`EMPTY`.  These conditions
-are checked against the decoded block, not a header literal-count field.
+**MUST** be `EMPTY`; otherwise it **MUST** be non‑`EMPTY`.  These conditions
+are checked against the decoded block, not a header literal‑count field.
 
 ### 3.5. Reserved END block
 
-Block type `2` is reserved for a future explicit end-of-frame record.  The
-minimal record is the five-octet sequence `LZ9B 02`.  An extended `END` record
-uses type/control octet `0x06`, followed by a two-octet extension-area length,
-TLV extensions, and a four-octet CRC-32 covering all preceding `END`-record
+Block type `2` is reserved for a future explicit end‑of‑frame record.  The
+minimal record is the five‑octet sequence `LZ9B 02`.  An extended `END` record
+uses type/control octet `0x06`, followed by a two‑octet extension‑area length,
+TLV extensions, and a four‑octet CRC‑32 covering all preceding `END`‑record
 octets.  The extension area is bounded to 4,096 octets and uses the TLV
 convention in section 10.2.  The precise terminal semantics and the reserved
-final-symbol truncation extension are specified in section 10.4.
+final‑symbol truncation extension are specified in section 10.4.
 
 The current v8 encoder does not emit `END` records and the current C and Python
-decoders reject them.  For known-length frames, the current implementation
-recognizes end-of-frame when exactly `N` symbols have been decoded and rejects
+decoders reject them.  For known‑length frames, the current implementation
+recognizes end‑of‑frame when exactly `N` symbols have been decoded and rejects
 any following octets.  The `END` syntax is reserved now so a future nonseekable
 streaming implementation can add explicit termination without changing the
 `LZ` or `STORED` block layouts.
@@ -613,63 +618,63 @@ any part of the C implementation.
 A conforming v8 decoder SHOULD implement the following stages, enforcing all
 checks before trusting an offset, size, state, or output count:
 
-1. Read the 13-octet frame prefix, validate magic/version/representation, then
+1. Read the 13‑octet frame prefix, validate magic/version/representation, then
    validate the declared header length (17–4,096 octets), read the remainder,
    validate the final header CRC, and parse all TLVs.  Unknown noncritical TLVs
    are skipped; unknown critical TLVs, duplicate identifiers, malformed
-   lengths, and identifier zero are rejected.  The defined unknown-count TLV
+   lengths, and identifier zero are rejected.  The defined unknown‑count TLV
    is recognized but is not supported by the current reference decoder.
 
-2. Initialize an empty 32,768- or 65,536-symbol history as selected by the
-   frame flags (zero-initializing memory as defense-in-depth against memory
+2. Initialize an empty 32,768‑ or 65,536‑symbol history as selected by the
+   frame flags (zero‑initializing memory as defense‑in‑depth against memory
    disclosure) and three INVALID repeat slots.
 
-3. For each block, read and validate the seven-octet common prefix.  For
+3. For each block, read and validate the seven‑octet common prefix.  For
    `STORED`, read the remaining four header octets; for `LZ`, read the
    remaining 20 header octets.  Type 2 (`END`) and type 3 are reserved and
-   rejected by the current implementation.  Validate the type-specific fields
+   rejected by the current implementation.  Validate the type‑specific fields
    and ensure the block's `n` does not exceed the symbols remaining in the
-   known-length frame.
+   known‑length frame.
 
 4. For `STORED`, derive the payload bit length as `n * width`, derive its byte
    length by rounding up, validate the final zero padding bits, and read
    exactly that payload.
 
 5. For `LZ`, validate `q <= floor(n/3)`, `dl <= 8192`, each reconstructed
-   meaningful bit length against its stream-specific maximum, the packed
+   meaningful bit length against its stream‑specific maximum, the packed
    padding field's reserved bit and values, and the sum of payload byte lengths
    against 81,920.  Read exactly `dl` descriptor octets and exactly the five
-   announced payload byte lengths.  Check every stream's unused low-order pad
+   announced payload byte lengths.  Check every stream's unused low‑order pad
    bits before initializing its reader.
 
-6. For `STORED`, read `n` fixed-width symbols, updating history but not MRU.
+6. For `STORED`, read `n` fixed‑width symbols, updating history but not MRU.
 
 7. For LZ, reconstruct exactly the `LIT`/`LL`/`ML`/`OF` descriptors.  Require
    `LL`, `ML`, and `OF` to be `EMPTY` exactly when `q` is zero.  Initialize the
    entropy readers with the exact reconstructed meaningful bit lengths,
-   including the exact reverse-reader start position for tANS.  Decode the
+   including the exact reverse‑reader start position for tANS.  Decode the
    `q` sequences plus the terminal literal run, consuming `EXTRA` from its raw
    bitstream.  Derive the actual literal count from the decoded match lengths;
-   validate the `LIT` `EMPTY`/non-`EMPTY` condition against that actual count.
+   validate the `LIT` `EMPTY`/non‑`EMPTY` condition against that actual count.
 
 8. For every copy, validate `1 <= distance <= window_limit`, and ensure the
    distance does not exceed the already reconstructed frame prefix
-   (`distance <= produced`), rejecting all pre-history references.  Validate
+   (`distance <= produced`), rejecting all pre‑history references.  Validate
    `ML >= 3`, and verify the copy does not exceed this block's remaining output
    capacity.  Copy forwards one symbol at a time to support overlaps.
 
 9. Verify each entropy stream consumes exactly its meaningful bits and its
-   prescribed sequence-symbol count; tANS must finish in state zero; `EXTRA`
+   prescribed sequence‑symbol count; tANS must finish in state zero; `EXTRA`
    must be exhausted.  Verify the actual literal and block symbol counts.
 
-10. Compute the canonical packed-9 block CRC; reject a mismatch.
+10. Compute the canonical packed‑9 block CRC; reject a mismatch.
 
-11. At the known frame symbol count, flush the mode-9 terminal partial octet
-    with zero fill; reject trailing compressed octets.  Unknown-length frames
+11. At the known frame symbol count, flush the mode‑9 terminal partial octet
+    with zero fill; reject trailing compressed octets.  Unknown‑length frames
     and `END` records are reserved but not supported by the current decoder.
 
-Never allocate memory directly from an unchecked on-disk length.  The current
-frame-header and payload bounds are checked before any corresponding read or
+Never allocate memory directly from an unchecked on‑disk length.  The current
+frame‑header and payload bounds are checked before any corresponding read or
 allocation.  The Python independent decoder prioritizes clarity over bounded
 memory and should not be used as a hardened service.
 
@@ -741,7 +746,7 @@ Linux reference implementation explicit state on one x86‑64/8‑bit‑octet bu
 as reported by `./lz9ans --memory` (plus stack, C library file buffers, and
 allocator overhead).  The decoder figure includes four `AnsTable` instances;
 there is no `EXTRA` entropy table.  The encoder remains below 512 KiB
-(524,288 bytes) by 26,558 bytes.  Its four 512-entry frequency vectors occupy
+(524,288 bytes) by 26,558 bytes.  Its four 512‑entry frequency vectors occupy
 4,096 bytes at the tail of the existing staging allocation.  The usable staged
 payload area is reduced accordingly, but remains larger than the maximum
 `STORED` block.  The reported allocation totals are unchanged.  The figure
@@ -792,22 +797,22 @@ to match exactly.
 ## 9. Format gaps and future design choices
 
 - **Format stability:** Version 8 is the only format emitted and accepted by
-  this implementation.  It uses an extensible 17–4,096-octet frame header,
-  11-octet `STORED` headers, 27-octet `LZ` headers, four entropy streams, and
+  this implementation.  It uses an extensible 17–4,096‑octet frame header,
+  11-octet `STORED` headers, 27‑octet `LZ` headers, four entropy streams, and
   one raw `EXTRA` stream.  Earlier frame versions are rejected; there is no
   legacy decoding path.
 
-- **Streaming:** The frame TLV and `END`-record conventions reserve an explicit
-  unknown-symbol-count representation and an unambiguous terminal record.
+- **Streaming:** The frame TLV and `END`‑record conventions reserve an explicit
+  unknown‑symbol‑count representation and an unambiguous terminal record.
   The current UNIX CLI still counts input before encoding and the current
-  decoder supports only known-length frames.  Reading from stdin and writing to
-  stdout, unknown-length decoding, and `END`-record processing are future work.
+  decoder supports only known‑length frames.  Reading from stdin and writing to
+  stdout, unknown‑length decoding, and `END`‑record processing are future work.
 
 - **Final partial Multics symbol:** An `END` TLV reserves the number of
-  low-order bits to truncate from the last 9-bit symbol.  The current UNIX
+  low‑order bits to truncate from the last 9‑bit symbol.  The current UNIX
   reference implementation does not emit `END` metadata or produce
-  partial-symbol output.  Its ordinary mode-9 output continues to contain
-  complete symbols with zero-padding to the final octet.
+  partial‑symbol output.  Its ordinary mode‑9 output continues to contain
+  complete symbols with zero‑padding to the final octet.
 
 - **Container semantics:** ZIP / archive method numbers, independent blocks,
   indexing, and concatenated frames are outside this experimental format.
@@ -815,61 +820,61 @@ to match exactly.
 - **Authenticity:** CRC can detect accidental damage but is **not** a
   cryptographic integrity or authenticity mechanism.
 
-- **Security considerations and pre-history buffer isolation:** LZ77 codecs
+- **Security considerations and "pre‑history" buffer isolation:** LZ77 codecs
   must explicitly define how to handle backward distances referencing positions
-  before the beginning of the file ("pre-history").
+  before the beginning of the file ("pre‑history").
 
   **LZ9ANS** prevents this attack surface through several distinct layers:
 
-  1. *Grammar and validation:* Pre-history references are strictly illegal.
+  1. *Grammar and validation:* Pre‑history references are strictly illegal.
      Every distance `d` must satisfy `1 <= d <= produced` (where `produced` is
      the count of symbols emitted so far in the current frame).  Any stream
      with `d > produced` is malformed and **MUST** be rejected immediately
      prior to any buffer access or copy.
 
-  2. *Repeat-slot integrity:* Repeat distance slots are initialized to
+  2. *Repeat‑slot integrity:* Repeat distance slots are initialized to
      `INVALID` at frame start; referencing an uninitialized slot is an
      immediate format error.
 
-  3. *No synthetic pre-seeding:* The history at the beginning of a frame is
-     logically empty.  There is no implicit dictionary pre-seeded with zeros,
+  3. *No synthetic pre‑seeding:* The history at the beginning of a frame is
+     logically empty.  There is no implicit dictionary pre‑seeded with zeros,
      spaces, or static tables.
 
-  4. *Defense-in-depth zeroing:* Conforming encoders and decoders SHOULD
-     explicitly zero-initialize (`memset` / `calloc`) their history and sliding
+  4. *Defense‑in‑depth zeroing:* Conforming encoders and decoders SHOULD
+     explicitly zero‑initialize (`memset` / `calloc`) their history and sliding
      window buffers upon allocation, ensuring that even under unexpected fault
      conditions or partial decoding inspection, no residual host heap memory
      can ever be accessed or disclosed.
 
-- **Portability:** This specific UNIX reference implementation expects 8-bit
-  C `char`, 16-bit `short`, 32-bit `int` and seekable files for its current
-  known-length CLI.  A future streaming implementation need not seek.  Any
-  Multics PL/I port should carry the *wire equations* and use 36-bit-native
+- **Portability:** This specific UNIX reference implementation expects 8‑bit
+  C `char`, 16‑bit `short`, 32‑bit `int` and seekable files for its current
+  known‑length CLI.  A future streaming implementation need not seek.  Any
+  Multics PL/I port should carry the *wire equations* and use 36‑bit‑native
   representations, not emulate these host C types unnecessarily.
 
 ## 10. Version 8 features, extensions, and reserved control records
 
 Version 8 is the only format emitted or accepted by this implementation.  The
-fixed frame-header prefix has version 8 at offset 4, header length at offset 6,
-a one-octet feature mask at offset 12, and a four-octet CRC at the end of the
-header.  The CRC covers every preceding frame-header octet.  With no TLVs, the
+fixed frame‑header prefix has version 8 at offset 4, header length at offset 6,
+a one‑octet feature mask at offset 12, and a four‑octet CRC at the end of the
+header.  The CRC covers every preceding frame‑header octet.  With no TLVs, the
 header is 17 octets and the CRC covers offsets 0–12.
 
 ### 10.1. Frame feature flags
 
 | Bit   | Mask   | Meaning                                                          |
 |------:|:-------|:-----------------------------------------------------------------|
-| `0`   | `0x01` | 65,536-symbol history window                                     |
+| `0`   | `0x01` | 65,536‑symbol history window                                     |
 | `1`   | `0x02` | Reserved; **MUST** be zero                                       |
 | `2`   | `0x04` | Reserved; **MUST** be zero                                       |
-| `3`   | `0x08` | Aligned-distance coding is available throughout the frame        |
-| `4`   | `0x10` | Aligned-distance coding is selected independently per `LZ` block |
+| `3`   | `0x08` | Aligned‑distance coding is available throughout the frame        |
+| `4`   | `0x10` | Aligned‑distance coding is selected independently per `LZ` block |
 | `5–7` | —      | Reserved; **MUST** be zero                                       |
 
 Only mask `0x19` is currently defined.  Bits outside that mask **MUST** be
 zero.  Bit 4 **MUST NOT** be set unless bit 3 is also set.  Bit 0 selects the
 history window for the whole frame.  When bit 4 is clear, bit 3 selects
-frame-wide aligned-distance coding; when both bits 3 and 4 are clear, ordinary
+frame‑wide aligned‑distance coding; when both bits 3 and 4 are clear, ordinary
 distance representation is used throughout the frame.  The reference encoder
 sets bits 3 and 4 and records its decision separately in each `LZ` block.  The
 maximum block size remains 32,768 symbols.  Frames whose version byte is not 8
@@ -877,23 +882,23 @@ maximum block size remains 32,768 symbols.  Frames whose version byte is not 8
 
 ### 10.2. TLV extension convention
 
-Frame-header extensions and extended `END`-record metadata use this TLV form:
+Frame‑header extensions and extended `END`‑record metadata use this TLV form:
 
 | Field      | Octets   | Meaning                                                                    |
 |:-----------|---------:|:---------------------------------------------------------------------------|
 | Identifier | `1`      | Low seven bits identify the extension; high bit marks a critical extension |
-| Length     | `2`      | Unsigned little-endian number of value octets                              |
-| Value      | `Length` | Extension-specific data                                                    |
+| Length     | `2`      | Unsigned little‑endian number of value octets                              |
+| Value      | `Length` | Extension‑specific data                                                    |
 
-A zero low-seven-bit identifier value is invalid, including `0x80`.  The
-low-seven-bit identifier value **MUST** be unique within one extension area,
-even if the critical bit differs.  A malformed or out-of-bounds TLV is
+A zero low‑seven‑bit identifier value is invalid, including `0x80`.  The
+low‑seven‑bit identifier value **MUST** be unique within one extension area,
+even if the critical bit differs.  A malformed or out‑of‑bounds TLV is
 rejected.  Unknown noncritical TLVs (high bit clear) are skipped using their
 length.  Unknown critical TLVs (high bit set) **MUST** be rejected.  A decoder
 **MUST** reject duplicate identifiers.
 
-The maximum frame-header length, including the fixed prefix, all TLVs, and the
-final CRC, is 4,096 octets.  The maximum `END`-record extension area is 4,096
+The maximum frame‑header length, including the fixed prefix, all TLVs, and the
+final CRC, is 4,096 octets.  The maximum `END`‑record extension area is 4,096
 octets.  The TLV namespace is shared by frame and `END` extensions, but an
 extension is valid only in the location specified for it.
 
@@ -902,11 +907,11 @@ The following identifiers are reserved:
 | Identifier | Scope          | Length | Meaning                                                                              |
 |:-----------|:---------------|-------:|:-------------------------------------------------------------------------------------|
 | `0x81`     | Frame header   | `0`    | Total symbol count is not known when the frame header is written; `END` is mandatory |
-| `0x82`     | `END` record   | `1`    | Number of low-order bits to truncate from the final 9-bit symbol (0–8)               |
+| `0x82`     | `END` record   | `1`    | Number of low‑order bits to truncate from the final 9‑bit symbol (0–8)               |
 
 Both identifiers are critical.  A decoder that does not implement their
 semantics **MUST** reject them rather than silently ignoring them.  The current
-reference decoder recognizes `0x81` and rejects the unknown-length form as not
+reference decoder recognizes `0x81` and rejects the unknown‑length form as not
 yet implemented.  The current implementation does not parse `END` records, so
 it rejects type 2 regardless of its extension contents.
 
@@ -916,9 +921,9 @@ A future streaming encoder that cannot know the total symbol count before
 writing the frame header **MUST** set the frame `N` field at offset 8 to zero
 and include exactly one frame TLV with identifier `0x81`, length zero, and no
 value octets.  A zero count without this extension continues to mean an
-ordinary empty known-length frame.
+ordinary empty known‑length frame.
 
-An unknown-length frame **MUST** end with exactly one `END` record (section
+An unknown‑length frame **MUST** end with exactly one `END` record (section
 10.4).  The total decoded symbol count is the sum of the decoded `n` values of
 all `STORED` and `LZ` blocks preceding `END`.  `END` is terminal: no blocks or
 octets may follow it.  Missing `END`, duplicate `END`, malformed `END`, or
@@ -927,7 +932,7 @@ condition for pipes and other nonseekable streams; `EOF` alone is **not** a
 valid substitute for `END`.
 
 The current encoder does not emit `0x81`, and the current decoder rejects it.
-The present v8 CLI remains a known-length, seekable-file implementation.
+The present v8 CLI remains a known‑length, seekable‑file implementation.
 
 ### 10.4. END record and final-symbol truncation
 
@@ -937,43 +942,43 @@ extension area is present:
 
 - **Minimal `END`:** control octet `0x02`; the entire record is exactly five
   octets: ASCII `LZ9B` followed by `0x02`.
-- **Extended `END`:** control octet `0x06`; followed by a two-octet unsigned
-  little-endian extension-area length, that many TLV octets, and a four-octet
-  CRC-32/ISO-HDLC.  The CRC covers the `END` magic, control octet, length
+- **Extended `END`:** control octet `0x06`; followed by a two‑octet unsigned
+  little‑endian extension‑area length, that many TLV octets, and a four‑octet
+  CRC‑32/ISO‑HDLC.  The CRC covers the `END` magic, control octet, length
   field, and all TLV octets, excluding the CRC itself.  The extension area
   **MUST** be nonempty and no larger than 4,096 octets.
 
-An `END` record **MUST** occur exactly once and at the end of an unknown-length
-frame.  For a known-length frame it **MAY** be used after exactly `N` decoded
+An `END` record **MUST** occur exactly once and at the end of an unknown‑length
+frame.  For a known‑length frame it **MAY** be used after exactly `N` decoded
 symbols when terminal metadata is required; otherwise the current form ends
 immediately after the last data block.  `END` **MUST NOT** occur before the
 known symbol count has been produced.  No data may follow `END`.
 
 The reserved `END` TLV `0x82` has length one.  Its value is the number of
-least-significant bits to truncate from the final 9-bit symbol:
+least‑significant bits to truncate from the final 9‑bit symbol:
 
 | Value          | Meaning                                                  |
 |---------------:|:---------------------------------------------------------|
-| `0`            | Retain the complete final 9-bit symbol                   |
-| `1`            | Truncate its least-significant bit                       |
-| `2`            | Truncate its two least-significant bits                  |
+| `0`            | Retain the complete final 9‑bit symbol                   |
+| `1`            | Truncate its least‑significant bit                       |
+| `2`            | Truncate its two least‑significant bits                  |
 | `...`          | `...`                                                    |
-| `8`            | Retain only the most-significant bit of the final symbol |
+| `8`            | Retain only the most‑significant bit of the final symbol |
 | `9` or greater | Invalid                                                  |
 
 An absent `0x82` TLV is equivalent to value zero.  Encoders **SHOULD** omit the
-TLV when the value is zero.  The extension is valid only for a nonempty mode-9
+TLV when the value is zero.  The extension is valid only for a nonempty mode‑9
 frame.  It is invalid for mode 8, an empty frame, or a final value outside
-0–8.  The low-order bits being truncated **MUST** already be zero in the
+0–8.  The low‑order bits being truncated **MUST** already be zero in the
 decoded final symbol.  The logical block data and block CRC continue to cover
-the complete 9-bit final symbol, including those zero bits; the `END` CRC
+the complete 9‑bit final symbol, including those zero bits; the `END` CRC
 protects the truncation metadata itself.
 
-For a mode-9 frame containing `N > 0` symbols and truncation value `t`, the
+For a mode‑9 frame containing `N > 0` symbols and truncation value `t`, the
 number of meaningful output bits for a consumer that implements this metadata
-is `9*N - t`.  The final symbol still decodes as a complete 9-bit value; only
+is `9*N - t`.  The final symbol still decodes as a complete 9‑bit value; only
 its final `t` zero bits are outside the logical source bitstream.  This makes
-the metadata useful for arbitrary-bit-length Multics segments without
+the metadata useful for arbitrary‑bit‑length Multics segments without
 complicating the symbol/block codec.  The current UNIX reference implementation
 always writes complete symbols and does not process `END` metadata or truncate
 its output.
@@ -995,10 +1000,10 @@ from 20 to 21 symbols; repeat slots and `RUN` semantics are unchanged.  Codes
 distance = 32769 + read_extra(15)
 ```
 
-The encoder writes `distance - 32769` in 15 MSB-first bits.  Code 20 is invalid
-unless the 64K-window flag is set.  With the default 32K window the `OF`
+The encoder writes `distance - 32769` in 15 MSB‑first bits.  Code 20 is invalid
+unless the 64K‑window flag is set.  With the default 32K window the `OF`
 alphabet remains 20 and code 20 is invalid.  An implementation must use at
-least 17 bits for the logical distance; 16-bit storage is insufficient for
+least 17 bits for the logical distance; 16‑bit storage is insufficient for
 distance 65,536.
 
 ### 10.6. Aligned explicit distances (`0x08`)
@@ -1007,7 +1012,7 @@ With this flag, selected explicit distances carry one alignment flag in
 `EXTRA`.  It is present for `OF` codes 6–18 (the explicit buckets with at least
 two ordinary extra bits) and, when the 64K window is enabled, code 20.  It is
 not present for repeat codes 0–2, `RUN` code 3, explicit codes 4–5, or
-exact-distance code 19.
+exact‑distance code 19.
 
 For codes 6–18, let `k = code - 4`.  The alignment flag precedes the ordinary
 distance extra bits:
@@ -1027,41 +1032,41 @@ For code 20 with the 64K window:
 The encoder sets the flag from the distance residue.  This feature does not
 change the `OF` alphabet or its RAW width.  The additional flag is included in
 the ordinary forward `EXTRA` bit order.  A decoder **MUST** reject noncanonical
-flag-0 forms whose decoded distance is divisible by four.
+flag‑0 forms whose decoded distance is divisible by four.
 
 ### 10.7. Per-block aligned-distance selection (`0x18`)
 
 When frame feature bits 3 and 4 are both set, alignment is selected separately
-for each `LZ` block.  The decoder **MUST** use aligned-distance decoding only
-when bit 4 of block-header octet 4 is set.  For an `LZ` block this bit is
+for each `LZ` block.  The decoder **MUST** use aligned‑distance decoding only
+when bit 4 of block‑header octet 4 is set.  For an `LZ` block this bit is
 otherwise zero; bits 5–7 of that octet **MUST** be zero.  For a `STORED` block,
 octet 4 continues to encode the stored symbol width in bits 2–7, and bit 4
 **MUST NOT** be interpreted as an alignment selector.  The reference encoder
 always emits both frame feature bits and makes a fresh selection for every
 `LZ` block.
 
-The per-block selector is a coding decision, not a new payload stream.  The
-encoder can select the aligned form using the exact raw-`EXTRA` bit-count
-delta: let `E` be the number of eligible explicit-distance codes (6–18, plus
+The per‑block selector is a coding decision, not a new payload stream.  The
+encoder can select the aligned form using the exact raw‑`EXTRA` bit‑count
+delta: let `E` be the number of eligible explicit‑distance codes (6–18, plus
 code 20 with a 64K window), and let `A` be the number of those distances
 divisible by four.  Aligned coding adds one selector bit for each eligible
 distance and removes two residual bits for each aligned distance, so its
-raw-`EXTRA` bit delta is `E - 2*A`.  A cost-based encoder **SHOULD** select
+raw‑`EXTRA` bit delta is `E - 2*A`.  A cost‑based encoder **SHOULD** select
 aligned coding only when this delta is negative; ties select the ordinary
 representation.
 
 The reference encoder requires at least one symbol with value 256–511 in the
-block before considering aligned coding.  This ninth-bit gate is a
-compression-selection heuristic, not a decoder requirement; the decoder
-follows only the block-header selector.  The encoder then selects aligned
-coding only when the exact raw-`EXTRA` bit delta is negative.  Blocks
+block before considering aligned coding.  This ninth‑bit gate is a
+compression‑selection heuristic, not a decoder requirement; the decoder
+follows only the block‑header selector.  The encoder then selects aligned
+coding only when the exact raw‑`EXTRA` bit delta is negative.  Blocks
 containing only values below 256 therefore always use the ordinary distance
 representation.  The selection rule applies to the single raw `EXTRA` stream.
 
 ### 10.8. v8 stream-size bounds
 
-The following conservative per-stream bounds justify the 16-bit byte-length
-fields.  They include the initial ten-bit tANS state where applicable.
+The following conservative per‑stream bounds justify the 16‑bit byte‑length
+fields.  They include the initial ten‑bit tANS state where applicable.
 
 | Stream  | Maximum meaningful bits               | Maximum payload octets |
 |:--------|--------------------------------------:|-----------------------:|
@@ -1071,15 +1076,15 @@ fields.  They include the initial ten-bit tANS state where applicable.
 | `OF`    | `floor(32,768/3) * 10 + 10 = 109,230` | `13,654`               |
 | `EXTRA` | `floor(32,768/3) * 46 = 502,412`      | `62,802`               |
 
-The `LIT` tANS bound allows at most ten bits per symbol plus its ten-bit final
+The `LIT` tANS bound allows at most ten bits per symbol plus its ten‑bit final
 state.  Each sequence entropy stream allows at most ten bits per sequence plus
 its final state.  The `EXTRA` bound allows up to 15 `LL` bits, 15 `ML` bits,
 and 16 `OF` bits (including the alignment selector in the 64K case) per
 sequence.  Every maximum byte length is below 65,536 and therefore fits in its
-unsigned 16-bit field.  Independently, the sum of the five payload byte lengths
+unsigned 16‑bit field.  Independently, the sum of the five payload byte lengths
 **MUST NOT** exceed 81,920 octets, the decoder's combined staging bound.
 
-The descriptor length `dl` is an unsigned 16-bit value but is additionally
-bounded to 8,192 octets.  `n` and `q` are unsigned 16-bit values bounded to
+The descriptor length `dl` is an unsigned 16‑bit value but is additionally
+bounded to 8,192 octets.  `n` and `q` are unsigned 16‑bit values bounded to
 32,768 and `floor(n/3)`, respectively.  These format limits **MUST** be checked
-before payload reads or entropy-table construction.
+before payload reads or entropy‑table construction.
