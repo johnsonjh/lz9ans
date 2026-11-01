@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
-> Document revision **17** (2026‑11‑01)
+> Document revision **`18`** (2026‑11‑01)
 
 <!-- toc -->
 
@@ -215,7 +215,7 @@ An `LZ` block has a **27‑octet** header:
 | Offset | Octets | Interpretation                                                                |
 |-------:|:-------|:------------------------------------------------------------------------------|
 | `0–6`  | `7`    | Common prefix                                                                 |
-| `7`    | `2`    | `q`: number of LZ match sequences, 0–`floor(n/3)`                             |
+| `7`    | `2`    | `q`: number of `LZ` match sequences, 0–`floor(n/3)`                           |
 | `9`    | `2`    | `dl`: total descriptor length, 0–8,192 octets                                 |
 | `11`   | `2`    | `LIT` payload byte length                                                     |
 | `13`   | `2`    | `LL` payload byte length                                                      |
@@ -269,8 +269,8 @@ The decoder accepts any permitted width with valid symbol values.
 
 ### 3.4. LZ blocks
 
-An LZ block has type `1`, width bits 2–3 equal to zero, and the 27‑octet header
-specified above.  Immediately after the header are:
+An `LZ` block has type `1`, width bits 2–3 equal to zero, and the 27‑octet
+header specified above.  Immediately after the header are:
 
 1. Exactly four entropy descriptors in the order `LIT`, `LL`, `ML`, `OF`,
    occupying exactly `dl` octets in total.  There is no `EXTRA` descriptor.
@@ -505,6 +505,7 @@ when the descriptor ends.  Frequencies **MUST** be positive, and their sum
 - **`LIT`:** Each positive frequency is represented by *Elias gamma coding* of
   the frequency itself.  For positive integer `f`, let `k=floor(log2(f))`;
   write `k` zero bits followed by the `k+1`‑bit binary representation of `f`.
+
 - **`LL`, `ML`, `OF`:** Frequencies use truncated‑binary coding in ascending
   symbol order.  Let `assigned` be the sum of frequencies already decoded and
   `remaining` the number of set bitmap entries not yet decoded.  For the next
@@ -615,8 +616,8 @@ any part of the C implementation.
 
 ## 6. Decoder procedure and validation requirements
 
-A conforming v8 decoder SHOULD implement the following stages, enforcing all
-checks before trusting an offset, size, state, or output count:
+A conforming v8 decoder **SHOULD** implement the following stages, enforcing
+**all** **checks** *before* trusting an offset, size, state, or output count:
 
 1. Read the 13‑octet frame prefix, validate magic/version/representation, then
    validate the declared header length (17–4,096 octets), read the remainder,
@@ -649,7 +650,7 @@ checks before trusting an offset, size, state, or output count:
 
 6. For `STORED`, read `n` fixed‑width symbols, updating history but not MRU.
 
-7. For LZ, reconstruct exactly the `LIT`/`LL`/`ML`/`OF` descriptors.  Require
+7. For `LZ`, reconstruct exactly the `LIT`/`LL`/`ML`/`OF` descriptors.  Require
    `LL`, `ML`, and `OF` to be `EMPTY` exactly when `q` is zero.  Initialize the
    entropy readers with the exact reconstructed meaningful bit lengths,
    including the exact reverse‑reader start position for tANS.  Decode the
@@ -741,14 +742,14 @@ storing the block at its narrowest 7/8/9 bit width, it writes `STORED` instead;
 speculative repeat‑slot changes and untransmitted table models are discarded.
 The decoder never needs to know which parser or level was used.
 
-Linux reference implementation explicit state on one x86‑64/8‑bit‑octet build:
-**497,730 octets of encoder state** and **207,304 octets of decoder state**
-as reported by `./lz9ans --memory` (plus stack, C library file buffers, and
-allocator overhead).  The decoder figure includes four `AnsTable` instances;
-there is no `EXTRA` entropy table.  The encoder remains below 512 KiB
-(524,288 bytes) by 26,558 bytes.  Its four 512‑entry frequency vectors occupy
-4,096 bytes at the tail of the existing staging allocation.  The usable staged
-payload area is reduced accordingly, but remains larger than the maximum
+UNIX/Linux reference implementation explicit state on one x86‑64/8‑bit‑octet
+build: **497,730 octets of encoder state** and **207,304 octets of decoder
+state** as reported by `./lz9ans --memory` (plus stack, C library file buffers,
+and allocator overhead).  The decoder figure includes four `AnsTable`
+instances; there is no `EXTRA` entropy table.  The encoder remains below 512
+KiB (524,288 bytes) by 26,558 bytes.  Its four 512‑entry frequency vectors
+occupy 4,096 bytes at the tail of the existing staging allocation.  The usable
+staged payload area is reduced accordingly, but remains larger than the maximum
 `STORED` block.  The reported allocation totals are unchanged.  The figure
 includes the `Encoder` structure and its associated arrays, but excludes small
 helper stack temporaries, C runtime state, `FILE` buffers, allocator overhead,
@@ -790,7 +791,7 @@ decoding.
 
 Independent implementations should decode the published **bytes**, not just
 their own re‑encodings, and should reject the negative cases above.  For
-interoperability the actual uncompressed content, *packed9* bit order, block
+interoperability the actual uncompressed content, *packed‑9* bit order, block
 checksums, MRU state across block types, and tANS state termination all have
 to match exactly.
 
@@ -840,17 +841,18 @@ to match exactly.
      logically empty.  There is no implicit dictionary pre‑seeded with zeros,
      spaces, or static tables.
 
-  4. *Defense‑in‑depth zeroing:* Conforming encoders and decoders SHOULD
+  4. *Defense‑in‑depth zeroing:* Conforming encoders and decoders **SHOULD**
      explicitly zero‑initialize (`memset` / `calloc`) their history and sliding
      window buffers upon allocation, ensuring that even under unexpected fault
      conditions or partial decoding inspection, no residual host heap memory
      can ever be accessed or disclosed.
 
 - **Portability:** This specific UNIX reference implementation expects 8‑bit
-  C `char`, 16‑bit `short`, 32‑bit `int` and seekable files for its current
-  known‑length CLI.  A future streaming implementation need not seek.  Any
-  Multics PL/I port should carry the *wire equations* and use 36‑bit‑native
-  representations, not emulate these host C types unnecessarily.
+  C `char`, 16‑bit `short`, 32‑bit `int`, and seekable files for its current
+  known‑length CLI.  A future streaming implementation **need not seek**.  Any
+  Multics (PL/I) port should carry the *wire equations* and **use**
+  **36‑bit‑native** representations, **not** emulate these C types
+  unnecessarily.
 
 ## 10. Version 8 features, extensions, and reserved control records
 
