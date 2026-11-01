@@ -49,14 +49,14 @@ Compare the same corpus packed with popular (8‑bit) compression algorithms
 |    Utility | Algorithm              | Compressed bits | Memory       | Performance      |
 |-----------:|:-----------------------|:---------------:|-------------:|-----------------:|
 | `compress` | LZW                    | `279,608,608`   | 400&nbsp;KiB | 101%&nbsp;larger |
-| `lz4`      | LZ77                   | `221,797,064`   | 512&nbsp;KiB |  60%&nbsp;larger |
-| `lzop`     | LZO1X                  | `212,130,184`   | 70K&nbsp;KiB |  53%&nbspllarger |
+| `lz4`      | LZ77+VLE               | `221,797,064`   | 512&nbsp;KiB |  60%&nbsp;larger |
+| `lzop`     | LZO1X&nbsp;(LZ77+BC)   | `212,130,184`   |  70&nbsp;KiB |  53%&nbsp;larger |
 | `gzip`     | DEFLATE&nbsp;(LZ77+HC) | `202,579,712`   | 350&nbsp;KiB |  46%&nbsp;larger |
 | `bzip2`    | BWT+MTF+HC             | `177,850,592`   | 1.2&nbsp;MiB |  28%&nbsp;larger |
-| `zstd`     | LZ77+FSE+ANS           | `170,129,736`   | 10&nbsp;MiB  |  23%&nbsp;larger |
-| `bzip3`    | BWT+MTF+HC             | `169,815,400`   | 8.2&nbsp;MiB |  22%&nbsp;larger |
+| `zstd`     | LZ77+HC+FSE            | `170,129,736`   | 10&nbsp;MiB  |  23%&nbsp;larger |
+| `bzip3`    | BWT+LZP+CM             | `169,815,400`   | 8.2&nbsp;MiB |  22%&nbsp;larger |
 | `brotli`   | LZ77+HC+CD             | `161,977,528`   | 210&nbsp;MiB |  17%&nbsp;larger |
-| `lzip`     | LZMA                   | `158,016,800`   | 13&nbsp;MiB  |  14%&nbsp;larger |
+| `lzip`     | LZMA&nbsp;(LZ77+MA+RC) | `158,016,800`   | 13&nbsp;MiB  |  14%&nbsp;larger |
 | `zpaq`     | M5&nbsp;(CM+AC)        | `131,954,176`   | 246&nbsp;MiB |  5%&nbsp;smaller |
 
 ## Specification
