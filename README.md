@@ -3,8 +3,6 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS
 
-## Overview
-
 **LZ9ANS** is a 9‑bit [LZ77](https://en.wikipedia.org/wiki/LZ77_and_LZ78) +
 [tANS](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems)
 codec designed to efficiently compress 9‑bit mainframe input data
@@ -40,6 +38,8 @@ compression profiles: four "fast", four "tight", one "maximum".
 | ‑7    | `139,593,320` bits | `68.742%` | `3.199:1` |     `‑459,784` delta |
 | ‑8    | `139,226,584` bits | `68.824%` | `3.208:1` |     `‑366,736` delta |
 | ‑9    | `138,901,784` bits | `68.897%` | `3.215:1` |     `‑324,800` delta |
+
+### Competition
 
 Compare the same corpus with popular (8‑bit) compression algorithms
 (at their highest settings):
