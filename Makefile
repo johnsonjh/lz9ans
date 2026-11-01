@@ -55,10 +55,13 @@ lint: lz9ans.c
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
 	$(MAKE) clean
 
-clean distclean:
+clean:
 	rm -f lz9ans lz9ans.exe lz9ans_asan lz9ans_asan.exe a.out a.exe || :
 	rm -f log.pvs compile_commands.json || :
 	rm -f -r __pycache__ pvsreport > /dev/null 2>&1 || :
+
+distclean: clean
+	rm -f lz9ans.gcda
 	@git clean -ndx 2> /dev/null || :
 
 .PHONY: all test sanitizers cppcheck oracle lint clean distclean
