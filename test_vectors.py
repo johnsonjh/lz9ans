@@ -4,49 +4,56 @@
 # SPDX-License-Identifier: MIT
 
 from hashlib import sha256
+import os
 from pathlib import Path
 import struct
 import subprocess
 import tempfile
 
-from inspect_lz9ans import FormatError, decode, parse_descriptor
+from inspect_lz9ans import (
+    FormatError,
+    block_header,
+    decode,
+    frame_header,
+    parse_descriptor,
+)
 
 ROOT = Path(__file__).resolve().parent
 VECTORS = {
     "empty8": (
         "c8",
         1,
-        "9eb5cbe8690f77c6e69a856d203fb8afd97db7bd41b810bc25673017206d7cce",
+        "fd76cddc8175fb63f9b16c3d082ceea254bf684dc8240a1f99b0964c2cf4265f",
     ),
     "abc8": (
         "c8",
         1,
-        "7ce8c8b130773180db46300850ba1c9e7df258535920c5ce770c5f4cdc0361e9",
+        "c3c7e9ce160dcc5b767b462da109be9c6c163b2508a3520639275f8f651a05f4",
     ),
     "run8": (
         "c8",
         6,
-        "ec9946197edbf49bd87cb9765ff61c40f9b7a97275e1b38cbb9b47c0ba9a84a9",
+        "0f8e1acd5795861afdb9da92eeafb5846391a794041f9aac2ed48c8825d0c743",
     ),
     "mixed9": (
         "c9",
         6,
-        "8a7fc1ff272b2adc9e9e0b28df16ada9e1d3a617ff15930d9539a6e74d8dd4d6",
+        "c8cdb0550ebe11242a3ac2b664af92652bbd3e2c4bdcaeef2d1d1719a807a1af",
     ),
     "switch8": (
         "c8",
         6,
-        "9a3492b91610c647edc7071db29312d59e18e49b9c617d3671892d99699116e7",
+        "fd66b1558f29ea94f648c070b6d2a9358a6cc7296daa3c4b978ed52aba6c15e5",
     ),
     "longdist16k": (
         "c8",
         9,
-        "5291fbb28f736bd0e9eed950189744f0b20404ffd976fb8c6de7d885e5d536d7",
+        "574ffc85c9bd00c2012f8626caebee42bf88f2caf49f72ba07aa0ac7531c53c7",
     ),
     "longdist32k": (
         "c8",
         9,
-        "3d58c47ff1a0d272f814f0b06aec12a3d646dd5a7366920f5be30e0e299048f0",
+        "170a43b6fe53b2bf19e20b20419213ba87a249975c781908983ffaf2cebd970a",
     ),
 }
 
@@ -59,21 +66,20 @@ def command(*parts):
 
 
 def main():
-    binary = (ROOT / "lz9ans").resolve()
+    binary = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
     with tempfile.TemporaryDirectory(prefix="lz9ans-golden-") as tmp:
         work = Path(tmp)
         for name, (mode, level, expected_hash) in VECTORS.items():
             raw = (ROOT / "vectors" / f"{name}.input").read_bytes()
             vector = (ROOT / "vectors" / f"{name}.lz9a").read_bytes()
             assert sha256(vector).hexdigest() == expected_hash, name
-            assert vector[:4] == b"LZ9A" and vector[4] == 7, name
-            assert struct.unpack_from("<H", vector, 6)[0] == 17, name
+            assert vector[:4] == b"LZ9A" and vector[4] == 8, name
+            assert frame_header(vector)["length"] == 17, name
             assert vector[12] == 0x18, name
             if name == "mixed9":
-                block_header = vector[17:65]
-                assert block_header[:4] == b"LZ9B"
-                assert (block_header[5] & 3) == 1
-                assert block_header[5] & 16
+                header = block_header(vector, 17)
+                assert header["type"] == 1
+                assert header["aligned"]
             decoded, stats = decode(vector)
             assert decoded == raw, name
             frame_path = work / f"{name}.lz9a"
@@ -100,14 +106,15 @@ def main():
             if name == "longdist32k":
                 assert stats["offset_19"] == 1
                 assert stats["stored"] == 1
-            print("PASS byte-exact v7", name)
+            print("PASS byte-exact v8", name)
 
         # The RUN fixture has no initialized MRU distance. Change its OF RLE
         # symbol to REP0; the independent and C decoders must reject it.
         invalid = bytearray((ROOT / "vectors" / "run8.lz9a").read_bytes())
-        desc_len = struct.unpack_from("<I", invalid, 17 + 20)[0]
-        desc_start = 17 + 48
-        descriptor = invalid[desc_start : desc_start + desc_len]
+        block = block_header(invalid, 17)
+        desc_len = block["desc_length"]
+        desc_start = 17 + block["header_size"]
+        descriptor = block["descriptor"]
         index = 0
         tables = [None] * 4
         offset_start = None

@@ -3,6 +3,7 @@
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
 
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,7 +11,7 @@ import tempfile
 from inspect_lz9ans import pack9
 
 ROOT = Path(__file__).resolve().parent
-BINARY = (ROOT / "lz9ans").resolve()
+BINARY = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
 
 
 def run(*args):

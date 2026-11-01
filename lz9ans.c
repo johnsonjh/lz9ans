@@ -18,7 +18,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.7.1 (2026-10-31)"
+#define LZ9VER "v0.8.0 (2026-11-01)"
 
 /*****************************************************************************/
 
@@ -41,8 +41,13 @@
 #define TABLE_CACHE_BYTES (TABLE_CACHE_COUNT * 512U * sizeof (unsigned short))
 #define STAGE_DATA_MAX ((STAGE_MAX - TABLE_CACHE_BYTES - 7UL) & ~7UL)
 #define DESC_MAX 8192U
-#define BLOCK_HEADER_N 48U
-#define FHEAD_N 17U
+#define BLOCK_PREFIX_N 7U
+#define LZ_BLOCK_HEADER_N 27U
+#define STORED_BLOCK_HEADER_N 11U
+#define FRAME_HEADER_PREFIX_N 13U
+#define FRAME_HEADER_MIN_N 17U
+#define FRAME_HEADER_MAX_N 4096U
+#define FHEAD_N FRAME_HEADER_MIN_N
 
 /*****************************************************************************/
 
@@ -61,13 +66,14 @@
 #define STREAM_ML 2
 #define STREAM_OF 3
 #define STREAM_EXTRA 4
-#define FORMAT_V7 7U
+#define FORMAT_V8 8U
 #define STREAM_COUNT 5U
 #define ENTROPY_STREAM_COUNT 4U
 #define OF_ALPHABET_32K 20U
 #define OF_ALPHABET_64K 21U
 #define COST_SCALE 256U
 #define COST_STRIDE 16U
+#define FRAME_EXT_UNKNOWN_COUNT 0x81U
 
 /*****************************************************************************/
 
@@ -673,6 +679,13 @@ ans_put (AnsTable *t, BitWriter *b, unsigned int sym, unsigned short *state)
 
   if (y < t->threshold[sym])
     {
+      if (!nb)
+        {
+          b->failed = 1;
+
+          return;
+        }
+
       --nb;
     }
 
@@ -2376,33 +2389,34 @@ encode_extras (Encoder *e)
 
 static void
 make_block_header (unsigned char *hdr, unsigned int type,
-                   unsigned int width, unsigned int n, unsigned int q,
-                   unsigned int lc, unsigned long dl,
+                   unsigned int n, unsigned int q, unsigned long dl,
                    const unsigned long *bits, unsigned long crc,
                    int aligned_distances)
 {
-  unsigned int i;
+  unsigned int i, padding = 0;
 
-  (void)memset (hdr, 0, BLOCK_HEADER_N);
+  (void)memset (hdr, 0, LZ_BLOCK_HEADER_N);
   (void)memcpy (hdr, "LZ9B", 4);
 
-  hdr[4] = FORMAT_V7;
-  hdr[5] = (unsigned char)(type | (width << 2)
+  hdr[4] = (unsigned char)(type
                            | (aligned_distances
                                   ? BLOCK_FLAG_ALIGNED_DISTANCES : 0U));
 
-  store16 (hdr + 6, BLOCK_HEADER_N);
-  store32 (hdr + 8, n);
-  store32 (hdr + 12, q);
-  store32 (hdr + 16, lc);
-  store32 (hdr + 20, dl);
+  store16 (hdr + 5, n);
+  store16 (hdr + 7, q);
+  store16 (hdr + 9, (unsigned int)dl);
 
   for (i = 0; i < STREAM_COUNT; ++i)
     {
-      store32 (hdr + 24 + 4 * i, bits[i]);
+      unsigned long bytes = (bits[i] + 7UL) / 8UL;
+      unsigned int pad = (unsigned int)((8UL - (bits[i] & 7UL)) & 7UL);
+
+      store16 (hdr + 11 + 2U * i, (unsigned int)bytes);
+      padding |= pad << (3U * i);
     }
 
-  store32 (hdr + 24 + 4 * STREAM_COUNT, crc);
+  store16 (hdr + 21, padding);
+  store32 (hdr + 23, crc);
 }
 
 /*****************************************************************************/
@@ -2411,8 +2425,8 @@ static int
 write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
 {
   unsigned int i;
-  unsigned long bits[STREAM_COUNT], nbytes;
-  unsigned char h[BLOCK_HEADER_N];
+  unsigned long nbytes;
+  unsigned char h[STORED_BLOCK_HEADER_N];
   BitWriter bw;
 
   nbytes = ((unsigned long)e->n * width + 7UL) / 8UL;
@@ -2434,14 +2448,11 @@ write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
       return 0;
     }
 
-  for (i = 0; i < STREAM_COUNT; ++i)
-    {
-      bits[i] = 0;
-    }
-
-  bits[STREAM_LIT] = bw.bits;
-  make_block_header (h, BLOCK_STORED, width, e->n, 0, e->n, 0, bits, crc,
-                     0);
+  (void)memset (h, 0, sizeof (h));
+  (void)memcpy (h, "LZ9B", 4);
+  h[4] = (unsigned char)(BLOCK_STORED | (width << 2));
+  store16 (h + 5, e->n);
+  store32 (h + 7, crc);
 
   return write_exact (out, h, sizeof (h))
          && write_exact (out, e->stage, (size_t)nbytes);
@@ -2455,7 +2466,7 @@ encode_block (FILE *out, Encoder *e)
   unsigned int i, width = 7;
   int compressed_ok = 1, block_has_9bit = 0, block_aligned = 0;
   unsigned long stored, compressed;
-  unsigned char h[BLOCK_HEADER_N];
+  unsigned char h[LZ_BLOCK_HEADER_N];
   unsigned int saved_reps[3];
 
   (void)memcpy (saved_reps, e->reps, sizeof (saved_reps));
@@ -2535,6 +2546,14 @@ encode_block (FILE *out, Encoder *e)
       compressed_ok = 0;
     }
 
+  for (i = 0; compressed_ok && i < STREAM_COUNT; ++i)
+    {
+      if (e->stream_bytes[i] > 65535UL)
+        {
+          compressed_ok = 0;
+        }
+    }
+
   stored = ((unsigned long)e->n * width + 7UL) / 8UL;
   compressed = e->desc_len + e->stage_len;
 
@@ -2550,8 +2569,8 @@ encode_block (FILE *out, Encoder *e)
       return write_stored (out, e, crc, width);
     }
 
-  make_block_header (h, BLOCK_LZ, 0, e->n, e->sn, e->lit_count,
-                     e->desc_len, e->stream_bits, crc, block_aligned);
+  make_block_header (h, BLOCK_LZ, e->n, e->sn, e->desc_len,
+                     e->stream_bits, crc, block_aligned);
 
   return write_exact (out, h, sizeof (h))
          && write_exact (out, e->desc, (size_t)e->desc_len)
@@ -3050,123 +3069,67 @@ static int
 decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
               unsigned char *desc, AnsTable *tables)
 {
-  unsigned char h[BLOCK_HEADER_N];
+  unsigned char h[LZ_BLOCK_HEADER_N];
   unsigned long bitlen[STREAM_COUNT], lengths[STREAM_COUNT], total = 0;
   unsigned long desc_len, expected;
-  unsigned int i, n, q, lc, type, width;
+  unsigned int i, n, q, type, width;
+  unsigned int padding;
   int aligned_distances;
   unsigned long off = 0, pos = 0;
   Stream s[ENTROPY_STREAM_COUNT];
   BitReader raw_extra;
   ExtraReader extra;
 
-  if (!read_exact (in, h, 8U) || memcmp (h, "LZ9B", 4) != 0
-      || h[4] != FORMAT_V7)
+  if (!read_exact (in, h, BLOCK_PREFIX_N) || memcmp (h, "LZ9B", 4) != 0)
     {
       return 0;
     }
 
-  if (load16 (h + 6) != BLOCK_HEADER_N
-      || !read_exact (in, h + 8, BLOCK_HEADER_N - 8U))
-    {
-      return 0;
-    }
-
-  type = h[5] & 3U;
-
-  if (type == BLOCK_LZ)
-    {
-      width = (h[5] >> 2) & 3U;
-      aligned_distances
-          = OUTPUT_AUTO_ALIGNED_DISTANCES (o)
-                ? ((h[5] & BLOCK_FLAG_ALIGNED_DISTANCES) != 0U)
-                : OUTPUT_ALIGNED_DISTANCES (o);
-    }
-  else
-    {
-      width = h[5] >> 2;
-      aligned_distances = 0U;
-    }
-
-  n = (unsigned int)load32 (h + 8);
-  q = (unsigned int)load32 (h + 12);
-  lc = (unsigned int)load32 (h + 16);
-  desc_len = load32 (h + 20);
-  expected = load32 (h + 24 + 4U * STREAM_COUNT);
-
-  if ((type == BLOCK_LZ && (h[5] & 0xe0U))
-      || (type == BLOCK_LZ
-          && (h[5] & BLOCK_FLAG_ALIGNED_DISTANCES)
-          && !OUTPUT_AUTO_ALIGNED_DISTANCES (o))
-      || !n || n > max_n || n > BLOCK_N || q > n / 3U || lc > n
-      || desc_len > DESC_MAX || type > BLOCK_LZ)
-    {
-      return 0;
-    }
-
-  for (i = 0; i < STREAM_COUNT; ++i)
-    {
-      bitlen[i] = load32 (h + 24 + 4U * i);
-
-      if (bitlen[i] > STAGE_MAX * 8UL)
-        {
-          return 0;
-        }
-
-      lengths[i] = (bitlen[i] + 7UL) / 8UL;
-
-      if (total + lengths[i] > STAGE_MAX)
-        {
-          return 0;
-        }
-
-      total += lengths[i];
-    }
-
-  if (total > STAGE_MAX)
-    {
-      return 0;
-    }
-
-  if (!read_exact (in, desc, (size_t)desc_len)
-      || !read_exact (in, stage, (size_t)total))
-    {
-      return 0;
-    }
-
-  for (i = 0; i < STREAM_COUNT; ++i)
-    {
-      if ((bitlen[i] & 7UL) && lengths[i]
-          && (stage[pos + lengths[i] - 1UL]
-              & ((1U << (8 - (bitlen[i] & 7UL))) - 1U)))
-        {
-          return 0;
-        }
-
-      pos += lengths[i];
-    }
-
-  block_crc_begin (o);
+  type = h[4] & 3U;
 
   if (type == BLOCK_STORED)
     {
+      unsigned long stored_bits, stored_bytes;
       BitReader r;
 
-      if (desc_len || q || lc != n || (width != 7 && width != 8 && width != 9)
-          || bitlen[STREAM_LIT] != (unsigned long)n * width)
+      width = h[4] >> 2;
+
+      if (width != 7U && width != 8U && width != 9U)
         {
           return 0;
         }
 
-      for (i = 1; i < STREAM_COUNT; ++i)
+      if (!read_exact (in, h + BLOCK_PREFIX_N,
+                       STORED_BLOCK_HEADER_N - BLOCK_PREFIX_N))
         {
-          if (bitlen[i])
-            {
-              return 0;
-            }
+          return 0;
         }
 
-      br_init (&r, stage, bitlen[STREAM_LIT], 0);
+      n = load16 (h + 5);
+      expected = load32 (h + 7);
+
+      if (!n || n > max_n || n > BLOCK_N)
+        {
+          return 0;
+        }
+
+      stored_bits = (unsigned long)n * width;
+      stored_bytes = (stored_bits + 7UL) / 8UL;
+
+      if (!read_exact (in, stage, (size_t)stored_bytes))
+        {
+          return 0;
+        }
+
+      if ((stored_bits & 7UL)
+          && (stage[stored_bytes - 1UL]
+              & ((1U << (8U - (stored_bits & 7UL))) - 1U)))
+        {
+          return 0;
+        }
+
+      block_crc_begin (o);
+      br_init (&r, stage, stored_bits, 0);
 
       for (i = 0; i < n; ++i)
         {
@@ -3176,139 +3139,208 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             }
         }
 
-      if (r.failed || r.position != r.bits)
+      return !r.failed && r.position == r.bits && o->in_block == n
+             && block_crc_end (o, expected);
+    }
+
+  if (type != BLOCK_LZ
+      || !read_exact (in, h + BLOCK_PREFIX_N,
+                      LZ_BLOCK_HEADER_N - BLOCK_PREFIX_N))
+    {
+      return 0;
+    }
+
+  width = (h[4] >> 2) & 3U;
+  aligned_distances
+      = OUTPUT_AUTO_ALIGNED_DISTANCES (o)
+            ? ((h[4] & BLOCK_FLAG_ALIGNED_DISTANCES) != 0U)
+            : OUTPUT_ALIGNED_DISTANCES (o);
+  n = load16 (h + 5);
+  q = load16 (h + 7);
+  desc_len = load16 (h + 9);
+  padding = load16 (h + 21);
+  expected = load32 (h + 23);
+
+  if ((h[4] & 0xe0U)
+      || ((h[4] & BLOCK_FLAG_ALIGNED_DISTANCES)
+          && !OUTPUT_AUTO_ALIGNED_DISTANCES (o))
+      || width != 0U || !n || n > max_n || n > BLOCK_N || q > n / 3U
+      || desc_len > DESC_MAX || (padding & 0x8000U))
+    {
+      return 0;
+    }
+
+  for (i = 0; i < STREAM_COUNT; ++i)
+    {
+      unsigned int pad = (padding >> (3U * i)) & 7U;
+      unsigned long max_bits;
+
+      lengths[i] = load16 (h + 11 + 2U * i);
+
+      if ((!lengths[i] && pad) || pad > lengths[i] * 8UL)
+        {
+          return 0;
+        }
+
+      bitlen[i] = lengths[i] * 8UL - pad;
+
+      if (i == STREAM_LIT)
+        {
+          max_bits = (unsigned long)BLOCK_N * 10UL + TABLE_LOG;
+        }
+      else if (i < STREAM_EXTRA)
+        {
+          max_bits = (unsigned long)(BLOCK_N / 3U) * 10UL + TABLE_LOG;
+        }
+      else
+        {
+          max_bits = (unsigned long)(BLOCK_N / 3U) * 46UL;
+        }
+
+      if (bitlen[i] > max_bits || total + lengths[i] > STAGE_MAX)
+        {
+          return 0;
+        }
+
+      total += lengths[i];
+    }
+
+  if (total > STAGE_MAX
+      || !read_exact (in, desc, (size_t)desc_len)
+      || !read_exact (in, stage, (size_t)total))
+    {
+      return 0;
+    }
+
+  for (i = 0; i < STREAM_COUNT; ++i)
+    {
+      unsigned int pad = (padding >> (3U * i)) & 7U;
+
+      if (pad && lengths[i]
+          && (stage[pos + lengths[i] - 1UL] & ((1U << pad) - 1U)))
+        {
+          return 0;
+        }
+
+      pos += lengths[i];
+    }
+
+  block_crc_begin (o);
+  pos = 0;
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      unsigned int kind = i;
+
+      if (!parse_descriptor (&s[i], &tables[i], kind, o->of_alphabet,
+                             desc, &off, desc_len))
+        {
+          return 0;
+        }
+
+      if (i != STREAM_LIT && ((s[i].mode == MODE_EMPTY) != (q == 0U)))
         {
           return 0;
         }
     }
-  else
+
+  if (off != desc_len)
     {
-      unsigned int produced = 0, literals = 0;
+      return 0;
+    }
 
-      if (width != 0 || (q == 0 && lc != n))
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      if (!stream_begin (&s[i], bitlen[i], stage + pos))
         {
           return 0;
         }
 
-      for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
-        {
-          unsigned int kind = i;
-          unsigned int count = kind == STREAM_LIT ? lc : q;
+      pos += lengths[i];
+    }
 
-          if (!parse_descriptor (&s[i], &tables[i], kind, o->of_alphabet,
-                                 desc, &off, desc_len))
-            {
-              return 0;
-            }
+  br_init (&raw_extra, stage + pos, bitlen[STREAM_EXTRA], 0);
+  extra.raw = &raw_extra;
+  extra.failed = 0;
 
-          s[i].count = count;
+  {
+    unsigned int produced = 0, literals = 0;
 
-          if ((s[i].mode == MODE_EMPTY) != (s[i].count == 0))
-            {
-              return 0;
-            }
-        }
+    for (i = 0; i < q; ++i)
+      {
+        unsigned int j, lr, ml, d, code;
 
-      if (off != desc_len)
-        {
-          return 0;
-        }
+        code = stream_get (&s[STREAM_LL]);
+        lr = decode_len (code, 0, &extra);
 
-      pos = 0;
-
-      for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
-        {
-          if (!stream_begin (&s[i], bitlen[i], stage + pos))
-            {
-              return 0;
-            }
-
-          pos += lengths[i];
-        }
-
-      br_init (&raw_extra, stage + pos, bitlen[STREAM_EXTRA], 0);
-      extra.raw = &raw_extra;
-      extra.failed = 0;
-
-      for (i = 0; i < q; ++i)
-        {
-          unsigned int j, lr, ml, d, code;
-
-          code = stream_get (&s[STREAM_LL]);
-          lr = decode_len (code, 0, &extra);
-
-          if (extra.failed || lr > n - produced || lr > lc - literals)
-            {
-              return 0;
-            }
-
-          for (j = 0; j < lr; ++j)
-            {
-              unsigned int v = stream_get (&s[STREAM_LIT]);
-
-              if (v >= 512 || !output_symbol (o, v))
-                {
-                  return 0;
-                }
-            }
-
-          produced += lr;
-          literals += lr;
-          code = stream_get (&s[STREAM_ML]);
-          ml = decode_len (code, 3, &extra);
-          code = stream_get (&s[STREAM_OF]);
-          d = decode_dist (code, &extra, o->reps, o->window_n,
-                           o->of_alphabet, aligned_distances);
-
+        if (extra.failed || lr > n - produced)
           {
-            unsigned int max_d
-                = (o->produced < o->window_n) ? (unsigned int)o->produced
-                                              : o->window_n;
+            return 0;
+          }
 
-            if (extra.failed || ml < 3 || ml > n - produced
-                || (d - 1U) >= max_d)
+        for (j = 0; j < lr; ++j)
+          {
+            unsigned int v = stream_get (&s[STREAM_LIT]);
+
+            if (v >= 512 || !output_symbol (o, v))
               {
                 return 0;
               }
           }
 
-          if (!output_match (o, d, ml))
+        produced += lr;
+        literals += lr;
+        code = stream_get (&s[STREAM_ML]);
+        ml = decode_len (code, 3, &extra);
+        code = stream_get (&s[STREAM_OF]);
+        d = decode_dist (code, &extra, o->reps, o->window_n,
+                         o->of_alphabet, aligned_distances);
+
+        {
+          unsigned int max_d
+              = (o->produced < o->window_n) ? (unsigned int)o->produced
+                                            : o->window_n;
+
+          if (extra.failed || ml < 3 || ml > n - produced
+              || (d - 1U) >= max_d)
             {
               return 0;
             }
-
-          produced += ml;
         }
 
-      if (n - produced != lc - literals)
+        if (!output_match (o, d, ml))
+          {
+            return 0;
+          }
+
+        produced += ml;
+      }
+
+    while (produced < n)
+      {
+        unsigned int v = stream_get (&s[STREAM_LIT]);
+
+        if (v >= 512 || !output_symbol (o, v))
+          {
+            return 0;
+          }
+
+        ++produced;
+        ++literals;
+      }
+
+    if ((s[STREAM_LIT].mode == MODE_EMPTY) != (literals == 0U)
+        || !extra_end (&extra))
+      {
+        return 0;
+      }
+  }
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      if (!stream_end (&s[i]))
         {
           return 0;
-        }
-
-      while (produced < n)
-        {
-          unsigned int v = stream_get (&s[STREAM_LIT]);
-
-          if (v >= 512 || !output_symbol (o, v))
-            {
-              return 0;
-            }
-
-          ++produced;
-          ++literals;
-        }
-
-      if (literals != lc || !extra_end (&extra))
-        {
-          return 0;
-        }
-
-      for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
-        {
-          if (!stream_end (&s[i]))
-            {
-              return 0;
-            }
         }
     }
 
@@ -3412,7 +3444,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                                          : OF_ALPHABET_32K;
   e.input_mode = mode;
   (void)memcpy (hdr, "LZ9A", 4);
-  hdr[4] = FORMAT_V7;
+  hdr[4] = FORMAT_V8;
   hdr[5] = (unsigned char)mode;
   store16 (hdr + 6, FHEAD_N);
   store32 (hdr + 8, elements);
@@ -3507,37 +3539,110 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 /*****************************************************************************/
 
 static int
+parse_frame_extensions (const unsigned char *hdr, unsigned int header_len,
+                        unsigned long total, int *unknown_count)
+{
+  unsigned char seen[128];
+  unsigned int pos = FRAME_HEADER_PREFIX_N;
+  unsigned int end = header_len - 4U;
+
+  (void)memset (seen, 0, sizeof (seen));
+  *unknown_count = 0;
+
+  while (pos < end)
+    {
+      unsigned int id, length, index;
+
+      if (end - pos < 3U)
+        {
+          return 0;
+        }
+
+      id = hdr[pos++];
+      length = load16 (hdr + pos);
+      pos += 2U;
+
+      if (!(id & 0x7fU) || length > end - pos)
+        {
+          return 0;
+        }
+
+      index = id & 0x7fU;
+
+      if (seen[index])
+        {
+          return 0;
+        }
+
+      seen[index] = 1;
+
+      if (id == FRAME_EXT_UNKNOWN_COUNT)
+        {
+          if (length != 0U || total != 0UL)
+            {
+              return 0;
+            }
+
+          *unknown_count = 1;
+        }
+      else if (id & 0x80U)
+        {
+          return 0;
+        }
+
+      pos += length;
+    }
+
+  return pos == end;
+}
+
+/*****************************************************************************/
+
+static int
 decode_file (FILE *in, FILE *out)
 {
-  unsigned char hdr[FHEAD_N];
+  unsigned char hdr[FRAME_HEADER_MAX_N];
   unsigned long total, done = 0;
-  unsigned int feature_flags, window_n;
+  unsigned int feature_flags, window_n, header_len;
   unsigned char *stage = (unsigned char *)0, *desc = (unsigned char *)0;
   AnsTable *tables = (AnsTable *)0;
   Output *o = (Output *)0;
-  int okay = 0;
+  int okay = 0, unknown_count = 0;
 
-  if (!read_exact (in, hdr, sizeof (hdr)) || memcmp (hdr, "LZ9A", 4) != 0
-      || hdr[4] != FORMAT_V7
-      || (hdr[5] != 8 && hdr[5] != 9) || load16 (hdr + 6) != FHEAD_N
-      || load32 (hdr + 13) != crc_bytes (hdr, 13))
+  if (!read_exact (in, hdr, FRAME_HEADER_PREFIX_N)
+      || memcmp (hdr, "LZ9A", 4) != 0 || hdr[4] != FORMAT_V8
+      || (hdr[5] != 8 && hdr[5] != 9))
+    {
+      return 0;
+    }
+
+  header_len = load16 (hdr + 6);
+
+  if (header_len < FRAME_HEADER_MIN_N
+      || header_len > FRAME_HEADER_MAX_N
+      || !read_exact (in, hdr + FRAME_HEADER_PREFIX_N,
+                      (size_t)(header_len - FRAME_HEADER_PREFIX_N))
+      || load32 (hdr + header_len - 4U)
+             != crc_bytes (hdr, header_len - 4U))
     {
       return 0;
     }
 
   feature_flags = (unsigned int)hdr[12];
+  total = load32 (hdr + 8);
 
   if ((feature_flags & ~(FEATURE_WINDOW_64K | FEATURE_ALIGNED_DISTANCES
                          | FEATURE_AUTO_ALIGNED_DISTANCES)) != 0U
       || ((feature_flags & FEATURE_AUTO_ALIGNED_DISTANCES)
-          && !(feature_flags & FEATURE_ALIGNED_DISTANCES)))
+          && !(feature_flags & FEATURE_ALIGNED_DISTANCES))
+      || !parse_frame_extensions (hdr, header_len, total, &unknown_count)
+      || unknown_count)
     {
       return 0;
     }
 
   window_n
       = (feature_flags & FEATURE_WINDOW_64K) ? WINDOW_64K : WINDOW_DEFAULT;
-  total = load32 (hdr + 8);
   stage = (unsigned char *)malloc (STAGE_MAX);
   desc = (unsigned char *)malloc (DESC_MAX);
   tables = (AnsTable *)malloc (ENTROPY_STREAM_COUNT * sizeof (AnsTable));

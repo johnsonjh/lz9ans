@@ -3,6 +3,7 @@
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
 
+import os
 from pathlib import Path
 import random
 import subprocess
@@ -24,7 +25,7 @@ def run(binary, action, source, target, *options):
 
 
 def main():
-    binary = (ROOT / "lz9ans").resolve()
+    binary = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
     rng = random.Random(0x9A32768)
     with tempfile.TemporaryDirectory(prefix="lz9ans-window-") as temp:
         temp = Path(temp)
@@ -64,23 +65,23 @@ def main():
             f"{len(encoded32)} bytes; offset_19={stats32['offset_19']}"
         )
 
-        # A v6 frame must not be accepted by the v7 implementation. Recompute
+        # A v7 frame must not be accepted by the v8 implementation. Recompute
         # the header CRC so rejection is specifically for the version number.
         bad_version = bytearray(encoded32)
-        bad_version[4] = 6
+        bad_version[4] = 7
         import zlib
 
         bad_version[13:17] = zlib.crc32(bad_version[:13]).to_bytes(4, "little")
         archive.write_bytes(bad_version)
         result = run(binary, "d", archive, recovered)
-        assert result.returncode != 0, "C decoder accepted v6 frame"
+        assert result.returncode != 0, "C decoder accepted v7 frame"
         try:
             decode(bytes(bad_version))
         except ValueError:
             pass
         else:
-            raise AssertionError("independent decoder accepted v6 frame")
-        print("PASS explicit rejection of version 6")
+            raise AssertionError("independent decoder accepted v7 frame")
+        print("PASS explicit rejection of version 7")
 
 
 if __name__ == "__main__":

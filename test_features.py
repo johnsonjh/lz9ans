@@ -11,7 +11,14 @@ import subprocess
 import tempfile
 import zlib
 
-from inspect_lz9ans import decode, FormatError, pack9, parse_descriptor
+from inspect_lz9ans import (
+    block_header,
+    decode,
+    FormatError,
+    frame_header,
+    pack9,
+    parse_descriptor,
+)
 
 ROOT = Path(__file__).resolve().parent
 BINARY = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
@@ -32,15 +39,13 @@ def run(*args, expect=0):
 
 def aligned_block_flags(data):
     flags = []
-    position = 17
+    position = frame_header(data)["length"]
     while position < len(data):
-        header = data[position : position + 48]
-        assert len(header) == 48 and header[:4] == b"LZ9B"
-        block_type = header[5] & 3
-        flags.append((block_type, bool(block_type == 1 and (header[5] & 16))))
-        descriptor_size = struct.unpack_from("<I", header, 20)[0]
-        bit_lengths = struct.unpack_from("<5I", header, 24)
-        position += 48 + descriptor_size + sum((bits + 7) // 8 for bits in bit_lengths)
+        header = block_header(data, position)
+        block_type = header["type"]
+        assert header["header_size"] == (11 if block_type == 0 else 27)
+        flags.append((block_type, bool(block_type == 1 and header.get("aligned"))))
+        position = header["next_position"]
     assert position == len(data)
     return flags
 
@@ -63,7 +68,7 @@ def main():
         previous = record
     short_long = bytes(short_long)
 
-    # V7 uses a one-octet frame feature mask. Bits 3 and 4 advertise
+    # V8 uses a one-octet frame feature mask. Bits 3 and 4 advertise
     # automatic per-block aligned-distance selection.
     cases = [
         ("base-8", 8, bytes(range(256)) * 400, [], 24),
@@ -73,7 +78,7 @@ def main():
         ("window64-exact64k", 8, block_a + block_b + block_a, ["--window=64k"], 25),
         ("raw-extra", 8, short_long, [], 24),
     ]
-    with tempfile.TemporaryDirectory(prefix="lz9ans-v7-test-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="lz9ans-v8-test-") as temporary:
         temp = Path(temporary)
         source, archive, decoded = (temp / name for name in ("in", "arc", "out"))
         for name, mode, raw, options, flags in cases:
@@ -81,10 +86,13 @@ def main():
             run("c" + str(mode), source, archive, "-6", *options)
             data = archive.read_bytes()
             assert data[:4] == b"LZ9A"
-            assert data[4] == 7, (name, "encoder did not emit v7")
+            assert data[4] == 8, (name, "encoder did not emit v8")
             assert struct.unpack_from("<H", data, 6)[0] == 17
             assert data[12] == flags, (name, "wrong flags")
-            assert struct.unpack_from("<I", data, 13)[0] == zlib.crc32(data[:13])
+            header_length = frame_header(data)["length"]
+            assert struct.unpack_from("<I", data, header_length - 4)[0] == zlib.crc32(
+                data[: header_length - 4]
+            )
             independent, stats = decode(data)
             assert independent == raw, (name, "independent decoder mismatch")
             run("d", archive, decoded)
@@ -94,19 +102,13 @@ def main():
             if name == "window64-exact64k":
                 assert stats["offset_20"] >= 1, stats
             if name == "raw-extra":
-                position = 17
+                position = header_length
                 found_raw_extra = False
                 while position < len(data):
-                    header = data[position : position + 48]
-                    descriptor_size = struct.unpack_from("<I", header, 20)[0]
-                    bit_lengths = struct.unpack_from("<5I", header, 24)
-                    if (header[5] & 3) == 1 and bit_lengths[4] != 0:
+                    header = block_header(data, position)
+                    if header["type"] == 1 and header["bit_lengths"][4] != 0:
                         found_raw_extra = True
-                    position += (
-                        48
-                        + descriptor_size
-                        + sum((bits + 7) // 8 for bits in bit_lengths)
-                    )
+                    position = header["next_position"]
                 assert found_raw_extra, "raw EXTRA payload was not exercised"
             print(
                 "PASS",
@@ -153,19 +155,18 @@ def main():
         assert decoded.read_bytes() == reuse_raw
         assert reuse_stats["lz"] == 2 and reuse_stats["stored"] == 1, reuse_stats
         table_cache = [None] * 4
-        position = 17
+        position = frame_header(reuse_frame)["length"]
         first_lit_descriptor_size = None
         reused_lit_table = False
         for block_index in range(3):
-            header = reuse_frame[position : position + 48]
-            block_type = header[5] & 3
-            desc_len = struct.unpack_from("<I", header, 20)[0]
-            bit_lengths = struct.unpack_from("<5I", header, 24)
+            header = block_header(reuse_frame, position)
+            block_type = header["type"]
+            desc_len = header["desc_length"]
             if block_index == 1:
                 assert block_type == 0 and desc_len == 0
             else:
                 assert block_type == 1
-                descriptor = reuse_frame[position + 48 : position + 48 + desc_len]
+                descriptor = header["descriptor"]
                 descriptor_offset = 0
                 parsed_lit, descriptor_offset = parse_descriptor(
                     descriptor, descriptor_offset, 0, 512, table_cache
@@ -186,7 +187,7 @@ def main():
                     assert parsed_lit[0] == 4
                     assert desc_len < first_lit_descriptor_size
                     reused_lit_table = True
-            position += 48 + desc_len + sum((bits + 7) // 8 for bits in bit_lengths)
+            position = header["next_position"]
         assert reused_lit_table and position == len(reuse_frame)
         print(
             "PASS compact LIT descriptor and table reuse across STORED block",
@@ -209,7 +210,7 @@ def main():
         run("d", archive, decoded)
         assert decoded.read_bytes() == aligned_9
 
-        # V7 streams using frame-wide aligned-distance mode remain readable.
+        # V8 streams using frame-wide aligned-distance mode remain readable.
         # Convert this one-block per-block frame to that form:
         # retain the aligned payload, clear the block selector, and clear the
         # per-block frame flag while leaving the global alignment flag set.
@@ -218,7 +219,7 @@ def main():
         frame_wide_aligned[13:17] = struct.pack(
             "<I", zlib.crc32(frame_wide_aligned[:13])
         )
-        frame_wide_aligned[17 + 5] &= ~16
+        frame_wide_aligned[17 + 4] &= ~16
         archive.write_bytes(frame_wide_aligned)
         run("d", archive, decoded)
         assert decoded.read_bytes() == aligned_9
@@ -238,7 +239,7 @@ def main():
         assert decoded.read_bytes() == aligned_8
 
         # Frames with neither aligned-distance feature flag retain baseline
-        # v7 semantics and remain readable by both decoders.
+        # v8 semantics and remain readable by both decoders.
         alignment_disabled = bytearray(gated_frame)
         alignment_disabled[12] = 0
         alignment_disabled[13:17] = struct.pack(
@@ -356,8 +357,8 @@ def main():
         ):
             run("c8", source, archive, removed_option, expect=2)
 
-        # V7 deliberately has no prior-version compatibility path.
-        for old_version in (3, 4, 5, 6):
+        # V8 deliberately has no prior-version compatibility path.
+        for old_version in (3, 4, 5, 6, 7):
             malformed = bytearray(original)
             malformed[4] = old_version
             malformed[13:17] = struct.pack("<I", zlib.crc32(malformed[:13]))
@@ -375,7 +376,7 @@ def main():
         run("c8", source, archive, "--distance-context", expect=2)
         run("c8", source, archive, "--window=64k", "--window=64k", expect=2)
 
-        # Differential malformed-stream tests for the V7 feature combination.
+        # Differential malformed-stream tests for the V8 feature combination.
         source.write_bytes(short_long + block_a + block_b + block_a)
         run("c8", source, archive, "-6", "--window=64k")
         original = archive.read_bytes()
@@ -416,7 +417,7 @@ def main():
                     "mutated archive changed decoded data",
                 )
     print(
-        "PASS v7 feature flags, raw bypass bits, 32K/64K distances, unsupported-option handling, and malformed-stream tests"
+        "PASS v8 feature flags, raw bypass bits, 32K/64K distances, unsupported-option handling, and malformed-stream tests"
     )
 
 

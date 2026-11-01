@@ -20,6 +20,7 @@ test: lz9ans
 	./test_window.py
 	./test_verbose.py
 	./test_features.py
+	./test_v8_format.py
 
 sanitizers: lz9ans.c
 	eval $${CC:-$(CC)} -Og -g -ansi -pedantic -Wall -Wextra -Werror \

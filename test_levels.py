@@ -3,6 +3,7 @@
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
 
+import os
 from pathlib import Path
 import random
 import subprocess
@@ -11,7 +12,7 @@ import tempfile
 from inspect_lz9ans import decode, pack9
 
 ROOT = Path(__file__).resolve().parent
-BINARY = (ROOT / "lz9ans").resolve()
+BINARY = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
 
 
 def run(*args):
@@ -46,7 +47,7 @@ def main():
                 result = run(mode, source, archive, f"-{level}")
                 assert result.returncode == 0, (level, name, result.stderr.decode())
                 frame = archive.read_bytes()
-                assert frame[4] == 7, (level, name, "wrong format version")
+                assert frame[4] == 8, (level, name, "wrong format version")
                 independent, _ = decode(frame)
                 assert independent == raw, (level, name, "independent decode mismatch")
                 result = run("d", archive, decoded)

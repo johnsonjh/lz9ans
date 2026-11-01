@@ -27,6 +27,75 @@ def u32(data, offset):
     return struct.unpack_from("<I", data, offset)[0]
 
 
+def frame_header(data):
+    check(len(data) >= 17 and data[:4] == b"LZ9A", "invalid frame header")
+    length = u16(data, 6)
+    check(17 <= length <= 4096 and length <= len(data), "invalid frame-header length")
+    return {
+        "version": data[4],
+        "mode": data[5],
+        "length": length,
+        "count": u32(data, 8),
+        "flags": data[12],
+    }
+
+
+def block_header(data, position):
+    check(position + 7 <= len(data), "truncated block prefix")
+    check(data[position : position + 4] == b"LZ9B", "invalid block magic")
+    block_type = data[position + 4] & 3
+    if block_type == 0:
+        header_size = 11
+        check(position + header_size <= len(data), "truncated STORED header")
+        h = data[position : position + header_size]
+        result = {
+            "type": 0,
+            "width": h[4] >> 2,
+            "n": u16(h, 5),
+            "q": 0,
+            "desc_length": 0,
+            "byte_lengths": (((u16(h, 5) * (h[4] >> 2) + 7) // 8), 0, 0, 0, 0),
+            "bit_lengths": (0, 0, 0, 0, 0),
+            "crc": u32(h, 7),
+            "header_size": header_size,
+        }
+        result["bit_lengths"] = (result["n"] * result["width"], 0, 0, 0, 0)
+    elif block_type == 1:
+        header_size = 27
+        check(position + header_size <= len(data), "truncated LZ header")
+        h = data[position : position + header_size]
+        n, q, desc_length = struct.unpack_from("<HHH", h, 5)
+        byte_lengths = struct.unpack_from("<5H", h, 11)
+        padding = u16(h, 21)
+        bit_lengths = tuple(
+            byte_lengths[i] * 8 - ((padding >> (3 * i)) & 7) for i in range(5)
+        )
+        result = {
+            "type": 1,
+            "width": (h[4] >> 2) & 3,
+            "aligned": bool(h[4] & 16),
+            "n": n,
+            "q": q,
+            "desc_length": desc_length,
+            "byte_lengths": byte_lengths,
+            "bit_lengths": bit_lengths,
+            "padding": padding,
+            "crc": u32(h, 23),
+            "header_size": header_size,
+        }
+    else:
+        raise FormatError("reserved block type")
+
+    descriptor_start = position + result["header_size"]
+    descriptor_end = descriptor_start + result["desc_length"]
+    payload_end = descriptor_end + sum(result["byte_lengths"])
+    check(payload_end <= len(data), "truncated block payload")
+    result["descriptor"] = data[descriptor_start:descriptor_end]
+    result["next_position"] = payload_end
+    result["payload_start"] = descriptor_end
+    return result
+
+
 def read_var(data, position):
     value = 0
     for shift in (0, 7, 14):
@@ -222,99 +291,140 @@ def decode_length(code, bias, extra):
     return bias + 15 + (1 << exponent) + extra.get(exponent)
 
 
+def parse_frame_extensions(data, header_length, target):
+    position = 13
+    end = header_length - 4
+    seen = set()
+    unknown_count = False
+    while position < end:
+        check(end - position >= 3, "truncated frame extension")
+        identifier = data[position]
+        length = u16(data, position + 1)
+        position += 3
+        check(
+            (identifier & 0x7F) != 0 and length <= end - position, "bad frame extension"
+        )
+        key = identifier & 0x7F
+        check(key not in seen, "duplicate frame extension")
+        seen.add(key)
+        if identifier == 0x81:
+            check(length == 0 and target == 0, "invalid unknown-count extension")
+            unknown_count = True
+        elif identifier & 0x80:
+            raise FormatError("unknown critical frame extension")
+        position += length
+    check(position == end, "invalid frame extension area")
+    check(not unknown_count, "unknown-length streams are not supported by this decoder")
+
+
 def decode(data):
     check(len(data) >= 17 and data[:4] == b"LZ9A", "invalid frame magic")
     version, mode = data[4], data[5]
+    header_length = u16(data, 6)
     check(
-        version == 7 and mode in (8, 9) and u16(data, 6) == 17,
+        version == 8
+        and mode in (8, 9)
+        and 17 <= header_length <= 4096
+        and header_length <= len(data),
         "unsupported frame header",
     )
     flags = data[12]
-    check(zlib.crc32(data[:13]) == u32(data, 13), "corrupt frame header")
+    check(
+        zlib.crc32(data[: header_length - 4]) == u32(data, header_length - 4),
+        "corrupt frame header",
+    )
     check((flags & ~0x19) == 0, "unsupported or reserved feature flags")
     auto_aligned = bool(flags & 16)
     aligned_global = bool(flags & 8)
     check(not auto_aligned or aligned_global, "invalid auto-alignment flags")
+    target = u32(data, 8)
+    parse_frame_extensions(data, header_length, target)
     window = 65536 if flags & 1 else 32768
     of_alphabet = 21 if window == 65536 else 20
-    target = u32(data, 8)
-    position = 17
+    position = header_length
     output = []
     reps = [0, 0, 0]
     stats = Counter()
     table_cache = [None] * 4
+
     while len(output) < target:
-        stream_count = 5
-        entropy_count = 4
-        header_size = 48
-        check(position + header_size <= len(data), "missing block header")
-        h = data[position : position + header_size]
-        position += header_size
-        check(
-            h[:4] == b"LZ9B" and h[4] == version and u16(h, 6) == header_size,
-            "unsupported block header",
-        )
-        flag = h[5] & 3
-        block_aligned = False
-        if flag == 0:
-            width = h[5] >> 2
-        else:
-            width = (h[5] >> 2) & 3
-            block_aligned = bool(h[5] & 16)
-            check((h[5] & 0xE0) == 0, "invalid LZ block flags")
-            check(
-                not block_aligned or auto_aligned,
-                "block alignment flag without per-block mode",
-            )
-        aligned_distances = block_aligned if auto_aligned else aligned_global
-        n, sequence_count, literal_count = struct.unpack_from("<III", h, 8)
-        desc_length = u32(h, 20)
-        lengths = struct.unpack_from("<5I", h, 24)
-        expected_crc = u32(h, 44)
-        check(
-            0 < n <= min(32768, target - len(output))
-            and sequence_count <= n // 3
-            and literal_count <= n
-            and desc_length <= 8192
-            and flag in (0, 1),
-            "bad block dimensions",
-        )
-        sizes = [(length + 7) // 8 for length in lengths]
-        check(
-            sum(sizes) <= 81920 and all(length <= 81920 * 8 for length in lengths),
-            "excessive bitstreams",
-        )
-        check(
-            position + desc_length + sum(sizes) <= len(data), "truncated block payload"
-        )
-        desc = data[position : position + desc_length]
-        position += desc_length
-        raw = []
-        for size, length in zip(sizes, lengths):
-            raw.append(Bits(data[position : position + size], length))
-            position += size
+        check(position + 7 <= len(data), "missing block prefix")
+        prefix = data[position : position + 7]
+        check(prefix[:4] == b"LZ9B", "invalid block magic")
+        block_type = prefix[4] & 3
         block_start = len(output)
-        if flag == 0:
+
+        if block_type == 0:
+            check(position + 11 <= len(data), "truncated STORED header")
+            h = data[position : position + 11]
+            position += 11
+            width = h[4] >> 2
+            n = u16(h, 5)
+            expected_crc = u32(h, 7)
+            check(0 < n <= min(32768, target - len(output)), "bad STORED dimensions")
+            check(width in (7, 8, 9), "bad STORED width")
+            meaningful = n * width
+            size = (meaningful + 7) // 8
+            check(position + size <= len(data), "truncated STORED payload")
+            bits = Bits(data[position : position + size], meaningful)
+            position += size
             stats["stored"] += 1
-            check(
-                width in (7, 8, 9)
-                and desc_length == 0
-                and sequence_count == 0
-                and literal_count == n
-                and lengths == tuple([n * width] + [0] * (stream_count - 1)),
-                "bad stored block",
-            )
             for _ in range(n):
-                value = raw[0].get(width)
+                value = bits.get(width)
                 check(
                     value < (256 if mode == 8 else 512),
                     "stored symbol exceeds frame input width",
                 )
                 output.append(value)
-            raw[0].finish()
-        else:
-            stats["lz"] += 1
+            bits.finish()
+        elif block_type == 1:
+            check(position + 27 <= len(data), "truncated LZ header")
+            h = data[position : position + 27]
+            position += 27
+            check((h[4] & 0xE0) == 0, "invalid LZ block flags")
+            width = (h[4] >> 2) & 3
+            block_aligned = bool(h[4] & 16)
             check(width == 0, "nonzero LZ block width")
+            check(
+                not block_aligned or auto_aligned,
+                "block alignment flag without per-block mode",
+            )
+            aligned_distances = block_aligned if auto_aligned else aligned_global
+            n, sequence_count, desc_length = struct.unpack_from("<HHH", h, 5)
+            byte_lengths = struct.unpack_from("<5H", h, 11)
+            padding = u16(h, 21)
+            expected_crc = u32(h, 23)
+            check(
+                0 < n <= min(32768, target - len(output))
+                and sequence_count <= n // 3
+                and desc_length <= 8192
+                and (padding & 0x8000) == 0,
+                "bad LZ block dimensions",
+            )
+            meaningful_lengths = []
+            max_bits = (
+                [32768 * 10 + 10] + [32768 // 3 * 10 + 10] * 3 + [32768 // 3 * 46]
+            )
+            for index, byte_length in enumerate(byte_lengths):
+                pad = (padding >> (3 * index)) & 7
+                check(not (byte_length == 0 and pad), "padding on empty stream")
+                check(pad <= byte_length * 8, "padding exceeds stream")
+                meaningful = byte_length * 8 - pad
+                check(meaningful <= max_bits[index], "excessive stream length")
+                meaningful_lengths.append(meaningful)
+            sizes = list(byte_lengths)
+            check(sum(sizes) <= 81920, "excessive combined payload")
+            check(
+                position + desc_length + sum(sizes) <= len(data),
+                "truncated block payload",
+            )
+            desc = data[position : position + desc_length]
+            position += desc_length
+            raw = []
+            for size, meaningful in zip(sizes, meaningful_lengths):
+                raw.append(Bits(data[position : position + size], meaningful))
+                position += size
+            stats["lz"] += 1
             kinds = (0, 1, 2, 3)
             descriptors = []
             index = 0
@@ -325,22 +435,21 @@ def decode(data):
                 )
                 descriptors.append(descriptor)
             check(index == len(desc), "extra entropy descriptor bytes")
-            counts = [literal_count if kind == 0 else sequence_count for kind in kinds]
-            streams = []
-            for i, kind in enumerate(kinds):
-                b = raw[i]
-                streams.append(Symbols(descriptors[i], counts[i], b.data, b.length))
-            extra = raw[stream_count - 1]
-            used_literals = 0
-            ll_index = 1
-            ml_index = 2
-            for _ in range(sequence_count):
-                run = decode_length(streams[ll_index].get(), 0, extra)
+            for stream_descriptor in descriptors[1:]:
                 check(
-                    used_literals + run <= literal_count
-                    and len(output) - block_start + run <= n,
-                    "invalid literal run",
+                    (stream_descriptor[0] == 0) == (sequence_count == 0),
+                    "empty sequence stream mismatch",
                 )
+            streams = []
+            for i, descriptor in enumerate(descriptors):
+                count = None if i == 0 else sequence_count
+                streams.append(Symbols(descriptor, count, raw[i].data, raw[i].length))
+            extra = raw[4]
+            used_literals = 0
+            produced = 0
+            for _ in range(sequence_count):
+                run = decode_length(streams[1].get(), 0, extra)
+                check(produced + run <= n, "invalid literal run")
                 for _ in range(run):
                     value = streams[0].get()
                     check(
@@ -349,7 +458,8 @@ def decode(data):
                     )
                     output.append(value)
                 used_literals += run
-                match_length = decode_length(streams[ml_index].get(), 3, extra)
+                produced += run
+                match_length = decode_length(streams[2].get(), 3, extra)
                 stats["match_lt19" if match_length < 19 else "match_ge19"] += 1
                 code = streams[3].get()
                 stats[f"offset_{code}"] += 1
@@ -390,16 +500,13 @@ def decode(data):
                     1 <= distance <= window
                     and distance <= len(output)
                     and match_length >= 3
-                    and len(output) - block_start + match_length <= n,
+                    and produced + match_length <= n,
                     "invalid match length or distance",
                 )
                 for _ in range(match_length):
                     output.append(output[-distance])
-            trailing = n - (len(output) - block_start)
-            check(
-                trailing == literal_count - used_literals,
-                "incorrect terminal literal count",
-            )
+                produced += match_length
+            trailing = n - produced
             for _ in range(trailing):
                 value = streams[0].get()
                 check(
@@ -407,14 +514,23 @@ def decode(data):
                     "terminal literal exceeds frame input width",
                 )
                 output.append(value)
-            for stream in streams[:entropy_count]:
+            actual_literals = used_literals + trailing
+            check(
+                (descriptors[0][0] == 0) == (actual_literals == 0),
+                "empty literal stream mismatch",
+            )
+            for stream in streams:
                 stream.finish()
             extra.finish()
+        else:
+            raise FormatError("unsupported or reserved block type")
+
         check(
             zlib.crc32(pack9(output[block_start:])) == expected_crc,
             "invalid decoded block CRC",
         )
         check(len(output) - block_start == n, "block length mismatch")
+
     check(position == len(data), "trailing compressed data")
     return (bytes(output) if mode == 8 else pack9(output)), stats
 

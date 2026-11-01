@@ -12,27 +12,31 @@ import tempfile
 import time
 import zlib
 
-from inspect_lz9ans import decode as independent_decode, parse_descriptor
+from inspect_lz9ans import (
+    block_header,
+    decode as independent_decode,
+    frame_header,
+    parse_descriptor,
+)
 
 
 def scan_modes(data):
     assert data[:4] == b"LZ9A"
-    pos = 17
-    flags = data[12]
+    frame = frame_header(data)
+    assert frame["version"] == 8
+    pos = frame["length"]
+    flags = frame["flags"]
     found = {"stored": 0, "lz": 0, "tans": 0, "reuse": 0, "raw": 0, "rle": 0}
     tables = [None] * 4
     kinds = (0, 1, 2, 3)
     while pos < len(data):
-        h = data[pos : pos + 48]
-        assert len(h) == 48 and h[:4] == b"LZ9B"
-        flag = h[5] & 3
-        desc_len = struct.unpack_from("<I", h, 20)[0]
-        lengths = struct.unpack_from("<5I", h, 24)
-        if flag == 0:
+        block = block_header(data, pos)
+        if block["type"] == 0:
             found["stored"] += 1
         else:
             found["lz"] += 1
-            desc = data[pos + 48 : pos + 48 + desc_len]
+            desc_len = block["desc_length"]
+            desc = block["descriptor"]
             index = 0
             for kind in kinds:
                 alphabet = (
@@ -53,7 +57,7 @@ def scan_modes(data):
                     if mode == 4:
                         found["reuse"] += 1
             assert index == len(desc)
-        pos += 48 + desc_len + sum((x + 7) // 8 for x in lengths)
+        pos = block["next_position"]
     assert pos == len(data)
     return found
 
@@ -187,7 +191,10 @@ def main():
                         },
                     )
             if name != "empty":
-                for index in (5, 20, max(0, len(code) - 1)):
+                # Corrupt frame metadata/magic, rather than an arbitrary
+                # payload bit: some payload mutations can remain a valid
+                # alternate encoding of the same decoded block.
+                for index in (5, 13, 20):
                     corrupt = bytearray(code)
                     corrupt[index] ^= 0x80
                     encoded.write_bytes(corrupt)
