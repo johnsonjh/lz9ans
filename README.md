@@ -3,13 +3,16 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS
 
-**LZ9ANS** is a 9‑bit [LZ77](https://en.wikipedia.org/wiki/LZ77_and_LZ78) +
-[tANS](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems)
-codec designed to efficiently compress **9‑bit** mainframe input data (*e.g.*,
-**Multics**, **OS2200**) to standard **8‑bit** output streams.  It has two
-window sizes, deterministic runtime memory usage, 8‑bit data compatibility,
-fast decompression, and offers nine compression profiles: four *fast*, four
-*tight*, one *maximum*.
+**LZ9ANS** is a **9‑bit** [LZ77](https://en.wikipedia.org/wiki/LZ77_and_LZ78) +
+[tANS](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems) codec designed
+to efficiently compress **9‑bit** mainframe input data (*e.g.*, **Multics**,
+**OS2200**, **7090**) to standard **8‑bit** portable output streams.
+
+It features two window sizes, deterministic runtime memory usage (compresses in
+486&nbsp;KiB or 678&nbsp;KiB, decompresses in 202&nbsp;KiB or 266&nbsp;KiB),
+8‑bit data compatibility, word‑aligned offset optimizations for data with
+36‑bit boundaries, and very fast decompression.  It offers nine different
+compression profiles: four *fast*, four *tight*, and one *maximum*.
 
 ## Performance
 
@@ -43,11 +46,15 @@ fast decompression, and offers nine compression profiles: four *fast*, four
 | **‑8** |  `139,226,584`  | `68.824%` | `3.208:1` |     `‑366,736` |
 | **‑9** |  `138,901,784`  | `68.897%` | `3.215:1` |     `‑324,800` |
 
+On Multics (and OS2200) systems, an additional **11%** on‑disk savings can be
+realized by packing the 8‑bit **LZ9ANS** output stream to a more compact (but
+less portable) 9‑bit character representation.
+
 ### Competition
 
 Compare the numbers above with the results of the same corpus packed with
-popular (8‑bit) compression algorithms (all at their highest settings), as
-well as **LZ9ANS** in 8‑bit mode:
+popular 8‑bit compression algorithms (all at their maximum compresion
+settings), as well as **LZ9ANS** operating in 8‑bit mode:
 
 |      Utility | Algorithm              | Compressed bits | Memory           | Performance      |
 |-------------:|:-----------------------|:---------------:|-----------------:|-----------------:|
@@ -68,9 +75,9 @@ well as **LZ9ANS** in 8‑bit mode:
 
 Even when processing the corpus *in 8‑bit mode* (that is, as `55,823,021` 8‑bit
 octets, rather than as `49,620,463` 9‑bit nonets), **LZ9ANS**, which is tuned
-*explicitly* for compressing **9‑bit** data, more than holds it own, only beat
-by algorithms that require *substantially* more memory (2× to 500×) and/or
-processing time (enough to make native **Multics** implementations and usage
+*explicitly* for compressing **9‑bit** data, more than holds it own and is only
+surpassed by algorithms that require *substantially* more memory (2× to 500×)
+and/or processing time (enough to make native **Multics** implementations
 impractical).
 
 ## Specification
