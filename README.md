@@ -13,7 +13,7 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 ## Performance
 
 **LZ9ANS‑32K** (corpus of `446,584,168` input bits)
-[**486** **KiB** memory usage]**:**
+[**486** **KiB** memory usage]:
 
 | Level  | Compressed bits | Percent   | Ratio     | Delta          |
 |-------:|:---------------:|:---------:|:---------:|---------------:|
@@ -28,7 +28,7 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 | **‑9** |  `142,763,040`  | `68.032%` | `3.128:1` |     `‑265,640` |
 
 **LZ9ANS‑64K** (corpus of `446,584,168` input bits)
-[**678** **KiB** memory usage]**:**
+[**678** **KiB** memory usage]:
 
 | Level  | Compressed bits | Percent   | Ratio     | Delta          |
 |-------:|:---------------:|:---------:|:---------:|---------------:|
@@ -45,7 +45,7 @@ compression profiles: four *fast*, four *tight*, one *maximum*.
 ### Competition
 
 Compare the same corpus packed with popular (8‑bit) compression algorithms
-(all at their highest settings) and **LZ9ANS** in 8‑bit mode**:**
+(all at their highest settings) and **LZ9ANS** in 8‑bit mode:
 
 |      Utility | Algorithm              | Compressed bits | Memory       | Performance      |
 |-------------:|:-----------------------|:---------------:|-------------:|-----------------:|
