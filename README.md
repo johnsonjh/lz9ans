@@ -45,30 +45,31 @@ fast decompression, and offers nine compression profiles: four *fast*, four
 
 ### Competition
 
-Compare the same corpus packed with popular (8‑bit) compression algorithms
-(all at their highest settings) and **LZ9ANS** in 8‑bit mode:
+Compare the numbers above with the results of the same corpus packed with
+popular (8‑bit) compression algorithms (all at their highest settings), as
+well as **LZ9ANS** in 8‑bit mode:
 
-|      Utility | Algorithm              | Compressed bits | Memory       | Performance      |
-|-------------:|:-----------------------|:---------------:|-------------:|-----------------:|
-| `lzfx`       | LZF&nbsp;(LZSS)        |  `281,115,248`  |  70&nbsp;KiB | 102%&nbsp;larger |
-| `compress`   | LZW                    |  `279,608,608`  | 400&nbsp;KiB | 101%&nbsp;larger |
-| `lz4`        | LZ77+VLE               |  `221,797,064`  | 512&nbsp;KiB |  60%&nbsp;larger |
-| `lzop`       | LZO1X&nbsp;(LZ77+BC)   |  `212,130,184`  |  70&nbsp;KiB |  53%&nbsp;larger |
-| `gzip`       | DEFLATE&nbsp;(LZ77+HC) |  `202,579,712`  | 350&nbsp;KiB |  46%&nbsp;larger |
-| `lzfse`      | LZFSE&nbsp;(LZ77+FSE)  |  `194,587,720`  |  74&nbsp;KiB |  41%&nbsp;larger |
-| **`lz9ans`** | **LZ9ANS‑32K**         |  `192,949,752`  | 486&nbsp;KiB |  40%&nbsp;larger |
-| **`lz9ans`** | **LZ9ANS‑64K**         |  `185,902,168`  | 678&nbsp;KiB |  34%&nbsp;larger |
-| `bzip2`      | BWT+MTF+HC             |  `177,850,592`  | 1.2&nbsp;MiB |  28%&nbsp;larger |
-| `zstd`       | LZ77+HC+FSE            |  `170,129,736`  |  10&nbsp;MiB |  23%&nbsp;larger |
-| `bzip3`      | BWT+LZP+CM             |  `169,815,400`  | 8.2&nbsp;MiB |  22%&nbsp;larger |
-| `brotli`     | LZ77+HC+CD             |  `161,977,528`  | 210&nbsp;MiB |  17%&nbsp;larger |
-| `lzip`       | LZMA&nbsp;(LZ77+MA+RC) |  `158,016,800`  |  13&nbsp;MiB |  14%&nbsp;larger |
-| `zpaq`       | M5&nbsp;(CM+AC)        |  `131,954,176`  | 246&nbsp;MiB |  5%&nbsp;smaller |
+|      Utility | Algorithm              | Compressed bits | Memory           | Performance      |
+|-------------:|:-----------------------|:---------------:|-----------------:|-----------------:|
+| `lzfx`       | LZF&nbsp;(LZSS)        |  `281,115,248`  |      70&nbsp;KiB | 102%&nbsp;larger |
+| `compress`   | LZW                    |  `279,608,608`  |     400&nbsp;KiB | 101%&nbsp;larger |
+| `lz4`        | LZ77+VLE               |  `221,797,064`  |     512&nbsp;KiB |  60%&nbsp;larger |
+| `lzop`       | LZO1X&nbsp;(LZ77+BC)   |  `212,130,184`  |      70&nbsp;KiB |  53%&nbsp;larger |
+| `gzip`       | DEFLATE&nbsp;(LZ77+HC) |  `202,579,712`  |     350&nbsp;KiB |  46%&nbsp;larger |
+| `lzfse`      | LZFSE&nbsp;(LZ77+FSE)  |  `194,587,720`  |      74&nbsp;KiB |  41%&nbsp;larger |
+| **`lz9ans`** | **LZ9ANS‑32K**         |  `192,949,752`  | **486&nbsp;KiB** |  40%&nbsp;larger |
+| **`lz9ans`** | **LZ9ANS‑64K**         |  `185,902,168`  | **678&nbsp;KiB** |  34%&nbsp;larger |
+| `bzip2`      | BWT+MTF+HC             |  `177,850,592`  |     1.2&nbsp;MiB |  28%&nbsp;larger |
+| `zstd`       | LZ77+HC+FSE            |  `170,129,736`  |      10&nbsp;MiB |  23%&nbsp;larger |
+| `bzip3`      | BWT+LZP+CM             |  `169,815,400`  |     8.2&nbsp;MiB |  22%&nbsp;larger |
+| `brotli`     | LZ77+HC+CD             |  `161,977,528`  |     210&nbsp;MiB |  17%&nbsp;larger |
+| `lzip`       | LZMA&nbsp;(LZ77+MA+RC) |  `158,016,800`  |      13&nbsp;MiB |  14%&nbsp;larger |
+| `zpaq`       | M5&nbsp;(CM+AC)        |  `131,954,176`  |     246&nbsp;MiB |  5%&nbsp;smaller |
 
 Even when processing the corpus *in 8‑bit mode* (that is, as `55,823,021` 8‑bit
 octets, rather than as `49,620,463` 9‑bit nonets), **LZ9ANS**, which is tuned
-*explicitly* for compressing **9‑bit** data, more than holds it own, only being
-beat by algorithms that require *substantially* more memory (2× to 500×) and/or
+*explicitly* for compressing **9‑bit** data, more than holds it own, only beat
+by algorithms that require *substantially* more memory (2× to 500×) and/or
 processing time (enough to make native **Multics** implementations and usage
 impractical).
 
