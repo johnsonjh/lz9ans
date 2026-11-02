@@ -6,9 +6,10 @@
 **LZ9ANS** is a 9‑bit [LZ77](https://en.wikipedia.org/wiki/LZ77_and_LZ78) +
 [tANS](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems)
 codec designed to efficiently compress **9‑bit** mainframe input data (*e.g.*,
-**Multics**, **OS2200**) to standard **8‑bit** output streams.  It has
-deterministic runtime memory usage, 8‑bit data compatibility, and offers nine
-compression profiles: four *fast*, four *tight*, one *maximum*.
+**Multics**, **OS2200**) to standard **8‑bit** output streams.  It has two
+window sizes, deterministic runtime memory usage, 8‑bit data compatibility,
+fast decompression, and offers nine compression profiles: four *fast*, four
+*tight*, one *maximum*.
 
 ## Performance
 
