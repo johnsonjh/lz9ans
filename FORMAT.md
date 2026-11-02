@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
-> Document revision **`18`** (2026‑11‑01)
+> Document revision **`19`** (2026‑11‑02)
 
 <!-- toc -->
 
@@ -628,7 +628,7 @@ A conforming v8 decoder **SHOULD** implement the following stages, enforcing
 
 2. Initialize an empty 32,768‑ or 65,536‑symbol history as selected by the
    frame flags (zero‑initializing memory as defense‑in‑depth against memory
-   disclosure) and three INVALID repeat slots.
+   disclosure) and three `INVALID` repeat slots.
 
 3. For each block, read and validate the seven‑octet common prefix.  For
    `STORED`, read the remaining four header octets; for `LZ`, read the
@@ -711,7 +711,7 @@ this budget:
 | `8`   | `192`            | Level 5 plus near‑longest alternative match trials   |
 | `9`   | `512`            | Level 8 plus a further cost‑refinement pass          |
 
-The match finder explicitly probes R0, R1, and R2 before walking the hash
+The match finder explicitly probes `R0`, `R1`, and `R2` before walking the hash
 chain, so repeat distances remain candidates even when their chain entries
 fall outside the configured depth.  During both greedy and cost‑aware searches,
 a candidate is skipped when it differs at the best already‑known match
