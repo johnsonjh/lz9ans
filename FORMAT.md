@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
-> Document revision **`20`** (2026‑11‑03)
+> Document revision **`21`** (2026‑11‑03)
 
 <!-- toc -->
 
@@ -143,8 +143,10 @@ except the ASCII magics and single‑byte control/feature fields.
 
 ### 3.1. Frame header (17 to 4096 octets)
 
-The fixed 13‑octet prefix is followed by zero or more TLV extensions and a
-four‑octet CRC.  With no extensions, the header is exactly 17 octets.
+The fixed 13‑octet prefix is followed by zero or more TLV
+(*type*/*length*/*value*) extensions and a four‑octet CRC.
+
+With **no** extensions, the header is exactly 17 octets.
 
 | Offset              | Octets   | Required value / interpretation                                         |
 |--------------------:|:---------|:------------------------------------------------------------------------|
