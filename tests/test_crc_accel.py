@@ -68,13 +68,13 @@ def main():
                 "-DLZ9ANS_NO_CRC32_HW",
                 "-o",
                 str(software),
-                str(ROOT / "lz9ans.c"),
+                str(ROOT / "../lz9ans.c"),
                 "-lm",
             ],
             cwd=ROOT,
             check=True,
         )
-        hardware = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
+        hardware = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "../lz9ans"))).resolve()
         for name, mode, sample in samples:
             source = work / (name + ".input")
             sw_archive = work / (name + ".software.lz9a")

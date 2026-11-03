@@ -25,7 +25,7 @@ def run(binary, action, source, target, *options):
 
 
 def main():
-    binary = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
+    binary = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "../lz9ans"))).resolve()
     rng = random.Random(0x9A32768)
     with tempfile.TemporaryDirectory(prefix="lz9ans-window-") as temp:
         temp = Path(temp)
