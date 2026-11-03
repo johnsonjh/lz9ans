@@ -56,15 +56,15 @@
 
 /*****************************************************************************/
 
-#ifndef LZ9ANS_EARLY_STORED_LITERAL_PERCENT
+#if !defined(LZ9ANS_EARLY_STORED_LITERAL_PERCENT)
 # define LZ9ANS_EARLY_STORED_LITERAL_PERCENT 97U
-#endif
+#endif /* if !defined(LZ9ANS_EARLY_STORED_LITERAL_PERCENT) */
 
 /*****************************************************************************/
 
 #if LZ9ANS_EARLY_STORED_LITERAL_PERCENT > 100U
 # error LZ9ANS_EARLY_STORED_LITERAL_PERCENT must not exceed 100
-#endif
+#endif /* if LZ9ANS_EARLY_STORED_LITERAL_PERCENT > 100U */
 
 /*****************************************************************************/
 
@@ -104,7 +104,8 @@
 # define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f) /* //-V1059 */
 # undef fflush
 # define fflush(f) fflush_unlocked(f) /* //-V1059 */
-#endif
+#endif /* if defined(__linux) || defined(__linux__) || defined(linux) \
+          || defined(__gnu_linux__) */
 
 /*****************************************************************************/
 
@@ -123,7 +124,7 @@
 # define fflush(f) _fflush_nolock(f) /* //-V1059 */
 # undef fclose
 # define fclose(f) _fclose_nolock(f) /* //-V1059 */
-#endif
+#endif /* if defined(_WIN32) || defined(_WIN64) */
 
 /*****************************************************************************/
 
@@ -265,8 +266,10 @@ typedef struct
 
 #define ENCODER_ALIGNED_DISTANCES(e) \
   (((e)->distance_flags & OPTION_ALIGNED_DISTANCES) != 0U)
+
 #define OUTPUT_ALIGNED_DISTANCES(o) \
   (((o)->distance_flags & OPTION_ALIGNED_DISTANCES) != 0U)
+
 #define OUTPUT_AUTO_ALIGNED_DISTANCES(o) \
   (((o)->distance_flags & OPTION_AUTO_ALIGNED_DISTANCES) != 0U)
 
@@ -397,7 +400,7 @@ crc_update (unsigned long crc, const unsigned char *p, unsigned int n)
     {
       return (unsigned long)lz9_crc32_arm ((unsigned int)crc, p, (size_t)n);
     }
-#endif
+#endif /* if defined(LZ9_CRC32_ARM) */
 
 #if defined(LZ9_CRC32_PCLMUL)
   if (n >= 256U && (crc & ~0xffffffffUL) == 0UL
@@ -414,7 +417,7 @@ crc_update (unsigned long crc, const unsigned char *p, unsigned int n)
           return crc;
         }
     }
-#endif
+#endif /* if defined(LZ9_CRC32_PCLMUL) */
 
   v = (unsigned int)(crc ^ 0xffffffffUL);
 
@@ -732,7 +735,8 @@ floor_log2 (unsigned int n)
     }
 
   return v;
-#endif
+#endif /* if defined(__GNUC__) && !defined(__CPPCHECK__) \
+          && !defined(__LINT__) */
 }
 
 /*****************************************************************************/
@@ -1285,7 +1289,7 @@ classify_offset (const Encoder *e, unsigned int d)
 {
   unsigned int i;
 
-#ifndef LZ9ANS_DISABLE_RUN_CODE
+#if !defined(LZ9ANS_DISABLE_RUN_CODE)
   if (d == 1)
     {
       for (i = 0; i < 3; ++i)
@@ -1304,7 +1308,7 @@ classify_offset (const Encoder *e, unsigned int d)
 
       return i;
     }
-#endif /* ifndef LZ9ANS_DISABLE_RUN_CODE */
+#endif /* if !defined(LZ9ANS_DISABLE_RUN_CODE) */
 
   for (i = 0; i < 3; ++i)
     {
@@ -1335,7 +1339,7 @@ distance_code (unsigned int d, unsigned int tag, unsigned int window_n,
 {
   unsigned int k;
 
-#ifndef LZ9ANS_DISABLE_RUN_CODE
+#if !defined(LZ9ANS_DISABLE_RUN_CODE)
   if (d == 1 && !tag)
     {
       *extra = 0;
@@ -1343,7 +1347,7 @@ distance_code (unsigned int d, unsigned int tag, unsigned int window_n,
 
       return 3;
     }
-#endif /* ifndef LZ9ANS_DISABLE_RUN_CODE */
+#endif /* if !defined(LZ9ANS_DISABLE_RUN_CODE) */
 
   if (tag)
     {
@@ -2308,7 +2312,7 @@ early_stored_block (Encoder *e, unsigned int stored_width)
     }
 
   return best >= (unsigned long)e->n * stored_width * COST_SCALE;
-#endif
+#endif /* if LZ9ANS_EARLY_STORED_LITERAL_PERCENT == 0 */
 }
 
 /*****************************************************************************/

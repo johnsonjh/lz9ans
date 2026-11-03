@@ -14,7 +14,7 @@
 
 /*****************************************************************************/
 
-#ifndef LZ9ANS_CRC32_HW_H
+#if !defined(LZ9ANS_CRC32_HW_H)
 # define LZ9ANS_CRC32_HW_H
 # include <stddef.h>
 # if !defined(LZ9ANS_NO_CRC32_HW) && defined(__GNUC__)
@@ -205,9 +205,9 @@ lz9_crc32_pclmul (unsigned int crc, const unsigned char *buf, size_t len)
 #   define LZ9_ARM_CRC_BIT (1UL << 7)
 #   if defined(__linux__)
 #    include <sys/auxv.h>
-#    ifndef AT_HWCAP
+#    if !defined(AT_HWCAP)
 #     define AT_HWCAP 16
-#    endif /* ifndef AT_HWCAP */
+#    endif /* if !defined(AT_HWCAP) */
 extern unsigned long getauxval (unsigned long);
 #   elif defined(__FreeBSD__)
 #    include <sys/auxv.h>
@@ -314,7 +314,7 @@ lz9_crc32_arm (unsigned int crc, const unsigned char *p, size_t n)
 #  endif /* if defined( __aarch64__ ) && !defined( __AARCH64EB__ ) \
             && ( defined( __clang__ ) || __GNUC__ >= 7 ) */
 # endif /* if !defined( LZ9ANS_NO_CRC32_HW ) && defined( __GNUC__ ) */
-#endif /* ifndef LZ9ANS_CRC32_HW_H */
+#endif /* if !defined(LZ9ANS_CRC32_HW_H) */
 
 /*****************************************************************************/
 
