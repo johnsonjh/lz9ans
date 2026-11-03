@@ -23,6 +23,17 @@
 
 /*****************************************************************************/
 
+# if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
+#  if !defined(USE_BI_CRC)
+#   define USE_BI_CRC
+#  endif /* if !defined(USE_BI_CRC) */
+# else
+#  include <string.h>
+# endif /* if defined(__GNUC__) && !defined(__CPPCHECK__) \
+           && !defined(__LINT__) */
+
+/*****************************************************************************/
+
 static int
 lz9_crc32_pclmul_available (void)
 {
@@ -282,7 +293,12 @@ lz9_crc32_arm (unsigned int crc, const unsigned char *p, size_t n)
   while (n >= 8U)
     {
       uint64_t v;
+#if defined(USE_BI_CRC)
       __builtin_memcpy (&v, p, 8U);
+#else
+# include <string.h>
+      (void)memcpy (&v, p, 8U);
+#endif /* if defined(USE_BI_CRC) */
       c = __crc32d (c, v);
       p += 8;
       n -= 8U;
