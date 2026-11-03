@@ -12,8 +12,8 @@ and software.
 It features two window sizes (32&nbsp;KiB and 64&nbsp;KiB), deterministic
 runtime memory usage (compressing in 486&nbsp;KiB or 678&nbsp;KiB,
 decompressing in 202&nbsp;KiB or 266&nbsp;KiB), 8‑bit data compatibility,
-word‑aligned offset optimizations for data with 36‑bit boundaries, and very
-fast decompression speed.
+word‑aligned offset optimizations for data with 36‑bit boundaries, and fast
+decompression speeds.
 
 The algorithm may be tuned to favor saving time or space, with the ANSI C89
 reference implementation offering nine different compression profiles: four
