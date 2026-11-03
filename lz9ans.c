@@ -56,6 +56,18 @@
 
 /*****************************************************************************/
 
+#ifndef LZ9ANS_EARLY_STORED_LITERAL_PERCENT
+# define LZ9ANS_EARLY_STORED_LITERAL_PERCENT 97U
+#endif
+
+/*****************************************************************************/
+
+#if LZ9ANS_EARLY_STORED_LITERAL_PERCENT > 100U
+# error LZ9ANS_EARLY_STORED_LITERAL_PERCENT must not exceed 100
+#endif
+
+/*****************************************************************************/
+
 #define MODE_EMPTY 0
 #define MODE_RAW 1
 #define MODE_RLE 2
@@ -85,32 +97,32 @@
 #if defined(__linux) || defined(__linux__) || defined(linux) || \
     defined(__gnu_linux__) /* Manually disable if using threads! */
 # undef fgetc
-# define fgetc(s) fgetc_unlocked(s)
+# define fgetc(s) fgetc_unlocked(s) /* //-V1059 */
 # undef fread
-# define fread(p, s, n, f) fread_unlocked(p, s, n, f)
+# define fread(p, s, n, f) fread_unlocked(p, s, n, f) /* //-V1059 */
 # undef fwrite
-# define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f)
+# define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f) /* //-V1059 */
 # undef fflush
-# define fflush(f) fflush_unlocked(f)
+# define fflush(f) fflush_unlocked(f) /* //-V1059 */
 #endif
 
 /*****************************************************************************/
 
 #if defined(_WIN32) || defined(_WIN64) /* Manually disable if using threads! */
 # undef fgetc
-# define fgetc(s) _fgetc_nolock(s)
+# define fgetc(s) _fgetc_nolock(s) /* //-V1059 */
 # undef fread
-# define fread(p, s, n, f) _fread_nolock(p, s, n, f)
+# define fread(p, s, n, f) _fread_nolock(p, s, n, f) /* //-V1059 */
 # undef fwrite
-# define fwrite(p, s, n, f) _fwrite_nolock(p, s, n, f)
+# define fwrite(p, s, n, f) _fwrite_nolock(p, s, n, f) /* //-V1059 */
 # undef ftell
-# define ftell(f) _ftell_nolock(f)
+# define ftell(f) _ftell_nolock(f) /* //-V1059 */
 # undef fseek
-# define fseek(f, n, p) _fseek_nolock(f, n, p)
+# define fseek(f, n, p) _fseek_nolock(f, n, p) /* //-V1059 */
 # undef fflush
-# define fflush(f) _fflush_nolock(f)
+# define fflush(f) _fflush_nolock(f) /* //-V1059 */
 # undef fclose
-# define fclose(f) _fclose_nolock(f)
+# define fclose(f) _fclose_nolock(f) /* //-V1059 */
 #endif
 
 /*****************************************************************************/
@@ -242,11 +254,7 @@ typedef struct
   unsigned int out_used;
   unsigned long produced;
   unsigned int in_block;
-  unsigned long crc;
-  unsigned int crc_acc, crc_bits;
   unsigned char crc_buf[CRC_BUFFER_N];
-  unsigned int crc_used;
-  int crc_buffered;
   unsigned int out_acc, out_bits;
   int out_mode;
   FILE *out;
@@ -339,34 +347,42 @@ output_flush (Output *o)
 
 /*****************************************************************************/
 
-static unsigned long crc_table[256];
+static unsigned int crc_table[8][256];
+
+/*****************************************************************************/
+
+typedef char crc_slice_table_needs_32_bit_unsigned_int_compile_time_assertion[
+  UINT_MAX >= 0xffffffffUL ? 1 : -1];
 
 /*****************************************************************************/
 
 static void
 init_crc (void)
 {
-  unsigned long i, j;
+  unsigned int i, j;
 
-  for (i = 0; i != 256; ++i)
+  for (i = 0; i != 256U; ++i)
     {
-      unsigned long v = i;
+      unsigned int v = i;
 
-      for (j = 0; j != 8; ++j)
+      for (j = 0; j != 8U; ++j)
         {
-          v = (v & 1UL) ? ((v >> 1) ^ 0xedb88320UL) : (v >> 1);
+          v = (v & 1U) ? ((v >> 1) ^ 0xedb88320U) : (v >> 1);
         }
 
-      crc_table[i] = v;
+      crc_table[0][i] = v;
     }
-}
 
-/*****************************************************************************/
+  for (j = 1; j != 8U; ++j)
+    {
+      for (i = 0; i != 256U; ++i)
+        {
+          unsigned int v = crc_table[j - 1U][i];
 
-static unsigned long
-crc_byte (unsigned long crc, unsigned int b)
-{
-  return (crc >> 8) ^ crc_table[(unsigned int)((crc ^ b) & 255UL)];
+          crc_table[j][i]
+              = crc_table[0][v & 255U] ^ (v >> 8);
+        }
+    }
 }
 
 /*****************************************************************************/
@@ -374,8 +390,7 @@ crc_byte (unsigned long crc, unsigned int b)
 static unsigned long
 crc_update (unsigned long crc, const unsigned char *p, unsigned int n)
 {
-  unsigned int i;
-  unsigned long v;
+  unsigned int v;
 
 #if defined(LZ9_CRC32_ARM)
   if (n >= 128U && (crc & ~0xffffffffUL) == 0UL && lz9_crc32_arm_available ())
@@ -401,37 +416,29 @@ crc_update (unsigned long crc, const unsigned char *p, unsigned int n)
     }
 #endif
 
-  v = crc ^ 0xffffffffUL;
+  v = (unsigned int)(crc ^ 0xffffffffUL);
 
-  for (i = 0; i < n; ++i)
+  while (n >= 8U)
     {
-      v = crc_byte (v, p[i]);
+      v ^= (unsigned int)p[0] | ((unsigned int)p[1] << 8)
+           | ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24);
+      v = crc_table[7][v & 255U]
+          ^ crc_table[6][(v >>  8) & 255U]
+          ^ crc_table[5][(v >> 16) & 255U]
+          ^ crc_table[4][v >> 24]
+          ^ crc_table[3][p[4]] ^ crc_table[2][p[5]]
+          ^ crc_table[1][p[6]] ^ crc_table[0][p[7]];
+      p += 8;
+      n -= 8U;
     }
 
-  return (v ^ 0xffffffffUL) & 0xffffffffUL;
-}
-
-/*****************************************************************************/
-
-static int
-crc_accel_available (unsigned int n)
-{
-#if defined(LZ9_CRC32_ARM)
-  if (n >= 128U && lz9_crc32_arm_available ())
+  while (n)
     {
-      return 1;
+      v = (v >> 8) ^ crc_table[0][(v ^ *p++) & 255U];
+      --n;
     }
-#endif
 
-#if defined(LZ9_CRC32_PCLMUL)
-  if (n >= 256U && lz9_crc32_pclmul_available ())
-    {
-      return 1;
-    }
-#endif
-
-  (void)n;
-  return 0;
+  return (unsigned long)(v ^ 0xffffffffU);
 }
 
 /*****************************************************************************/
@@ -444,73 +451,86 @@ crc_bytes (const unsigned char *p, unsigned int n)
 
 /*****************************************************************************/
 
-static unsigned long
-input_crc (const unsigned short *v, unsigned int n)
+static void
+pack8_symbols (const unsigned short *v, unsigned char *p)
 {
-  unsigned int i, pending = 0, nbits = 0;
-  unsigned long crc;
+  p[0] = (unsigned char)(v[0] >> 1);
+  p[1] = (unsigned char)(((v[0] &   1U) << 7) | (v[1] >> 2));
+  p[2] = (unsigned char)(((v[1] &   3U) << 6) | (v[2] >> 3));
+  p[3] = (unsigned char)(((v[2] &   7U) << 5) | (v[3] >> 4));
+  p[4] = (unsigned char)(((v[3] &  15U) << 4) | (v[4] >> 5));
+  p[5] = (unsigned char)(((v[4] &  31U) << 3) | (v[5] >> 6));
+  p[6] = (unsigned char)(((v[5] &  63U) << 2) | (v[6] >> 7));
+  p[7] = (unsigned char)(((v[6] & 127U) << 1) | (v[7] >> 8));
+  p[8] = (unsigned char)v[7];
+}
 
-  /*cppcheck-suppress knownConditionTrueFalse*/
-  if (crc_accel_available ((n * 9U + 7U) / 8U))
-    {
-      unsigned char packed[CRC_BUFFER_N];
-      unsigned int used = 0;
+/*****************************************************************************/
 
-      crc = 0UL;
-
-      for (i = 0; i < n; ++i)
-        {
-          pending = (pending << 9) | v[i];
-          nbits += 9;
-
-          while (nbits >= 8)
-            {
-              nbits -= 8;
-              packed[used++] = (unsigned char)((pending >> nbits) & 255U);
-              pending &= (1U << nbits) - 1U;
-
-              if (used == CRC_BUFFER_N)
-                {
-                  crc = crc_update (crc, packed, used);
-                  used = 0;
-                }
-            }
-        }
-
-      if (nbits)
-        {
-          packed[used++] = (unsigned char)(pending << (8 - nbits));
-        }
-
-      if (used)
-        {
-          crc = crc_update (crc, packed, used);
-        }
-
-      return crc;
-    }
-
-  crc = 0xffffffffUL;
+static unsigned int
+pack9_tail (const unsigned short *v, unsigned int n, unsigned char *p)
+{
+  unsigned int i, pending = 0, nbits = 0, used = 0;
 
   for (i = 0; i < n; ++i)
     {
       pending = (pending << 9) | v[i];
-      nbits += 9;
+      nbits += 9U;
 
-      while (nbits >= 8)
+      while (nbits >= 8U)
         {
-          nbits -= 8;
-          crc = crc_byte (crc, (pending >> nbits) & 255U);
+          nbits -= 8U;
+          p[used++] = (unsigned char)((pending >> nbits) & 255U);
           pending &= (1U << nbits) - 1U;
         }
     }
 
   if (nbits)
     {
-      crc = crc_byte (crc, pending << (8 - nbits));
+      p[used++] = (unsigned char)(pending << (8U - nbits));
     }
 
-  return (crc ^ 0xffffffffUL) & 0xffffffffUL;
+  return used;
+}
+
+/*****************************************************************************/
+
+static unsigned long
+input_crc (const unsigned short *v, unsigned int n, unsigned char *packed)
+{
+  unsigned int i = 0, used = 0;
+  unsigned long crc = 0UL;
+
+  while (n - i >= 8U)
+    {
+      if (used > CRC_BUFFER_N - 9U)
+        {
+          crc = crc_update (crc, packed, used);
+          used = 0;
+        }
+
+      pack8_symbols (v + i, packed + used);
+      used += 9U;
+      i += 8U;
+    }
+
+  if (i < n)
+    {
+      if (used > CRC_BUFFER_N - 8U)
+        {
+          crc = crc_update (crc, packed, used);
+          used = 0;
+        }
+
+      used += pack9_tail (v + i, n - i, packed + used);
+    }
+
+  if (used)
+    {
+      crc = crc_update (crc, packed, used);
+    }
+
+  return crc;
 }
 
 /*****************************************************************************/
@@ -2220,6 +2240,79 @@ entropy_cost (unsigned int frequency)
 
 /*****************************************************************************/
 
+static int
+early_stored_block (Encoder *e, unsigned int stored_width)
+{
+#if LZ9ANS_EARLY_STORED_LITERAL_PERCENT == 0
+  (void)e;
+  (void)stored_width;
+
+  return 0;
+#else
+  unsigned int i, total, used = 0;
+  unsigned int width, prev = 0;
+  unsigned short *freq = e->costs[STREAM_LIT];
+  unsigned long raw, best, predicted, header;
+
+  total = count_stream (e, STREAM_LIT);
+
+  if (!total
+      || (unsigned long)total * 100UL
+             < (unsigned long)e->n
+                   * LZ9ANS_EARLY_STORED_LITERAL_PERCENT)
+    {
+      return 0;
+    }
+
+  width = raw_width (STREAM_LIT, e->max_literal);
+  raw = (unsigned long)total * width * COST_SCALE;
+  best = raw;
+
+  for (i = 0; i < 512U; ++i)
+    {
+      if (e->counts[i])
+        {
+          ++used;
+        }
+    }
+
+  if (used == 1U)
+    {
+      best = 24UL * COST_SCALE;
+    }
+  else if (used >= 2U && norm_counts (e->counts, 512U, total, freq))
+    {
+      predicted = 0;
+      header = 2;
+
+      for (i = 0; i < 512U; ++i)
+        {
+          if (freq[i])
+            {
+              unsigned int gap = i - prev;
+
+              header += (gap >= 128U ? 2UL : 1UL)
+                        + (freq[i] >= 128U ? 2UL : 1UL);
+              prev = i + 1U;
+              predicted
+                  += (unsigned long)e->counts[i] * entropy_cost (freq[i]);
+            }
+        }
+
+      predicted += (header * 8UL + TABLE_LOG) * COST_SCALE;
+
+      if (predicted < best)
+        {
+          best = predicted;
+        }
+    }
+
+  return best >= (unsigned long)e->n * stored_width * COST_SCALE;
+#endif
+}
+
+/*****************************************************************************/
+
 static void
 estimate_costs (Encoder *e)
 {
@@ -2602,23 +2695,62 @@ write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
 static int
 encode_block (FILE *out, Encoder *e)
 {
-  unsigned long crc = input_crc (e->buffer + e->window_n, e->n);
+  unsigned long crc = input_crc (e->buffer + e->window_n, e->n, e->stage);
   unsigned int i, width = 7;
+  unsigned int saved_search_depth;
+  int saved_lazy;
   int compressed_ok = 1, block_has_9bit = 0, block_aligned = 0;
   unsigned long stored, compressed;
   unsigned char h[LZ_BLOCK_HEADER_N];
   unsigned int saved_reps[3];
 
   (void)memcpy (saved_reps, e->reps, sizeof (saved_reps));
+  saved_search_depth = e->search_depth;
+  saved_lazy = e->lazy;
+
+  for (i = 0; i < e->n; ++i)
+    {
+      unsigned int value = e->buffer[e->window_n + i];
+
+      if (value >= 256U)
+        {
+          width = 9U;
+          block_has_9bit = 1;
+
+          break;
+        }
+
+      if (value >= 128U)
+        {
+          width = 8U;
+        }
+    }
+
   e->use_cost = 0;
+
+  if (e->level >= 4)
+    {
+      e->search_depth = 2U;
+      e->lazy = 0;
+    }
 
   if (!parse_block (e))
     {
       return 0;
     }
 
+  e->search_depth = saved_search_depth;
+  e->lazy = saved_lazy;
+
   if (e->level >= 4)
     {
+      if (early_stored_block (e, width))
+        {
+          (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
+
+          return write_stored (out, e, crc, width);
+        }
+
       estimate_costs (e);
       (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
       e->use_cost = 1;
@@ -2637,24 +2769,6 @@ encode_block (FILE *out, Encoder *e)
             {
               return 0;
             }
-        }
-    }
-
-  for (i = 0; i < e->n; ++i)
-    {
-      unsigned int value = e->buffer[e->window_n + i];
-
-      if (value >= 256U)
-        {
-          width = 9U;
-          block_has_9bit = 1;
-
-          break;
-        }
-
-      if (value >= 128U)
-        {
-          width = 8U;
         }
     }
 
@@ -2993,67 +3107,10 @@ extra_end (ExtraReader *x)
 
 /*****************************************************************************/
 
-static void
-block_crc_flush (Output *o)
-{
-  if (o->crc_used)
-    {
-      o->crc = crc_update (o->crc ^ 0xffffffffUL, o->crc_buf, o->crc_used)
-                ^ 0xffffffffUL;
-      o->crc_used = 0;
-    }
-}
-
-/*****************************************************************************/
-
-static void
-block_crc_byte (Output *o, unsigned int b)
-{
-  if (o->crc_buffered)
-    {
-      o->crc_buf[o->crc_used++] = (unsigned char)b;
-
-      if (o->crc_used == CRC_BUFFER_N)
-        {
-          block_crc_flush (o);
-        }
-    }
-  else
-    {
-      o->crc = crc_byte (o->crc, b);
-    }
-}
-
-/*****************************************************************************/
-
-static void
-block_crc_symbol (Output *o, unsigned int v)
-{
-  o->crc_acc = (o->crc_acc << 9) | v;
-  o->crc_bits += 9;
-
-  if (o->crc_bits >= 16)
-    {
-      o->crc_bits -= 8;
-      block_crc_byte (o, (o->crc_acc >> o->crc_bits) & 255U);
-      o->crc_bits -= 8;
-      block_crc_byte (o, (o->crc_acc >> o->crc_bits) & 255U);
-    }
-  else
-    {
-      o->crc_bits -= 8;
-      block_crc_byte (o, (o->crc_acc >> o->crc_bits) & 255U);
-    }
-
-  o->crc_acc &= (1U << o->crc_bits) - 1U;
-}
-
-/*****************************************************************************/
-
 static int
-output_symbol (Output *o, unsigned int v)
+store_symbol (Output *o, unsigned int v)
 {
-  if (v > 511 || (o->out_mode == 8 && v > 255))
+  if (v > 511U || (o->out_mode == 8 && v > 255U))
     {
       return 0;
     }
@@ -3061,46 +3118,6 @@ output_symbol (Output *o, unsigned int v)
   o->ring[o->produced & (o->window_n - 1U)] = (unsigned short)v;
   ++o->produced;
   ++o->in_block;
-  block_crc_symbol (o, v);
-
-  if (o->out_mode == 8)
-    {
-      return output_octet (o, v);
-    }
-
-  o->out_acc = (o->out_acc << 9) | v;
-  o->out_bits += 9;
-
-  if (o->out_bits >= 16)
-    {
-      o->out_bits -= 8;
-
-      if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
-        {
-          return 0;
-        }
-
-      o->out_acc &= (1U << o->out_bits) - 1U;
-      o->out_bits -= 8;
-
-      if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
-        {
-          return 0;
-        }
-
-      o->out_acc &= (1U << o->out_bits) - 1U;
-    }
-  else
-    {
-      o->out_bits -= 8;
-
-      if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
-        {
-          return 0;
-        }
-
-      o->out_acc &= (1U << o->out_bits) - 1U;
-    }
 
   return 1;
 }
@@ -3108,77 +3125,54 @@ output_symbol (Output *o, unsigned int v)
 /*****************************************************************************/
 
 static int
-output_match (Output *o, unsigned int d, unsigned int ml)
+store_match (Output *o, unsigned int d, unsigned int ml)
 {
   const unsigned int mask = o->window_n - 1U;
   unsigned short * const ring = o->ring;
   const unsigned long prod = o->produced;
-  unsigned int j, src, dst;
+  unsigned int src, dst, remaining;
 
   src = (unsigned int)((prod - d) & mask);
   dst = (unsigned int)(prod & mask);
 
-  if (o->out_mode == 8)
+  if (d >= ml && d <= o->window_n - ml)
     {
-      for (j = 0; j < ml; ++j)
+      remaining = ml;
+
+      while (remaining)
         {
-          unsigned int v = ring[src];
+          unsigned int count = remaining;
+          unsigned int src_left = o->window_n - src;
+          unsigned int dst_left = o->window_n - dst;
 
-          ring[dst] = (unsigned short)v;
-          src = (src + 1U) & mask;
-          dst = (dst + 1U) & mask;
-          block_crc_symbol (o, v);
-
-          if (!output_octet (o, v))
+          if (count > src_left)
             {
-              return 0;
+              count = src_left;
             }
+
+          if (count > dst_left)
+            {
+              count = dst_left;
+            }
+
+          (void)memcpy (ring + dst, ring + src,
+                        (size_t)count * sizeof (unsigned short));
+          src = (src + count) & mask;
+          dst = (dst + count) & mask;
+          remaining -= count;
         }
     }
   else
     {
-      for (j = 0; j < ml; ++j)
+      unsigned int i;
+
+      for (i = 0; i < ml; ++i)
         {
           unsigned int v = ring[src];
 
           ring[dst] = (unsigned short)v;
           src = (src + 1U) & mask;
           dst = (dst + 1U) & mask;
-          block_crc_symbol (o, v);
-
-          o->out_acc = (o->out_acc << 9) | v;
-          o->out_bits += 9;
-
-          if (o->out_bits >= 16)
-            {
-              o->out_bits -= 8;
-
-              if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
-                {
-                  return 0;
-                }
-
-              o->out_acc &= (1U << o->out_bits) - 1U;
-              o->out_bits -= 8;
-
-              if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
-                {
-                  return 0;
-                }
-
-              o->out_acc &= (1U << o->out_bits) - 1U;
-            }
-          else
-            {
-              o->out_bits -= 8;
-
-              if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
-                {
-                  return 0;
-                }
-
-              o->out_acc &= (1U << o->out_bits) - 1U;
-            }
         }
     }
 
@@ -3190,32 +3184,245 @@ output_match (Output *o, unsigned int d, unsigned int ml)
 
 /*****************************************************************************/
 
-static void
-block_crc_begin (Output *o, unsigned int n)
+static int
+output_symbol9 (Output *o, unsigned int v)
 {
-  unsigned int packed_bytes = (n * 9U + 7U) / 8U;
+  o->out_acc = (o->out_acc << 9) | v;
+  o->out_bits += 9U;
 
-  o->in_block = 0;
-  o->crc = 0xffffffffUL;
-  o->crc_acc = 0;
-  o->crc_bits = 0;
-  o->crc_used = 0;
-  o->crc_buffered = crc_accel_available (packed_bytes);
+  if (o->out_bits >= 16U)
+    {
+      o->out_bits -= 8U;
+
+      if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
+        {
+          return 0;
+        }
+
+      o->out_acc &= (1U << o->out_bits) - 1U;
+      o->out_bits -= 8U;
+
+      if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
+        {
+          return 0;
+        }
+
+      o->out_acc &= (1U << o->out_bits) - 1U;
+    }
+  else
+    {
+      o->out_bits -= 8U;
+
+      if (!output_octet (o, (o->out_acc >> o->out_bits) & 255U))
+        {
+          return 0;
+        }
+
+      o->out_acc &= (1U << o->out_bits) - 1U;
+    }
+
+  return 1;
 }
 
 /*****************************************************************************/
 
 static int
-block_crc_end (Output *o, unsigned long expected)
+output_packed9 (Output *o, const unsigned char *packed)
 {
-  if (o->crc_bits)
+  unsigned int i, bits = o->out_bits, carry = o->out_acc;
+
+  if (!bits)
     {
-      block_crc_byte (o, o->crc_acc << (8 - o->crc_bits));
+      for (i = 0; i < 9U; ++i)
+        {
+          if (!output_octet (o, packed[i]))
+            {
+              return 0;
+            }
+        }
+
+      return 1;
     }
 
-  block_crc_flush (o);
+  {
+    unsigned int mask = (1U << bits) - 1U;
 
-  return ((o->crc ^ 0xffffffffUL) & 0xffffffffUL) == expected;
+    for (i = 0; i < 9U; ++i)
+      {
+        unsigned int value
+            = (carry << (8U - bits)) | ((unsigned int)packed[i] >> bits);
+
+        if (!output_octet (o, value & 255U))
+          {
+            return 0;
+          }
+
+        carry = (unsigned int)packed[i] & mask;
+      }
+  }
+
+  o->out_acc = carry;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+output_decoded_block (Output *o, unsigned long start, unsigned int n)
+{
+  const unsigned int mask = o->window_n - 1U;
+  unsigned int i = 0;
+
+  if (o->out_mode == 8)
+    {
+      for (i = 0; i < n; ++i)
+        {
+          unsigned int v = o->ring[(start + i) & mask];
+
+          if (!output_octet (o, v))
+            {
+              return 0;
+            }
+        }
+
+      return 1;
+    }
+
+  while (n - i >= 8U)
+    {
+      unsigned int at = (unsigned int)((start + i) & mask);
+      unsigned short values[8];
+      const unsigned short *source;
+      unsigned char packed[9];
+      unsigned int j;
+
+      if (at <= mask - 7U)
+        {
+          source = o->ring + at;
+        }
+      else
+        {
+          for (j = 0; j < 8U; ++j)
+            {
+              values[j] = o->ring[(at + j) & mask];
+            }
+
+          source = values;
+        }
+
+      pack8_symbols (source, packed);
+
+      if (!output_packed9 (o, packed))
+        {
+          return 0;
+        }
+
+      i += 8U;
+    }
+
+  while (i < n)
+    {
+      unsigned int v = o->ring[(start + i) & mask];
+
+      if (!output_symbol9 (o, v))
+        {
+          return 0;
+        }
+
+      ++i;
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static void
+block_begin (Output *o)
+{
+  o->in_block = 0;
+}
+
+/*****************************************************************************/
+
+static int
+block_crc_end (Output *o, unsigned int n, unsigned long expected)
+{
+  unsigned long start, crc = 0UL;
+  unsigned int i = 0, used = 0;
+  const unsigned int mask = o->window_n - 1U;
+
+  if (o->in_block != n || o->produced < n)
+    {
+      return 0;
+    }
+
+  start = o->produced - n;
+
+  while (n - i >= 8U)
+    {
+      unsigned int at = (unsigned int)((start + i) & mask);
+      unsigned short values[8];
+      const unsigned short *source;
+
+      if (used > CRC_BUFFER_N - 9U)
+        {
+          crc = crc_update (crc, o->crc_buf, used);
+          used = 0;
+        }
+
+      if (at <= mask - 7U)
+        {
+          source = o->ring + at;
+        }
+      else
+        {
+          unsigned int j;
+
+          for (j = 0; j < 8U; ++j)
+            {
+              values[j] = o->ring[(at + j) & mask];
+            }
+
+          source = values;
+        }
+
+      pack8_symbols (source, o->crc_buf + used);
+      used += 9U;
+      i += 8U;
+    }
+
+  if (i < n)
+    {
+      unsigned short values[7];
+      unsigned int j, at = (unsigned int)((start + i) & mask);
+
+      if (used > CRC_BUFFER_N - 8U)
+        {
+          crc = crc_update (crc, o->crc_buf, used);
+          used = 0;
+        }
+
+      for (j = 0; i + j < n; ++j)
+        {
+          values[j] = o->ring[(at + j) & mask];
+        }
+
+      used += pack9_tail (values, n - i, o->crc_buf + used);
+    }
+
+  if (used)
+    {
+      crc = crc_update (crc, o->crc_buf, used);
+    }
+
+  if (crc != expected)
+    {
+      return 0;
+    }
+
+  return output_decoded_block (o, start, n);
 }
 
 /*****************************************************************************/
@@ -3283,19 +3490,19 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
           return 0;
         }
 
-      block_crc_begin (o, n);
+      block_begin (o);
       br_init (&r, stage, stored_bits, 0);
 
       for (i = 0; i < n; ++i)
         {
-          if (!output_symbol (o, br_get (&r, width)))
+          if (!store_symbol (o, br_get (&r, width)))
             {
               return 0;
             }
         }
 
       return !r.failed && r.position == r.bits && o->in_block == n
-             && block_crc_end (o, expected);
+             && block_crc_end (o, n, expected);
     }
 
   if (type != BLOCK_LZ
@@ -3380,7 +3587,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       pos += lengths[i];
     }
 
-  block_crc_begin (o, n);
+  block_begin (o);
   pos = 0;
 
   for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
@@ -3437,7 +3644,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
           {
             unsigned int v = stream_get (&s[STREAM_LIT]);
 
-            if (v >= 512 || !output_symbol (o, v))
+            if (v >= 512 || !store_symbol (o, v))
               {
                 return 0;
               }
@@ -3463,7 +3670,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             }
         }
 
-        if (!output_match (o, d, ml))
+        if (!store_match (o, d, ml))
           {
             return 0;
           }
@@ -3475,7 +3682,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       {
         unsigned int v = stream_get (&s[STREAM_LIT]);
 
-        if (v >= 512 || !output_symbol (o, v))
+        if (v >= 512 || !store_symbol (o, v))
           {
             return 0;
           }
@@ -3499,7 +3706,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
         }
     }
 
-  return o->in_block == n && block_crc_end (o, expected);
+  return o->in_block == n && block_crc_end (o, n, expected);
 }
 
 /*****************************************************************************/
@@ -3957,11 +4164,15 @@ main (int argc, char **argv)
       unsigned long dec = (unsigned long)sizeof (Output)
                           + (unsigned long)win * sizeof (unsigned short)
                           + STAGE_MAX + DESC_MAX
-                          + (unsigned long)ENTROPY_STREAM_COUNT * sizeof (AnsTable)
+                          + (unsigned long)ENTROPY_STREAM_COUNT
+                            * sizeof (AnsTable)
                           + (unsigned long)ENTROPY_STREAM_COUNT
                             * sizeof (Stream);
       (void)printf (
               "window: %u symbols\n", win);
+      (void)printf (
+              "static CRC lookup table: %lu bytes\n",
+              (unsigned long)sizeof (crc_table));
       (void)printf (
               "encoder allocated state: %lu bytes (excludes helper stack "
               "temporaries)\n", enc);

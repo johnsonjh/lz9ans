@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
-> Document revision **`21`** (2026‑11‑03)
+> Document revision **`22`** (2026‑11‑03)
 
 <!-- toc -->
 
@@ -500,7 +500,6 @@ when the descriptor ends.  Frequencies **MUST** be positive, and their sum
 - **`LIT`:** Each positive frequency is represented by *Elias gamma coding* of
   the frequency itself.  For positive integer `f`, let `k=floor(log2(f))`;
   write `k` zero bits followed by the `k+1`‑bit binary representation of `f`.
-
 - **`LL`, `ML`, `OF`:** Frequencies use truncated‑binary coding in ascending
   symbol order.  Let `assigned` be the sum of frequencies already decoded and
   `remaining` the number of set bitmap entries not yet decoded.  For the next
@@ -614,47 +613,55 @@ any part of the C implementation.
 A conforming v8 decoder **SHOULD** implement the following stages, enforcing
 **all** **checks** *before* trusting an offset, size, state, or output count:
 
-1. Read the 13‑octet frame prefix, validate magic/version/representation, then
-   validate the declared header length (17–4,096 octets), read the remainder,
-   validate the final header CRC, and parse all TLVs.  Unknown noncritical TLVs
-   are skipped; unknown critical TLVs, duplicate identifiers, malformed
-   lengths, and identifier zero are rejected.  The defined unknown‑count TLV
-   is recognized but is not supported by the current reference decoder.
-2. Initialize an empty 32,768‑ or 65,536‑symbol history as selected by the
-   frame flags (zero‑initializing memory as defense‑in‑depth against memory
-   disclosure) and three `INVALID` repeat slots.
-3. For each block, read and validate the seven‑octet common prefix.  For
-   `STORED`, read the remaining four header octets; for `LZ`, read the
-   remaining 20 header octets.  Type 2 (`END`) and type 3 are reserved and
-   rejected by the current implementation.  Validate the type‑specific fields
-   and ensure the block's `n` does not exceed the symbols remaining in the
-   known‑length frame.
-4. For `STORED`, derive the payload bit length as `n * width`, derive its byte
-   length by rounding up, validate the final zero padding bits, and read
-   exactly that payload.
-5. For `LZ`, validate `q <= floor(n/3)`, `dl <= 8192`, each reconstructed
-   meaningful bit length against its stream‑specific maximum, the packed
-   padding field's reserved bit and values, and the sum of payload byte lengths
-   against 81,920.  Read exactly `dl` descriptor octets and exactly the five
-   announced payload byte lengths.  Check every stream's unused low‑order pad
-   bits before initializing its reader.
-6. For `STORED`, read `n` fixed‑width symbols, updating history but not MRU.
-7. For `LZ`, reconstruct exactly the `LIT`/`LL`/`ML`/`OF` descriptors.  Require
-   `LL`, `ML`, and `OF` to be `EMPTY` exactly when `q` is zero.  Initialize the
-   entropy readers with the exact reconstructed meaningful bit lengths,
-   including the exact reverse‑reader start position for tANS.  Decode the
-   `q` sequences plus the terminal literal run, consuming `EXTRA` from its raw
-   bitstream.  Derive the actual literal count from the decoded match lengths;
-   validate the `LIT` `EMPTY`/non‑`EMPTY` condition against that actual count.
-8. For every copy, validate `1 <= distance <= window_limit`, and ensure the
-   distance does not exceed the already reconstructed frame prefix
-   (`distance <= produced`), rejecting all pre‑history references.  Validate
-   `ML >= 3`, and verify the copy does not exceed this block's remaining output
-   capacity.  Copy forwards one symbol at a time to support overlaps.
-9. Verify each entropy stream consumes exactly its meaningful bits and its
-   prescribed sequence‑symbol count; tANS must finish in state zero; `EXTRA`
-   must be exhausted.  Verify the actual literal and block symbol counts.
-10. Compute the canonical packed‑9 block CRC; reject a mismatch.
+1.  Read the 13‑octet frame prefix, validate magic/version/representation, then
+    validate the declared header length (17–4,096 octets), read the remainder,
+    validate the final header CRC, and parse all TLVs.  Unknown noncritical
+    TLVs are skipped; unknown critical TLVs, duplicate identifiers, malformed
+    lengths, and identifier zero are rejected.  The defined unknown‑count TLV
+    is recognized but is not supported by the current reference decoder.
+2.  Initialize an empty 32,768‑ or 65,536‑symbol history as selected by the
+    frame flags (zero‑initializing memory as defense‑in‑depth against memory
+    disclosure) and three `INVALID` repeat slots.
+3.  For each block, read and validate the seven‑octet common prefix.  For
+    `STORED`, read the remaining four header octets; for `LZ`, read the
+    remaining 20 header octets.  Type 2 (`END`) and type 3 are reserved and
+    rejected by the current implementation.  Validate the type‑specific fields
+    and ensure the block's `n` does not exceed the symbols remaining in the
+    known‑length frame.
+4.  For `STORED`, derive the payload bit length as `n * width`, derive its byte
+    length by rounding up, validate the final zero padding bits, and read
+    exactly that payload.
+5.  For `LZ`, validate `q <= floor(n/3)`, `dl <= 8192`, each reconstructed
+    meaningful bit length against its stream‑specific maximum, the packed
+    padding field's reserved bit and values, and the sum of payload byte
+    lengths against 81,920.  Read exactly `dl` descriptor octets and exactly
+    the five announced payload byte lengths.  Check every stream's unused
+    low‑order pad bits before initializing its reader.
+6.  For `STORED`, read `n` fixed‑width symbols into history, *without* updating
+    MRU or committing them to the destination stream yet.
+7.  For `LZ`, reconstruct exactly the `LIT`/`LL`/`ML`/`OF` descriptors.
+    Require `LL`, `ML`, and `OF` to be `EMPTY` exactly when `q` is zero.
+    Initialize the entropy readers with the exact reconstructed meaningful bit
+    lengths, including the exact reverse‑reader start position for tANS.
+    Decode the `q` sequences plus the terminal literal run, consuming `EXTRA`
+    from its raw bitstream.  Derive the actual literal count from the decoded
+    match lengths; validate the `LIT` `EMPTY`/non‑`EMPTY` condition against
+    that actual count.
+8.  For every copy, validate `1 <= distance <= window_limit`, and ensure the
+    distance does not exceed the already reconstructed frame prefix
+    (`distance <= produced`), rejecting all pre‑history references.  Validate
+    `ML >= 3`, and verify the copy does not exceed this block's remaining
+    output capacity.  Preserve forward‑copy semantics for overlapping matches;
+    use chunked copies only when the source and destination ranges are
+    disjoint.
+9.  Verify each entropy stream consumes exactly its meaningful bits and its
+    prescribed sequence‑symbol count; tANS must finish in state zero; `EXTRA`
+    must be exhausted.  Verify the actual literal and block symbol counts.
+10. Compute the canonical packed‑9 block CRC from the reconstructed history
+    ring; reject a mismatch.  Only after the CRC succeeds, pack and commit this
+    block's symbols to the destination stream.  Mode‑9 output packing carries
+    its partial‑byte state across block boundaries, independently of the
+    per‑block CRC packing boundary.
 11. At the known frame symbol count, flush the mode‑9 terminal partial octet
     with zero fill; reject trailing compressed octets.  Unknown‑length frames
     and `END` records are reserved but not supported by the current decoder.
@@ -667,10 +674,12 @@ allocation.
 performance and does is not designed to maintain bounded memory usage.
 It should **not** be considered safe to use as a hardened service.
 
-The current UNIX host CLI tool may leave a partially written output file when a
-subsequent block is corrupt.  *This is an intentional design choice*.  Its
-caller **MUST** check and use the exit status and **SHOULD** write to a
-temporary output name if destination atomicity is required.
+The current UNIX host CLI tool may leave output from earlier, successfully
+validated blocks in the destination file when a subsequent block is corrupt.
+No symbols from a block with an invalid CRC are committed.  *This is an
+intentional design choice*.  Any caller **MUST** check and use the exit status
+and **SHOULD** write to a temporary output name if destination atomicity is
+required.
 
 ## 7. Encoder reference choices (informative, not required for decoding)
 
@@ -723,6 +732,19 @@ come from one or two block‑level frequency snapshots; the final entropy
 distribution may differ after reparse.  Compression size is not mathematically
 guaranteed to improve monotonically with increasing level.
 
+At levels 4–9, the preliminary parse uses search depth 2 with lazy matching
+disabled; the configured level's normal search depth and lazy‑matching policy
+are restored for the cost‑guided parse(s).  After that preliminary parse, the
+encoder may bypass the cost‑guided parse(s) and emit a `STORED` block when at
+least `LZ9ANS_EARLY_STORED_LITERAL_PERCENT` percent of the block is represented
+as literals and the estimated `LIT` stream cost alone is no smaller than the
+complete `STORED` data payload.  This intentionally conservative test reuses
+the encoder's existing 512‑entry symbol‑count array and does not allocate
+additional block storage.  The compile‑time threshold defaults to 97; setting
+`LZ9ANS_EARLY_STORED_LITERAL_PERCENT=98` selects the 98‑percent variant, and
+setting it to zero disables the heuristic.  The threshold changes only encoder
+selection, not the v8 stream format or decoder requirements.
+
 For each symbol stream the encoder chooses `EMPTY`, `RLE`, `RAW`, or `TANS`
 models, or `REUSE` by estimated serialized size.  `REUSE` is available only
 when the normalized model equals the most recently installed model for that
@@ -733,11 +755,18 @@ The decoder never needs to know which parser or level was used.
 
 ### 7.1. Reference implementation memory usage
 
-The UNIX reference implementation explicit state on a standard Linux x86_64
-system for the default 32K window size reports **497,730 octets of encoder
-state** and **207,304 octets of decoder state**, which can be verified with
-`./lz9ans --memory`.  The 32K encoder remains below 512&nbsp;KiB.  *This is a
-deliberate design choice.*
+The UNIX reference implementation's explicit state on a standard Linux
+x86_64 system for the default 32K window size reports **497,730 octets of
+encoder state** and **211,376 octets of decoder state**, which can be verified
+with `./lz9ans --memory`.  The 32K encoder remains below 512&nbsp;KiB.
+*This is a deliberate design choice.*
+
+The software CRC fallback uses a slicing‑by‑8 table containing 8,192 bytes of
+static storage.  (On LP64 this is approximately 6 KiB more static storage than
+the previous implementation which used a 256‑entry `unsigned long` table.)
+This table is shared by both the encoder and decoder and is reported separately
+by `--memory`; it is not included in either allocated‑state figure.  No
+block‑sized decoder allocation is added.
 
 Use `./lz9ans --memory-64k` to examine the allocations required for the 64K
 window size encoder and decoder.
@@ -787,7 +816,7 @@ to match exactly.
 
 - **Format stability:** Version 8 is the only format emitted and accepted by
   this implementation.  It uses an extensible 17–4,096‑octet frame header,
-  11-octet `STORED` headers, 27‑octet `LZ` headers, four entropy streams, and
+  11‑octet `STORED` headers, 27‑octet `LZ` headers, four entropy streams, and
   one raw `EXTRA` stream.  Earlier frame versions are rejected; there is no
   legacy decoding path.
 
