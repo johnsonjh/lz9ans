@@ -13,6 +13,7 @@
 /lz9ans
 /lz9ans_asan
 /lz9ans.plist
+/notes.txt
 *.orig
 out.txt
 /pvsreport
