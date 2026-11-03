@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
-> Document revision **`22`** (2026‑11‑03)
+> Document revision **`23`** (2026‑11‑03)
 
 <!-- toc -->
 
@@ -772,7 +772,7 @@ Use `./lz9ans --memory-64k` to examine the allocations required for the 64K
 window size encoder and decoder.
 
 The reported values are **not** intended as a proof of native Multics segment
-occupancy: ANSI C89 type widths (8‑bit‑octet size assumd) and Multics PL/I word
+occupancy: ANSI C89 type widths (8‑bit‑octet size assumed) and Multics PL/I word
 representations are different and must be sized separately.
 
 ## 8. Golden vectors and interoperability
