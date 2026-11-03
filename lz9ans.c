@@ -2694,6 +2694,7 @@ write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
   return write_exact (out, h, sizeof (h))
          && write_exact (out, e->stage, (size_t)nbytes);
 }
+
 /*****************************************************************************/
 
 static int
@@ -4150,6 +4151,7 @@ main (int argc, char **argv)
   clock_t start, finish;
 
   if ((argc == 2 && !strcmp (argv[1], "--memory"))
+      || (argc == 2 && !strcmp (argv[1], "--memory-32k"))
       || (argc == 2 && !strcmp (argv[1], "--memory-64k")))
     {
       unsigned int win
@@ -4174,11 +4176,11 @@ main (int argc, char **argv)
               "static CRC lookup table: %lu bytes\n",
               (unsigned long)sizeof (crc_table));
       (void)printf (
-              "encoder allocated state: %lu bytes (excludes helper stack "
-              "temporaries)\n", enc);
+              "encoder allocated state: %lu bytes"
+              " (excludes helper stack temporaries)\n", enc);
       (void)printf (
-              "decoder allocated state: %lu bytes (plus small stack "
-              "temporaries)\n", dec);
+              "decoder allocated state: %lu bytes"
+              " (plus small stack temporaries)\n", dec);
 
       return 0;
     }
@@ -4191,8 +4193,8 @@ main (int argc, char **argv)
               "LZ9ANS reference implementation " LZ9VER "\n\n");
       (void)fprintf (stderr,
               "Usage:\n"
-              "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v] "
-              "[--window=N]\n");
+              "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
+              " [--window=N]\n");
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v]\n\n");
       (void)fprintf (stderr,
@@ -4268,8 +4270,8 @@ main (int argc, char **argv)
   if (sizeof (unsigned short) != 2 || sizeof (int) != 4 || CHAR_BIT != 8)
     {
       (void)fprintf (stderr,
-              "This host prototype requires 8-bit octets, 16-bit "
-              "short, 32-bit int.\n");
+              "This reference implementation requires 8-bit bytes, 16-bit"
+              " short, 32-bit int.\n");
 
       return 2;
     }
