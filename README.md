@@ -11,7 +11,7 @@ and software.
 
 It features two window sizes (32&nbsp;KiB and 64&nbsp;KiB), deterministic
 runtime memory usage (compressing in 486&nbsp;KiB or 678&nbsp;KiB,
-decompressing in 202&nbsp;KiB or 266&nbsp;KiB), 8‑bit data compatibility,
+decompressing in 206&nbsp;KiB or 270&nbsp;KiB), 8‑bit data compatibility,
 word‑aligned offset optimizations for data with 36‑bit boundaries, and fast
 decompression speeds.
 

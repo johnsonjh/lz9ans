@@ -17,6 +17,10 @@
 
 /*****************************************************************************/
 
+#include "crc32_hw.h"
+
+/*****************************************************************************/
+
 #undef LZ9VER
 #define LZ9VER "v0.8.0 (2026-11-01)"
 
@@ -48,6 +52,7 @@
 #define FRAME_HEADER_MIN_N 17U
 #define FRAME_HEADER_MAX_N 4096U
 #define FHEAD_N FRAME_HEADER_MIN_N
+#define CRC_BUFFER_N 4096U
 
 /*****************************************************************************/
 
@@ -206,6 +211,9 @@ typedef struct
   unsigned int in_block;
   unsigned long crc;
   unsigned int crc_acc, crc_bits;
+  unsigned char crc_buf[CRC_BUFFER_N];
+  unsigned int crc_used;
+  int crc_buffered;
   unsigned int out_acc, out_bits;
   int out_mode;
   FILE *out;
@@ -331,10 +339,36 @@ crc_byte (unsigned long crc, unsigned int b)
 /*****************************************************************************/
 
 static unsigned long
-crc_bytes (const unsigned char *p, unsigned int n)
+crc_update (unsigned long crc, const unsigned char *p, unsigned int n)
 {
   unsigned int i;
-  unsigned long v = 0xffffffffUL;
+  unsigned long v;
+
+#if defined(LZ9_CRC32_ARM)
+  if (n >= 128U && (crc & ~0xffffffffUL) == 0UL && lz9_crc32_arm_available ())
+    {
+      return (unsigned long)lz9_crc32_arm ((unsigned int)crc, p, (size_t)n);
+    }
+#endif
+
+#if defined(LZ9_CRC32_PCLMUL)
+  if (n >= 256U && (crc & ~0xffffffffUL) == 0UL
+      && lz9_crc32_pclmul_available ())
+    {
+      unsigned int bulk = n & ~15U;
+      crc = (unsigned long)lz9_crc32_pclmul ((unsigned int)crc, p,
+                                             (size_t)bulk);
+      p += bulk;
+      n -= bulk;
+
+      if (!n)
+        {
+          return crc;
+        }
+    }
+#endif
+
+  v = crc ^ 0xffffffffUL;
 
   for (i = 0; i < n; ++i)
     {
@@ -346,11 +380,84 @@ crc_bytes (const unsigned char *p, unsigned int n)
 
 /*****************************************************************************/
 
+static int
+crc_accel_available (unsigned int n)
+{
+#if defined(LZ9_CRC32_ARM)
+  if (n >= 128U && lz9_crc32_arm_available ())
+    {
+      return 1;
+    }
+#endif
+
+#if defined(LZ9_CRC32_PCLMUL)
+  if (n >= 256U && lz9_crc32_pclmul_available ())
+    {
+      return 1;
+    }
+#endif
+
+  (void)n;
+  return 0;
+}
+
+/*****************************************************************************/
+
+static unsigned long
+crc_bytes (const unsigned char *p, unsigned int n)
+{
+  return crc_update (0UL, p, n);
+}
+
+/*****************************************************************************/
+
 static unsigned long
 input_crc (const unsigned short *v, unsigned int n)
 {
   unsigned int i, pending = 0, nbits = 0;
-  unsigned long crc = 0xffffffffUL;
+  unsigned long crc;
+
+  /*cppcheck-suppress knownConditionTrueFalse*/
+  if (crc_accel_available ((n * 9U + 7U) / 8U))
+    {
+      unsigned char packed[CRC_BUFFER_N];
+      unsigned int used = 0;
+
+      crc = 0UL;
+
+      for (i = 0; i < n; ++i)
+        {
+          pending = (pending << 9) | v[i];
+          nbits += 9;
+
+          while (nbits >= 8)
+            {
+              nbits -= 8;
+              packed[used++] = (unsigned char)((pending >> nbits) & 255U);
+              pending &= (1U << nbits) - 1U;
+
+              if (used == CRC_BUFFER_N)
+                {
+                  crc = crc_update (crc, packed, used);
+                  used = 0;
+                }
+            }
+        }
+
+      if (nbits)
+        {
+          packed[used++] = (unsigned char)(pending << (8 - nbits));
+        }
+
+      if (used)
+        {
+          crc = crc_update (crc, packed, used);
+        }
+
+      return crc;
+    }
+
+  crc = 0xffffffffUL;
 
   for (i = 0; i < n; ++i)
     {
@@ -2853,6 +2960,63 @@ extra_end (ExtraReader *x)
 
 /*****************************************************************************/
 
+static void
+block_crc_flush (Output *o)
+{
+  if (o->crc_used)
+    {
+      o->crc = crc_update (o->crc ^ 0xffffffffUL, o->crc_buf, o->crc_used)
+                ^ 0xffffffffUL;
+      o->crc_used = 0;
+    }
+}
+
+/*****************************************************************************/
+
+static void
+block_crc_byte (Output *o, unsigned int b)
+{
+  if (o->crc_buffered)
+    {
+      o->crc_buf[o->crc_used++] = (unsigned char)b;
+
+      if (o->crc_used == CRC_BUFFER_N)
+        {
+          block_crc_flush (o);
+        }
+    }
+  else
+    {
+      o->crc = crc_byte (o->crc, b);
+    }
+}
+
+/*****************************************************************************/
+
+static void
+block_crc_symbol (Output *o, unsigned int v)
+{
+  o->crc_acc = (o->crc_acc << 9) | v;
+  o->crc_bits += 9;
+
+  if (o->crc_bits >= 16)
+    {
+      o->crc_bits -= 8;
+      block_crc_byte (o, (o->crc_acc >> o->crc_bits) & 255U);
+      o->crc_bits -= 8;
+      block_crc_byte (o, (o->crc_acc >> o->crc_bits) & 255U);
+    }
+  else
+    {
+      o->crc_bits -= 8;
+      block_crc_byte (o, (o->crc_acc >> o->crc_bits) & 255U);
+    }
+
+  o->crc_acc &= (1U << o->crc_bits) - 1U;
+}
+
+/*****************************************************************************/
+
 static int
 output_symbol (Output *o, unsigned int v)
 {
@@ -2864,23 +3028,7 @@ output_symbol (Output *o, unsigned int v)
   o->ring[o->produced & (o->window_n - 1U)] = (unsigned short)v;
   ++o->produced;
   ++o->in_block;
-  o->crc_acc = (o->crc_acc << 9) | v;
-  o->crc_bits += 9;
-
-  if (o->crc_bits >= 16)
-    {
-      o->crc_bits -= 8;
-      o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-      o->crc_bits -= 8;
-      o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-    }
-  else
-    {
-      o->crc_bits -= 8;
-      o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-    }
-
-  o->crc_acc &= (1U << o->crc_bits) - 1U;
+  block_crc_symbol (o, v);
 
   if (o->out_mode == 8)
     {
@@ -2946,23 +3094,7 @@ output_match (Output *o, unsigned int d, unsigned int ml)
           ring[dst] = (unsigned short)v;
           src = (src + 1U) & mask;
           dst = (dst + 1U) & mask;
-          o->crc_acc = (o->crc_acc << 9) | v;
-          o->crc_bits += 9;
-
-          if (o->crc_bits >= 16)
-            {
-              o->crc_bits -= 8;
-              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-              o->crc_bits -= 8;
-              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-            }
-          else
-            {
-              o->crc_bits -= 8;
-              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-            }
-
-          o->crc_acc &= (1U << o->crc_bits) - 1U;
+          block_crc_symbol (o, v);
 
           if (!output_octet (o, v))
             {
@@ -2979,23 +3111,7 @@ output_match (Output *o, unsigned int d, unsigned int ml)
           ring[dst] = (unsigned short)v;
           src = (src + 1U) & mask;
           dst = (dst + 1U) & mask;
-          o->crc_acc = (o->crc_acc << 9) | v;
-          o->crc_bits += 9;
-
-          if (o->crc_bits >= 16)
-            {
-              o->crc_bits -= 8;
-              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-              o->crc_bits -= 8;
-              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-            }
-          else
-            {
-              o->crc_bits -= 8;
-              o->crc = crc_byte (o->crc, (o->crc_acc >> o->crc_bits) & 255U);
-            }
-
-          o->crc_acc &= (1U << o->crc_bits) - 1U;
+          block_crc_symbol (o, v);
 
           o->out_acc = (o->out_acc << 9) | v;
           o->out_bits += 9;
@@ -3042,12 +3158,16 @@ output_match (Output *o, unsigned int d, unsigned int ml)
 /*****************************************************************************/
 
 static void
-block_crc_begin (Output *o)
+block_crc_begin (Output *o, unsigned int n)
 {
+  unsigned int packed_bytes = (n * 9U + 7U) / 8U;
+
   o->in_block = 0;
   o->crc = 0xffffffffUL;
   o->crc_acc = 0;
   o->crc_bits = 0;
+  o->crc_used = 0;
+  o->crc_buffered = crc_accel_available (packed_bytes);
 }
 
 /*****************************************************************************/
@@ -3057,8 +3177,10 @@ block_crc_end (Output *o, unsigned long expected)
 {
   if (o->crc_bits)
     {
-      o->crc = crc_byte (o->crc, o->crc_acc << (8 - o->crc_bits));
+      block_crc_byte (o, o->crc_acc << (8 - o->crc_bits));
     }
+
+  block_crc_flush (o);
 
   return ((o->crc ^ 0xffffffffUL) & 0xffffffffUL) == expected;
 }
@@ -3128,7 +3250,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
           return 0;
         }
 
-      block_crc_begin (o);
+      block_crc_begin (o, n);
       br_init (&r, stage, stored_bits, 0);
 
       for (i = 0; i < n; ++i)
@@ -3225,7 +3347,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       pos += lengths[i];
     }
 
-  block_crc_begin (o);
+  block_crc_begin (o, n);
   pos = 0;
 
   for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)

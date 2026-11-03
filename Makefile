@@ -6,7 +6,7 @@ CFLAGS = -O3 -ansi -pedantic -flto=auto -Wall -Wextra -Werror
 
 all: lz9ans
 
-lz9ans: lz9ans.c
+lz9ans: lz9ans.c crc32_hw.h
 	@eval echo \
 		$${CC:-$(CC)} $${EXTRA_CFLAGS:-} $(CFLAGS) -o $@ lz9ans.c \
 		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm || :
@@ -21,25 +21,28 @@ test: lz9ans
 	./test_verbose.py
 	./test_features.py
 	./test_v8_format.py
+	env CC="$${CC:-$(CC)}" CFLAGS="$${EXTRA_CFLAGS:-} $(CFLAGS)" \
+		LDFLAGS="$${EXTRA_LDFLAGS:-} $(LDFLAGS)" ./test_crc_accel.py
 
-sanitizers: lz9ans.c
+sanitizers: lz9ans.c crc32_hw.h
 	eval $${CC:-$(CC)} -Og -g -ansi -pedantic -Wall -Wextra -Werror \
-		-fsanitize=address,undefined -fno-omit-frame-pointer \
-		-o lz9ans_asan lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
+		-Wno-overlength-strings -fsanitize=address,undefined \
+		-fno-omit-frame-pointer -o lz9ans_asan lz9ans.c \
+		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
 
-cppcheck: lz9ans.c
+cppcheck: lz9ans.c crc32_hw.h
 	cppcheck \
 		--enable=warning,style,performance,portability,unusedFunction \
 		--force --check-level=exhaustive --std=c89 --inline-suppr \
 		--inconclusive --error-exitcode=99 -D__CPPCHECK__ -D__LINT__ \
 		-j 1 --platform=unix64 lz9ans.c
 
-oracle: lz9ans.c
+oracle: lz9ans.c crc32_hw.h
 	/opt/oracle/developerstudio12.6/bin/lint -O -D__ORACLE_LINT__ -fd \
 		-std=c89 -XCC=no -errchk=structarg,parentheses,locfmtchk \
 		-errtags lz9ans.c
 
-lint: lz9ans.c
+lint: lz9ans.c crc32_hw.h
 	$(MAKE) clean
 	eval $(MAKE) sanitizers CC="$${CLANG:-clang}"
 	$(MAKE) test
@@ -47,8 +50,8 @@ lint: lz9ans.c
 	$(MAKE) cppcheck
 	$(MAKE) oracle
 	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
-		-Wno-missing-noreturn -Wno-padded -Werror lz9ans.c \
-		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
+		-Wno-missing-noreturn -Wno-padded -Wno-overlength-strings \
+		-Werror lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
 	$(MAKE) clean
 	scan-build bear -- $(MAKE) all
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
