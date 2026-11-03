@@ -86,8 +86,12 @@
     defined(__gnu_linux__) /* Manually disable if using threads! */
 # undef fgetc
 # define fgetc(s) fgetc_unlocked(s)
+# undef fread
+# define fread(p, s, n, f) fread_unlocked(p, s, n, f)
 # undef fwrite
 # define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f)
+# undef fflush
+# define fflush(f) fflush_unlocked(f)
 #endif
 
 /*****************************************************************************/
@@ -95,8 +99,18 @@
 #if defined(_WIN32) || defined(_WIN64) /* Manually disable if using threads! */
 # undef fgetc
 # define fgetc(s) _fgetc_nolock(s)
+# undef fread
+# define fread(p, s, n, f) _fread_nolock(p, s, n, f)
 # undef fwrite
 # define fwrite(p, s, n, f) _fwrite_nolock(p, s, n, f)
+# undef ftell
+# define ftell(f) _ftell_nolock(f)
+# undef fseek
+# define fseek(f, n, p) _fseek_nolock(f, n, p)
+# undef fflush
+# define fflush(f) _fflush_nolock(f)
+# undef fclose
+# define fclose(f) _fclose_nolock(f)
 #endif
 
 /*****************************************************************************/
