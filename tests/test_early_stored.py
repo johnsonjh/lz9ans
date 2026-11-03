@@ -29,7 +29,7 @@ def build(binary, threshold):
             f"-DLZ9ANS_EARLY_STORED_LITERAL_PERCENT={threshold}",
             "-o",
             str(binary),
-            str(ROOT / "lz9ans.c"),
+            str(ROOT / "../lz9ans.c"),
             "-lm",
         ],
         cwd=ROOT,

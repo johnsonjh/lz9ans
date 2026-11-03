@@ -11,7 +11,7 @@ import tempfile
 from inspect_lz9ans import pack9
 
 ROOT = Path(__file__).resolve().parent
-BINARY = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
+BINARY = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "../lz9ans"))).resolve()
 
 
 def run(*args):

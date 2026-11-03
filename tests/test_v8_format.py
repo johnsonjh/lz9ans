@@ -13,7 +13,7 @@ import zlib
 from inspect_lz9ans import FormatError, block_header, decode, pack9
 
 ROOT = Path(__file__).resolve().parent
-BINARY = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
+BINARY = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "../lz9ans"))).resolve()
 
 
 def pack_bits(values, width):

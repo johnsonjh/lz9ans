@@ -66,12 +66,12 @@ def command(*parts):
 
 
 def main():
-    binary = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "lz9ans"))).resolve()
+    binary = Path(os.environ.get("LZ9ANS_BIN", str(ROOT / "../lz9ans"))).resolve()
     with tempfile.TemporaryDirectory(prefix="lz9ans-golden-") as tmp:
         work = Path(tmp)
         for name, (mode, level, expected_hash) in VECTORS.items():
-            raw = (ROOT / "vectors" / f"{name}.input").read_bytes()
-            vector = (ROOT / "vectors" / f"{name}.lz9a").read_bytes()
+            raw = (ROOT / "../vectors" / f"{name}.input").read_bytes()
+            vector = (ROOT / "../vectors" / f"{name}.lz9a").read_bytes()
             assert sha256(vector).hexdigest() == expected_hash, name
             assert vector[:4] == b"LZ9A" and vector[4] == 8, name
             assert frame_header(vector)["length"] == 17, name
@@ -92,7 +92,7 @@ def main():
                 command(
                     str(binary),
                     mode,
-                    str(ROOT / "vectors" / f"{name}.input"),
+                    str(ROOT / "../vectors" / f"{name}.input"),
                     str(work / "encoded"),
                     f"-{level}",
                 )
@@ -110,7 +110,7 @@ def main():
 
         # The RUN fixture has no initialized MRU distance. Change its OF RLE
         # symbol to REP0; the independent and C decoders must reject it.
-        invalid = bytearray((ROOT / "vectors" / "run8.lz9a").read_bytes())
+        invalid = bytearray((ROOT / "../vectors" / "run8.lz9a").read_bytes())
         block = block_header(invalid, 17)
         desc_len = block["desc_length"]
         desc_start = 17 + block["header_size"]
@@ -142,7 +142,7 @@ def main():
 
         # A reuse descriptor is illegal until that stream has installed a table.
         # The empty table state is represented by the first table's alphabet 0.
-        reuse = bytearray((ROOT / "vectors" / "run8.lz9a").read_bytes())
+        reuse = bytearray((ROOT / "../vectors" / "run8.lz9a").read_bytes())
         reuse[desc_start] = 4
         (work / "invalid-reuse.lz9a").write_bytes(reuse)
         assert (
