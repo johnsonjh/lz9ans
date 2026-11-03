@@ -78,12 +78,15 @@ settings), as well as **LZ9ANS** operating in 8‑bit mode:
 | `lzip`       | LZMA&nbsp;(LZ77+MA+RC) |  `158,016,800`  |      13&nbsp;MiB |  14%&nbsp;larger |
 | `zpaq`       | M5&nbsp;(CM+AC)        |  `131,954,176`  |     246&nbsp;MiB |  5%&nbsp;smaller |
 
-Even when processing the corpus *in 8‑bit mode* (that is, as `55,823,021` 8‑bit
-octets, rather than as `49,620,463` 9‑bit nonets), **LZ9ANS**, which is tuned
-*explicitly* for compressing **9‑bit** data, more than holds it own and is only
-surpassed by algorithms that require *substantially* more memory (2× to 500×)
-and/or processing time (enough to make native **Multics** implementations
-impractical).
+* Even when processing the corpus *in 8‑bit mode* (that is, as `55,823,021`
+  8‑bit octets, rather than as `49,620,463` 9‑bit nonets), **LZ9ANS**, which
+  is tuned *explicitly* for compressing **9‑bit** data, more than holds it own
+  and is only surpassed by algorithms that require *substantially* more memory
+  (2× to 500×) and/or processing time (enough to make native **Multics**
+  implementations impractical).
+
+* For most 8‑bit data, **LZ9ANS** `-3` meets or exceeds the performance of
+  **GNU Gzip** `-6`.
 
 ## Hardware
 
