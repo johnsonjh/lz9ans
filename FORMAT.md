@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
-> Document revision **`19`** (2026‑11‑02)
+> Document revision **`20`** (2026‑11‑03)
 
 <!-- toc -->
 
@@ -26,6 +26,7 @@
   * [5.3. tANS decoding and the unusual reverse bit direction](#53-tans-decoding-and-the-unusual-reverse-bit-direction)
 - [6. Decoder procedure and validation requirements](#6-decoder-procedure-and-validation-requirements)
 - [7. Encoder reference choices (informative, not required for decoding)](#7-encoder-reference-choices-informative-not-required-for-decoding)
+  * [7.1. Reference implementation memory usage](#71-reference-implementation-memory-usage)
 - [8. Golden vectors and interoperability](#8-golden-vectors-and-interoperability)
 - [9. Format gaps and future design choices](#9-format-gaps-and-future-design-choices)
 - [10. Version 8 features, extensions, and reserved control records](#10-version-8-features-extensions-and-reserved-control-records)
@@ -46,30 +47,27 @@
 Every symbol occupies nine meaningful bits logically, regardless of how it
 is represented in the compressor's working RAM.
 
-The UNIX host tool supports both 8‑bit and 9‑bit input:
-
-- **Mode 8:** "Ordinary" UNIX binary files stored with one logical symbol per
-  8‑bit octet.  This is a subset of the supported 9‑bit alphabet using only
-  values 0–255.
-
-- **Mode 9:** A packed MSB‑first stream of consecutive 9‑bit symbols.  Eight
-  complete symbols occupy nine octets.  A final incomplete group is
-  zero‑padded to an octet boundary.  The reserved `END` truncation extension
-  can later shorten the meaningful bit count in the final symbol; the current
-  UNIX implementation does not implement it.
+* The UNIX host tool supports both 8‑bit and 9‑bit inputs:
+  - **Mode 8:** "Ordinary" UNIX binary files stored with one logical symbol per
+    8‑bit octet.  This is a subset of the supported 9‑bit alphabet using only
+    values 0–255.
+  - **Mode 9:** A packed MSB‑first stream of consecutive 9‑bit symbols.  Eight
+    complete symbols occupy nine octets.  A final incomplete group is
+    zero‑padded to an octet boundary.  The reserved `END` truncation extension
+    can later shorten the meaningful bit count in the final symbol; the current
+    UNIX implementation does not implement it.
 
 **Bit position 0** of any packed stream denotes the most significant bit of
 its first octet.  *Within the compressed format*, headers and descriptors are
 always represented as **8‑bit octets** and integer fields are little‑endian.
 Input symbol width and compressed header byte width are distinct concepts.
 
-The format does **not** attach file names, timestamps, source‑system types,
-record boundaries, or 36‑bit word attributes.  The current UNIX implementation
-preserves complete 9‑bit symbols only; the reserved `END` metadata defines how
-a future Multics implementation can represent an arbitrary final bit count.
-Although the bit representation is intended to suit
-`mxload`‑style "9‑in‑8" transports, compatibility with a particular `mxload`
-version or tape encoding is *not* asserted.
+The format intentionally **does** **not** attach file names, timestamps,
+source‑system types, record boundaries, or word attributes.
+
+The current UNIX reference implementation preserves complete 9‑bit symbols
+only; the reserved `END` metadata defines how a future Multics implementation
+can represent an arbitrary final bit count.
 
 ### 1.1. Constants
 
@@ -328,12 +326,9 @@ synchronous, even though their codes occupy separate entropy streams.
 For each sequence in forward order:
 
 1. Decode `LL` and emit exactly `LL` symbols from `LIT`.
-
 2. Decode `ML`; it **MUST** be at least three.
-
 3. Decode `OF` to a backward **distance** `d` between 1 and the selected
    window limit (32,768 or 65,536 symbols).
-
 4. Copy `ML` symbols from `d` logical positions behind the current output
    cursor, one symbol at a time, allowing source and destination to overlap.
 
@@ -435,9 +430,10 @@ repeat code2:       [5,       3,       8      ] (returned distance5)
 RUN code3:          [5,       3,       8      ] (returned distance1; NO promotion)
 ```
 
-Unlike Zstandard, **there is no special mapping or shift when `LL`=0**.  Repeat
-code0 always means slot `R0`, including following a zero‑length literal run.
-An encoder and decoder must implement this same rule.
+Unlike **Zstandard**, **there is no special mapping or shift when `LL`=0**.
+*This is a deliberate design choice*.  Repeat code0 **always** means slot `R0`,
+including following a zero‑length literal run.  An encoder and decoder must
+implement this same rule.
 
 ### 4.3. EXTRA bit ordering
 
@@ -445,12 +441,9 @@ For each sequence in forward order, append the following *to the one shared
 `EXTRA` stream*, with no inter‑field padding:
 
 1. `LL` additional bits, if the `LL` code requires any.
-
 2. `ML` additional bits, if the `ML` code requires any.
-
 3. If aligned‑distance coding is enabled and `OF` selects an eligible explicit
    bucket (codes 6–18, or code 20 with the 64K window), one alignment flag bit.
-
 4. `OF` additional bits, if an explicit distance bucket requires any.
 
 The bit groups are MSB‑first.  No `EXTRA` bits are emitted for `RUN` or repeat
@@ -625,31 +618,25 @@ A conforming v8 decoder **SHOULD** implement the following stages, enforcing
    are skipped; unknown critical TLVs, duplicate identifiers, malformed
    lengths, and identifier zero are rejected.  The defined unknown‑count TLV
    is recognized but is not supported by the current reference decoder.
-
 2. Initialize an empty 32,768‑ or 65,536‑symbol history as selected by the
    frame flags (zero‑initializing memory as defense‑in‑depth against memory
    disclosure) and three `INVALID` repeat slots.
-
 3. For each block, read and validate the seven‑octet common prefix.  For
    `STORED`, read the remaining four header octets; for `LZ`, read the
    remaining 20 header octets.  Type 2 (`END`) and type 3 are reserved and
    rejected by the current implementation.  Validate the type‑specific fields
    and ensure the block's `n` does not exceed the symbols remaining in the
    known‑length frame.
-
 4. For `STORED`, derive the payload bit length as `n * width`, derive its byte
    length by rounding up, validate the final zero padding bits, and read
    exactly that payload.
-
 5. For `LZ`, validate `q <= floor(n/3)`, `dl <= 8192`, each reconstructed
    meaningful bit length against its stream‑specific maximum, the packed
    padding field's reserved bit and values, and the sum of payload byte lengths
    against 81,920.  Read exactly `dl` descriptor octets and exactly the five
    announced payload byte lengths.  Check every stream's unused low‑order pad
    bits before initializing its reader.
-
 6. For `STORED`, read `n` fixed‑width symbols, updating history but not MRU.
-
 7. For `LZ`, reconstruct exactly the `LIT`/`LL`/`ML`/`OF` descriptors.  Require
    `LL`, `ML`, and `OF` to be `EMPTY` exactly when `q` is zero.  Initialize the
    entropy readers with the exact reconstructed meaningful bit lengths,
@@ -657,31 +644,31 @@ A conforming v8 decoder **SHOULD** implement the following stages, enforcing
    `q` sequences plus the terminal literal run, consuming `EXTRA` from its raw
    bitstream.  Derive the actual literal count from the decoded match lengths;
    validate the `LIT` `EMPTY`/non‑`EMPTY` condition against that actual count.
-
 8. For every copy, validate `1 <= distance <= window_limit`, and ensure the
    distance does not exceed the already reconstructed frame prefix
    (`distance <= produced`), rejecting all pre‑history references.  Validate
    `ML >= 3`, and verify the copy does not exceed this block's remaining output
    capacity.  Copy forwards one symbol at a time to support overlaps.
-
 9. Verify each entropy stream consumes exactly its meaningful bits and its
    prescribed sequence‑symbol count; tANS must finish in state zero; `EXTRA`
    must be exhausted.  Verify the actual literal and block symbol counts.
-
 10. Compute the canonical packed‑9 block CRC; reject a mismatch.
-
 11. At the known frame symbol count, flush the mode‑9 terminal partial octet
     with zero fill; reject trailing compressed octets.  Unknown‑length frames
     and `END` records are reserved but not supported by the current decoder.
 
-Never allocate memory directly from an unchecked on‑disk length.  The current
+Never allocate memory directly from any unchecked on‑disk length.  The current
 frame‑header and payload bounds are checked before any corresponding read or
-allocation.  The Python independent decoder prioritizes clarity over bounded
-memory and should not be used as a hardened service.
+allocation.
 
-The current host CLI may leave a partially written output file when a
-subsequent block is corrupt.  Its caller must use the exit status and should
-write to a temporary name if destination atomicity is required.
+**NB**: The Python implementation of the decoder prioritizes code clarity over
+performance and does is not designed to maintain bounded memory usage.
+It should **not** be considered safe to use as a hardened service.
+
+The current UNIX host CLI tool may leave a partially written output file when a
+subsequent block is corrupt.  *This is an intentional design choice*.  Its
+caller **MUST** check and use the exit status and **SHOULD** write to a
+temporary output name if destination atomicity is required.
 
 ## 7. Encoder reference choices (informative, not required for decoding)
 
@@ -699,17 +686,17 @@ The search‑depth limit is the number of hash‑chain candidates examined; the
 three repeat‑distance slots are probed separately and therefore do not consume
 this budget:
 
-| Level | Hash‑chain depth | Parser behavior                                      |
-|------:|:-----------------|:-----------------------------------------------------|
-| `1`   | `2`              | Greedy, no entropy‑price pass                        |
-| `2`   | `4`              | Greedy, no entropy‑price pass                        |
-| `3`   | `8`              | Greedy, no entropy‑price pass                        |
-| `4`   | `8`              | Initial greedy pass; entropy‑price reparse           |
-| `5`   | `24`             | Level 4 plus one‑position lazy choice; default       |
-| `6`   | `48`             | Level 5 with deeper candidate search                 |
-| `7`   | `96`             | Level 5 with deeper candidate search                 |
-| `8`   | `192`            | Level 5 plus near‑longest alternative match trials   |
-| `9`   | `512`            | Level 8 plus a further cost‑refinement pass          |
+| Level | Hash‑chain depth | Parser behavior                                    |
+|------:|:-----------------|:---------------------------------------------------|
+| `1`   | `2`              | Greedy, no entropy‑price pass                      |
+| `2`   | `4`              | Greedy, no entropy‑price pass                      |
+| `3`   | `8`              | Greedy, no entropy‑price pass                      |
+| `4`   | `8`              | Initial greedy pass; entropy‑price reparse         |
+| `5`   | `24`             | Level 4 plus one‑position lazy choice; default     |
+| `6`   | `48`             | Level 5 with deeper candidate search               |
+| `7`   | `96`             | Level 5 with deeper candidate search               |
+| `8`   | `192`            | Level 5 plus near‑longest alternative match trials |
+| `9`   | `512`            | Level 8 plus a further cost‑refinement pass        |
 
 The match finder explicitly probes `R0`, `R1`, and `R2` before walking the hash
 chain, so repeat distances remain candidates even when their chain entries
@@ -742,21 +729,20 @@ storing the block at its narrowest 7/8/9 bit width, it writes `STORED` instead;
 speculative repeat‑slot changes and untransmitted table models are discarded.
 The decoder never needs to know which parser or level was used.
 
-UNIX/Linux reference implementation explicit state on one x86‑64/8‑bit‑octet
-build: **497,730 octets of encoder state** and **207,304 octets of decoder
-state** as reported by `./lz9ans --memory` (plus stack, C library file buffers,
-and allocator overhead).  The decoder figure includes four `AnsTable`
-instances; there is no `EXTRA` entropy table.  The encoder remains below 512
-KiB (524,288 bytes) by 26,558 bytes.  Its four 512‑entry frequency vectors
-occupy 4,096 bytes at the tail of the existing staging allocation.  The usable
-staged payload area is reduced accordingly, but remains larger than the maximum
-`STORED` block.  The reported allocation totals are unchanged.  The figure
-includes the `Encoder` structure and its associated arrays, but excludes small
-helper stack temporaries, C runtime state, `FILE` buffers, allocator overhead,
-and the process itself.  It is therefore a useful state budget, not a guarantee
-of total resident memory.  This is **not** a proof of native Multics segment
-occupancy: ANSI C89's 8‑bit‑octet host assumptions and Multics PL/I word
-representation are different and must be sized separately.
+### 7.1. Reference implementation memory usage
+
+The UNIX reference implementation explicit state on a standard Linux x86_64
+system for the default 32K window size reports **497,730 octets of encoder
+state** and **207,304 octets of decoder state**, which can be verified with
+`./lz9ans --memory`.  The 32K encoder remains below 512&nbsp;KiB.  *This is a
+deliberate design choice.*
+
+Use `./lz9ans --memory-64k` to examine the allocations required for the 64K
+window size encoder and decoder.
+
+The reported values are **not** intended as a proof of native Multics segment
+occupancy: ANSI C89 type widths (8‑bit‑octet size assumd) and Multics PL/I word
+representations are different and must be sized separately.
 
 ## 8. Golden vectors and interoperability
 
