@@ -90,11 +90,12 @@ For most 8‑bit data, **LZ9ANS** **`-3`** meets or exceeds the performance of
 
 ## Hardware
 
-The overall architecture was deliberately engineered for hardware friendliness,
-sometimes to the detriment of compression ratio: all lengths are hard‑bounded
-(symbols per block, and payload, descriptor, and window sizes), ANS state is
-reset each block, decode tables change only via explicit descriptors, LIT
-decode is independent of history and prior output, etc.
+The overall codec architecture was deliberately engineered with hardware
+friendliness in mind, sometimes to the detriment of compression ratio: all
+lengths are hard‑bounded (symbols per block, and payload, descriptor, and
+window sizes), ANS state is reset each block, decode tables change only via
+explicit descriptors, LIT decode is independent of history and prior output,
+etc.
 
 These intentional design choices should make it straightforward to create
 efficient and high‑throughput **LZ9ANS** implementations in ASIC and FPGA
