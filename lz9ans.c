@@ -82,6 +82,25 @@
 
 /*****************************************************************************/
 
+#if defined(__linux) || defined(__linux__) || defined(linux) || \
+    defined(__gnu_linux__) /* Manually disable if using threads! */
+# undef fgetc
+# define fgetc(s) fgetc_unlocked(s)
+# undef fwrite
+# define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f)
+#endif
+
+/*****************************************************************************/
+
+#if defined(_WIN32) || defined(_WIN64) /* Manually disable if using threads! */
+# undef fgetc
+# define fgetc(s) _fgetc_nolock(s)
+# undef fwrite
+# define fwrite(p, s, n, f) _fwrite_nolock(p, s, n, f)
+#endif
+
+/*****************************************************************************/
+
 typedef struct
 {
   unsigned short ll, ml;
