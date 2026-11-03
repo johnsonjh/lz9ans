@@ -6,54 +6,59 @@
 **LZ9ANS** is a **9‑bit** [LZ77](https://en.wikipedia.org/wiki/LZ77_and_LZ78) +
 [tANS](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems) codec designed
 to efficiently compress **9‑bit** mainframe input data (*e.g.*, **Multics**,
-**OS2200**, **7090**) to standard **8‑bit** portable output streams.
+**OS2200**, **7090**) to standard **8‑bit** portable output streams in hardware
+and software.
 
-It features two window sizes, deterministic runtime memory usage (compresses in
-486&nbsp;KiB or 678&nbsp;KiB, decompresses in 202&nbsp;KiB or 266&nbsp;KiB),
-8‑bit data compatibility, word‑aligned offset optimizations for data with
-36‑bit boundaries, and very fast decompression.  It offers nine different
-compression profiles: four *fast*, four *tight*, and one *maximum*.
+It features two window sizes (32&nbsp;KiB and 64&nbsp;KiB), deterministic
+runtime memory usage (compressing in 486&nbsp;KiB or 678&nbsp;KiB,
+decompressing in 202&nbsp;KiB or 266&nbsp;KiB), 8‑bit data compatibility,
+word‑aligned offset optimizations for data with 36‑bit boundaries, and very
+fast decompression speed.
+
+The algorithm may be tuned to favor saving time or space, with the ANSI C89
+reference implementation offering nine different compression profiles: four
+*fast*, four *tight*, and one *maximum*.
 
 ## Performance
 
 **LZ9ANS‑32K** (corpus of `446,584,168` input bits)
 [**486** **KiB** memory usage]:
 
-| Level  | Compressed bits | Percent   | Ratio     | Delta          |
-|-------:|:---------------:|:---------:|:---------:|---------------:|
-| **‑1** |  `156,524,320`  | `64.951%` | `2.853:1` | `‑290,059,848` |
-| **‑2** |  `153,334,488`  | `65.665%` | `2.912:1` |   `‑3,189,832` |
-| **‑3** |  `151,348,568`  | `66.110%` | `2.951:1` |   `‑1,985,920` |
-| **‑4** |  `150,208,096`  | `66.365%` | `2.973:1` |   `‑1,140,472` |
-| **‑5** |  `144,297,288`  | `67.689%` | `3.095:1` |   `‑5,910,808` |
-| **‑6** |  `143,680,056`  | `67.827%` | `3.108:1` |     `‑617,232` |
-| **‑7** |  `143,324,992`  | `67.906%` | `3.116:1` |     `‑355,064` |
-| **‑8** |  `143,028,680`  | `67.973%` | `3.122:1` |     `‑296,312` |
-| **‑9** |  `142,763,040`  | `68.032%` | `3.128:1` |     `‑265,640` |
+|    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
+|---------:|:---------------:|:---------:|:---------:|---------------:|
+| **`‑1`** |  `156,524,320`  | `64.951%` | `2.853:1` | `‑290,059,848` |
+| **`‑2`** |  `153,334,488`  | `65.665%` | `2.912:1` |   `‑3,189,832` |
+| **`‑3`** |  `151,348,568`  | `66.110%` | `2.951:1` |   `‑1,985,920` |
+| **`‑4`** |  `150,208,096`  | `66.365%` | `2.973:1` |   `‑1,140,472` |
+| **`‑5`** |  `144,297,288`  | `67.689%` | `3.095:1` |   `‑5,910,808` |
+| **`‑6`** |  `143,680,056`  | `67.827%` | `3.108:1` |     `‑617,232` |
+| **`‑7`** |  `143,324,992`  | `67.906%` | `3.116:1` |     `‑355,064` |
+| **`‑8`** |  `143,028,680`  | `67.973%` | `3.122:1` |     `‑296,312` |
+| **`‑9`** |  `142,763,040`  | `68.032%` | `3.128:1` |     `‑265,640` |
 
 **LZ9ANS‑64K** (corpus of `446,584,168` input bits)
 [**678** **KiB** memory usage]:
 
-| Level  | Compressed bits | Percent   | Ratio     | Delta          |
-|-------:|:---------------:|:---------:|:---------:|---------------:|
-| **‑1** |  `155,032,776`  | `65.285%` | `2.881:1` | `‑291,551,392` |
-| **‑2** |  `151,466,024`  | `66.083%` | `2.948:1` |   `‑3,566,752` |
-| **‑3** |  `149,144,208`  | `66.603%` | `2.994:1` |   `‑2,321,816` |
-| **‑4** |  `147,730,272`  | `66.920%` | `3.023:1` |   `‑1,413,936` |
-| **‑5** |  `140,807,840`  | `68.470%` | `3.172:1` |   `‑6,922,432` |
-| **‑6** |  `140,053,104`  | `68.639%` | `3.189:1` |     `‑754,736` |
-| **‑7** |  `139,593,320`  | `68.742%` | `3.199:1` |     `‑459,784` |
-| **‑8** |  `139,226,584`  | `68.824%` | `3.208:1` |     `‑366,736` |
-| **‑9** |  `138,901,784`  | `68.897%` | `3.215:1` |     `‑324,800` |
+|    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
+|---------:|:---------------:|:---------:|:---------:|---------------:|
+| **`‑1`** |  `155,032,776`  | `65.285%` | `2.881:1` | `‑291,551,392` |
+| **`‑2`** |  `151,466,024`  | `66.083%` | `2.948:1` |   `‑3,566,752` |
+| **`‑3`** |  `149,144,208`  | `66.603%` | `2.994:1` |   `‑2,321,816` |
+| **`‑4`** |  `147,730,272`  | `66.920%` | `3.023:1` |   `‑1,413,936` |
+| **`‑5`** |  `140,807,840`  | `68.470%` | `3.172:1` |   `‑6,922,432` |
+| **`‑6`** |  `140,053,104`  | `68.639%` | `3.189:1` |     `‑754,736` |
+| **`‑7`** |  `139,593,320`  | `68.742%` | `3.199:1` |     `‑459,784` |
+| **`‑8`** |  `139,226,584`  | `68.824%` | `3.208:1` |     `‑366,736` |
+| **`‑9`** |  `138,901,784`  | `68.897%` | `3.215:1` |     `‑324,800` |
 
-On Multics (and OS2200) systems, an additional **11%** on‑disk savings can be
-realized by packing the 8‑bit **LZ9ANS** output stream to a more compact (but
-less portable) 9‑bit character representation.
+On Multics (and OS2200) systems, an **11%** on‑disk savings can be realized by
+packing the 8‑bit **LZ9ANS** output stream to a more compact (but less
+portable) 9‑bit per character storage representation.
 
 ### Competition
 
 Compare the numbers above with the results of the same corpus packed with
-popular 8‑bit compression algorithms (all at their maximum compresion
+popular 8‑bit compression algorithms (all at their maximum compression
 settings), as well as **LZ9ANS** operating in 8‑bit mode:
 
 |      Utility | Algorithm              | Compressed bits | Memory           | Performance      |
@@ -79,6 +84,18 @@ octets, rather than as `49,620,463` 9‑bit nonets), **LZ9ANS**, which is tuned
 surpassed by algorithms that require *substantially* more memory (2× to 500×)
 and/or processing time (enough to make native **Multics** implementations
 impractical).
+
+## Hardware
+
+The overall architecture was deliberately engineered for hardware friendliness,
+sometimes to the detriment of compression ratio: all lengths are hard‑bounded
+(symbols per block, and payload, descriptor, and window sizes), ANS state is
+reset each block, decode tables change only via explicit descriptors, LIT
+decode is independent of history and prior output, etc.
+
+These intentional design choices should make it straightforward to create
+efficient and high‑throughput **LZ9ANS** implementations in ASIC and FPGA
+environments.
 
 ## Specification
 
