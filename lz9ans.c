@@ -2250,9 +2250,9 @@ early_stored_block (Encoder *e, unsigned int stored_width)
   return 0;
 #else
   unsigned int i, total, used = 0;
-  unsigned int width, prev = 0;
+  unsigned int width;
   unsigned short *freq = e->costs[STREAM_LIT];
-  unsigned long raw, best, predicted, header;
+  unsigned long raw, best;
 
   total = count_stream (e, STREAM_LIT);
 
@@ -2282,8 +2282,8 @@ early_stored_block (Encoder *e, unsigned int stored_width)
     }
   else if (used >= 2U && norm_counts (e->counts, 512U, total, freq))
     {
-      predicted = 0;
-      header = 2;
+      unsigned int prev = 0;
+      unsigned long predicted = 0, header = 2;
 
       for (i = 0; i < 512U; ++i)
         {
@@ -3124,20 +3124,20 @@ store_symbol (Output *o, unsigned int v)
 
 /*****************************************************************************/
 
-static int
+static void
 store_match (Output *o, unsigned int d, unsigned int ml)
 {
   const unsigned int mask = o->window_n - 1U;
   unsigned short * const ring = o->ring;
   const unsigned long prod = o->produced;
-  unsigned int src, dst, remaining;
+  unsigned int src, dst;
 
   src = (unsigned int)((prod - d) & mask);
   dst = (unsigned int)(prod & mask);
 
   if (d >= ml && d <= o->window_n - ml)
     {
-      remaining = ml;
+      unsigned int remaining = ml;
 
       while (remaining)
         {
@@ -3178,8 +3178,6 @@ store_match (Output *o, unsigned int d, unsigned int ml)
 
   o->produced += ml;
   o->in_block += ml;
-
-  return 1;
 }
 
 /*****************************************************************************/
@@ -3295,7 +3293,6 @@ output_decoded_block (Output *o, unsigned long start, unsigned int n)
       unsigned short values[8];
       const unsigned short *source;
       unsigned char packed[9];
-      unsigned int j;
 
       if (at <= mask - 7U)
         {
@@ -3303,6 +3300,8 @@ output_decoded_block (Output *o, unsigned long start, unsigned int n)
         }
       else
         {
+          unsigned int j;
+
           for (j = 0; j < 8U; ++j)
             {
               values[j] = o->ring[(at + j) & mask];
@@ -3395,7 +3394,8 @@ block_crc_end (Output *o, unsigned int n, unsigned long expected)
 
   if (i < n)
     {
-      unsigned short values[7];
+      unsigned int tail = n - i;
+      unsigned short values[7] = { 0U };
       unsigned int j, at = (unsigned int)((start + i) & mask);
 
       if (used > CRC_BUFFER_N - 8U)
@@ -3404,12 +3404,12 @@ block_crc_end (Output *o, unsigned int n, unsigned long expected)
           used = 0;
         }
 
-      for (j = 0; i + j < n; ++j)
+      for (j = 0; j < tail; ++j)
         {
           values[j] = o->ring[(at + j) & mask];
         }
 
-      used += pack9_tail (values, n - i, o->crc_buf + used);
+      used += pack9_tail (values, tail, o->crc_buf + used);
     }
 
   if (used)
@@ -3670,11 +3670,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             }
         }
 
-        if (!store_match (o, d, ml))
-          {
-            return 0;
-          }
-
+        store_match (o, d, ml);
         produced += ml;
       }
 
