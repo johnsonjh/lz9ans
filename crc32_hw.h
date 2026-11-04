@@ -40,6 +40,7 @@ lz9_crc32_pclmul_available (void)
   static int cached = 0; /* 0 = unknown, 1 = absent, 2 = present */
   int v;
   unsigned int a, b, c, d;
+
 #   if defined(__clang__) || (__GNUC__ > 4) \
     || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)
   v = __atomic_load_n (&cached, __ATOMIC_RELAXED);
@@ -276,6 +277,7 @@ lz9_crc32_arm_available (void)
   if (!__atomic_load_n (&initialized, __ATOMIC_ACQUIRE))
     {
       unsigned long caps = lz9_arm_crc_capabilities ();
+
       __atomic_store_n (&checked, caps, __ATOMIC_RELAXED);
       __atomic_store_n (&initialized, 1, __ATOMIC_RELEASE);
     }
@@ -293,6 +295,7 @@ lz9_crc32_arm (unsigned int crc, const unsigned char *p, size_t n)
   while (n >= 8U)
     {
       uint64_t v;
+
 #if defined(USE_BI_CRC)
       __builtin_memcpy (&v, p, 8U);
 #else
