@@ -101,7 +101,6 @@
 #define OF_ALPHABET_32K 20U
 #define OF_ALPHABET_64K 21U
 #define COST_SCALE 256U
-#define COST_STRIDE 16U
 #define FRAME_EXT_UNKNOWN_COUNT 0x81U
 
 /*****************************************************************************/
@@ -137,6 +136,14 @@
 # undef fclose
 # define fclose(f) _fclose_nolock(f) /* //-V1059 */
 #endif /* if defined(_WIN32) || defined(_WIN64) */
+
+/*****************************************************************************/
+
+#if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
+# define LZ9_INLINE __inline__
+#else
+# define LZ9_INLINE
+#endif
 
 /*****************************************************************************/
 
@@ -242,7 +249,7 @@ typedef struct
   int use_cost;
   unsigned int reps[3];
   unsigned short costs[4][512];
-  unsigned int prefix[BLOCK_N / COST_STRIDE + 1U];
+  unsigned int prefix[BLOCK_N + 1U];
 } Encoder;
 
 /*****************************************************************************/
@@ -587,6 +594,17 @@ load32 (const unsigned char *p)
 
 /*****************************************************************************/
 
+static LZ9_INLINE unsigned int
+load32_be (const unsigned char *p)
+{
+  return ((unsigned int)p[0] << 24)
+         | ((unsigned int)p[1] << 16)
+         | ((unsigned int)p[2] << 8)
+         | (unsigned int)p[3];
+}
+
+/*****************************************************************************/
+
 static int
 write_exact (FILE *f, const void *p, size_t n)
 {
@@ -614,22 +632,22 @@ bw_init (BitWriter *b, unsigned char *p, unsigned long bytes)
 
 /*****************************************************************************/
 
-static void
+static LZ9_INLINE void
 bw_add (BitWriter *b, unsigned int value, unsigned int bits)
 {
   unsigned long byte;
   unsigned int occupied, space;
+
+  if (!bits)
+    {
+      return;
+    }
 
   if (b->bits > b->capacity_bits
       || (unsigned long)bits > b->capacity_bits - b->bits)
     {
       b->failed = 1;
 
-      return;
-    }
-
-  if (!bits)
-    {
       return;
     }
 
@@ -691,22 +709,22 @@ br_init (BitReader *b, const unsigned char *p, unsigned long bits,
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 br_get (BitReader *b, unsigned int n)
 {
   unsigned int v, window, shift;
   unsigned long start, by;
+
+  if (!n)
+    {
+      return 0;
+    }
 
   if (n > 16 || b->position > b->bits
       || (unsigned long)n > b->bits - b->position)
     {
       b->failed = 1;
 
-      return 0;
-    }
-
-  if (!n)
-    {
       return 0;
     }
 
@@ -722,10 +740,7 @@ br_get (BitReader *b, unsigned int n)
           by = b->size - 4UL;
         }
 
-      window = ((unsigned int)b->p[by] << 24)
-               | ((unsigned int)b->p[by + 1UL] << 16)
-               | ((unsigned int)b->p[by + 2UL] << 8)
-               | (unsigned int)b->p[by + 3UL];
+      window = load32_be (b->p + by);
       shift = 32U - (unsigned int)(start - (by << 3)) - n;
     }
   else
@@ -870,7 +885,7 @@ ans_build (AnsTable *t, const unsigned short *freq, unsigned int alphabet)
 
 /*****************************************************************************/
 
-static void
+static LZ9_INLINE void
 ans_put (AnsTable *t, BitWriter *b, unsigned int sym, unsigned short *state)
 {
   unsigned int f = t->freq[sym], y = TABLE_N + *state;
@@ -895,7 +910,7 @@ ans_put (AnsTable *t, BitWriter *b, unsigned int sym, unsigned short *state)
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 ans_get (Stream *s)
 {
   unsigned int old = s->state, sym, nb;
@@ -1651,32 +1666,10 @@ estimated_code_cost (const Encoder *e, unsigned int kind, unsigned int symbol)
 
 /*****************************************************************************/
 
-static unsigned long
+static LZ9_INLINE unsigned long
 literal_price (const Encoder *e, unsigned int start, unsigned int end)
 {
-  unsigned long sum = 0;
-  const unsigned short *src = e->buffer + e->window_n;
-
-  while (start < end && (start & (COST_STRIDE - 1U)))
-    {
-      sum += e->costs[STREAM_LIT][src[start++]];
-    }
-
-  if (end - start >= COST_STRIDE)
-    {
-      unsigned int last = end & ~(COST_STRIDE - 1U);
-
-      sum += (unsigned long)e->prefix[last / COST_STRIDE]
-             - e->prefix[start / COST_STRIDE];
-      start = last;
-    }
-
-  while (start < end)
-    {
-      sum += e->costs[STREAM_LIT][src[start++]];
-    }
-
-  return sum;
+  return (unsigned long)(e->prefix[end] - e->prefix[start]);
 }
 
 /*****************************************************************************/
@@ -1685,22 +1678,15 @@ static void
 build_cost_prefix (Encoder *e)
 {
   unsigned int i, acc = 0;
+  const unsigned short *lit_costs = e->costs[STREAM_LIT];
+  const unsigned short *src = e->buffer + e->window_n;
 
   e->prefix[0] = 0;
 
   for (i = 0; i < e->n; ++i)
     {
-      acc += e->costs[STREAM_LIT][e->buffer[e->window_n + i]];
-
-      if ((i & (COST_STRIDE - 1U)) == COST_STRIDE - 1U)
-        {
-          e->prefix[(i + 1U) / COST_STRIDE] = acc;
-        }
-    }
-
-  if (e->n & (COST_STRIDE - 1U))
-    {
-      e->prefix[(e->n + COST_STRIDE - 1U) / COST_STRIDE] = acc;
+      acc += lit_costs[src[i]];
+      e->prefix[i + 1U] = acc;
     }
 }
 
@@ -1719,18 +1705,11 @@ ll_price (const Encoder *e, unsigned int ll)
 
 /*****************************************************************************/
 
-static unsigned int
-match_price (const Encoder *e, unsigned int ml, unsigned int distance)
+static LZ9_INLINE unsigned int
+offset_price (const Encoder *e, unsigned int distance)
 {
-  unsigned int ex, nb, mc, oc;
-  unsigned long price = 0;
-
-  mc = len_code (ml, 3, &ex, &nb);
-  price += estimated_code_cost (e, STREAM_ML, mc)
-           + (unsigned long)nb * COST_SCALE;
-
-  oc = classify_offset (e, distance);
-  price += estimated_code_cost (e, STREAM_OF, oc);
+  unsigned int oc = classify_offset (e, distance);
+  unsigned long price = estimated_code_cost (e, STREAM_OF, oc);
 
   if (oc == 20U)
     {
@@ -1742,6 +1721,24 @@ match_price (const Encoder *e, unsigned int ml, unsigned int distance)
     }
 
   return (unsigned int)price;
+}
+
+/*****************************************************************************/
+
+static LZ9_INLINE unsigned int
+ml_price (const Encoder *e, unsigned int ml)
+{
+  if (ml < 19U)
+    {
+      return estimated_code_cost (e, STREAM_ML, ml - 3U);
+    }
+  else
+    {
+      unsigned int k = floor_log2 (ml - 18U);
+
+      return (unsigned int)(estimated_code_cost (e, STREAM_ML, 16U + k)
+                            + (unsigned long)k * COST_SCALE);
+    }
 }
 
 /*****************************************************************************/
@@ -1788,6 +1785,9 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
   if (e->use_cost)
     {
       unsigned int trial[3], t, trial_count = e->level >= 8 ? 3U : 1U;
+      unsigned int dist = pos - cand;
+      unsigned int pos_rel = pos - e->window_n;
+      unsigned long base_cost = base_ll_price + offset_price (e, dist);
 
       trial[0] = k;
       trial[1] = k > 3U ? k - 1U : k;
@@ -1804,10 +1804,8 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
             }
 
           saving
-              = (long)literal_price (e, pos - e->window_n,
-                                     pos - e->window_n + length_here)
-                - (long)(base_ll_price
-                         + match_price (e, length_here, pos - cand));
+              = (long)literal_price (e, pos_rel, pos_rel + length_here)
+                - (long)(base_cost + ml_price (e, length_here));
 
           if (saving > *best_gain
               || (saving == *best_gain && saving > 0
@@ -1815,7 +1813,7 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
             {
               *best_gain = saving;
               *best = length_here;
-              *distance = pos - cand;
+              *distance = dist;
             }
         }
     }
@@ -2076,23 +2074,53 @@ stream_alphabet (unsigned int kind, unsigned int of_alphabet)
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 symbol_of_seq (const Encoder *e, unsigned int kind, const Sequence *q)
 {
-  unsigned int extra, bits;
-
   if (kind == STREAM_LL)
     {
-      return len_code (q->ll, 0, &extra, &bits);
+      unsigned int t = q->ll;
+
+      return t < 16U ? t : 16U + floor_log2 (t - 15U);
     }
 
   if (kind == STREAM_ML)
     {
-      return len_code (q->ml, 3, &extra, &bits);
+      unsigned int t = q->ml - 3U;
+
+      return t < 16U ? t : 16U + floor_log2 (t - 15U);
     }
 
-  return distance_code (sequence_distance (q), sequence_tag (q), e->window_n,
-                        &extra, &bits);
+  {
+    unsigned int tag = sequence_tag (q);
+    unsigned int d;
+
+    if (tag)
+      {
+        return tag - 1U;
+      }
+
+    d = sequence_distance (q);
+
+#if !defined(LZ9ANS_DISABLE_RUN_CODE)
+    if (d == 1U)
+      {
+        return 3U;
+      }
+#endif /* if !defined(LZ9ANS_DISABLE_RUN_CODE) */
+
+    if (d == 32768U)
+      {
+        return 19U;
+      }
+
+    if (e->window_n == WINDOW_64K && d > 32768U)
+      {
+        return 20U;
+      }
+
+    return 4U + floor_log2 (d);
+  }
 }
 
 /*****************************************************************************/
@@ -2145,10 +2173,7 @@ literal_scan (Encoder *e, int count_only, BitWriter *w, AnsTable *t,
 
       for (j = 0; j < e->last_lit; ++j)
         {
-          unsigned int at = pos - 1U;
-
-          ans_put (t, w, e->buffer[at], state);
-          --pos;
+          ans_put (t, w, e->buffer[--pos], state);
         }
 
       for (i = e->sn; i; --i)
@@ -2157,10 +2182,7 @@ literal_scan (Encoder *e, int count_only, BitWriter *w, AnsTable *t,
 
           for (j = 0; j < e->seq[i - 1].ll; ++j)
             {
-              unsigned int at = pos - 1U;
-
-              ans_put (t, w, e->buffer[at], state);
-              --pos;
+              ans_put (t, w, e->buffer[--pos], state);
             }
         }
     }
@@ -3172,7 +3194,7 @@ extra_end (ExtraReader *x)
 
 /*****************************************************************************/
 
-static int
+static LZ9_INLINE int
 store_symbol (Output *o, unsigned int v)
 {
   if (v > 511U || (o->out_mode == 8 && v > 255U))
@@ -3202,27 +3224,60 @@ store_match (Output *o, unsigned int d, unsigned int ml)
 
   if (d >= ml && d <= o->window_n - ml)
     {
+      if (dst + ml <= o->window_n && src + ml <= o->window_n)
+        {
+          (void)memcpy (ring + dst, ring + src,
+                        (size_t)ml * sizeof (unsigned short));
+        }
+      else
+        {
+          unsigned int remaining = ml;
+
+          while (remaining)
+            {
+              unsigned int count = remaining;
+              unsigned int src_left = o->window_n - src;
+              unsigned int dst_left = o->window_n - dst;
+
+              if (count > src_left)
+                {
+                  count = src_left;
+                }
+
+              if (count > dst_left)
+                {
+                  count = dst_left;
+                }
+
+              (void)memcpy (ring + dst, ring + src,
+                            (size_t)count * sizeof (unsigned short));
+              src = (src + count) & mask;
+              dst = (dst + count) & mask;
+              remaining -= count;
+            }
+        }
+    }
+  else if (d == 1U)
+    {
+      unsigned int v = ring[src];
       unsigned int remaining = ml;
 
       while (remaining)
         {
           unsigned int count = remaining;
-          unsigned int src_left = o->window_n - src;
           unsigned int dst_left = o->window_n - dst;
-
-          if (count > src_left)
-            {
-              count = src_left;
-            }
+          unsigned int i;
 
           if (count > dst_left)
             {
               count = dst_left;
             }
 
-          (void)memcpy (ring + dst, ring + src,
-                        (size_t)count * sizeof (unsigned short));
-          src = (src + count) & mask;
+          for (i = 0; i < count; ++i)
+            {
+              ring[dst + i] = (unsigned short)v;
+            }
+
           dst = (dst + count) & mask;
           remaining -= count;
         }
@@ -3296,6 +3351,24 @@ output_packed9 (Output *o, const unsigned char *packed)
 
   if (!bits)
     {
+      if (o->out_used + 9U <= sizeof (o->outbuf))
+        {
+          (void)memcpy (o->outbuf + o->out_used, packed, 9);
+          o->out_used += 9U;
+
+          if (o->out_used == sizeof (o->outbuf))
+            {
+              if (!write_exact (o->out, o->outbuf, sizeof (o->outbuf)))
+                {
+                  return 0;
+                }
+
+              o->out_used = 0;
+            }
+
+          return 1;
+        }
+
       for (i = 0; i < 9U; ++i)
         {
           if (!output_octet (o, packed[i]))
@@ -3339,14 +3412,48 @@ output_decoded_block (Output *o, unsigned long start, unsigned int n)
 
   if (o->out_mode == 8)
     {
-      for (i = 0; i < n; ++i)
-        {
-          unsigned int v = o->ring[(start + i) & mask];
+      unsigned int at = (unsigned int)(start & mask);
 
-          if (!output_octet (o, v))
+      while (n)
+        {
+          unsigned int seg = o->window_n - at;
+          const unsigned short *src;
+
+          if (seg > n)
             {
-              return 0;
+              seg = n;
             }
+
+          src = o->ring + at;
+
+          while (seg)
+            {
+              unsigned int avail = (unsigned int)(sizeof (o->outbuf) - o->out_used);
+              unsigned int chunk = seg < avail ? seg : avail;
+              unsigned int k;
+
+              for (k = 0; k < chunk; ++k)
+                {
+                  o->outbuf[o->out_used + k] = (unsigned char)src[k];
+                }
+
+              o->out_used += chunk;
+              src += chunk;
+              seg -= chunk;
+              n -= chunk;
+
+              if (o->out_used == sizeof (o->outbuf))
+                {
+                  if (!write_exact (o->out, o->outbuf, sizeof (o->outbuf)))
+                    {
+                      return 0;
+                    }
+
+                  o->out_used = 0;
+                }
+            }
+
+          at = 0;
         }
 
       return 1;
@@ -3705,13 +3812,28 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             return 0;
           }
 
-        for (j = 0; j < lr; ++j)
+        if (stream_is_tans (s[STREAM_LIT].mode))
           {
-            unsigned int v = stream_get (&s[STREAM_LIT]);
-
-            if (v >= 512 || !store_symbol (o, v))
+            for (j = 0; j < lr; ++j)
               {
-                return 0;
+                unsigned int v = ans_get (&s[STREAM_LIT]);
+
+                if (!store_symbol (o, v))
+                  {
+                    return 0;
+                  }
+              }
+          }
+        else
+          {
+            for (j = 0; j < lr; ++j)
+              {
+                unsigned int v = stream_get (&s[STREAM_LIT]);
+
+                if (v >= 512 || !store_symbol (o, v))
+                  {
+                    return 0;
+                  }
               }
           }
 
@@ -3739,17 +3861,35 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
         produced += ml;
       }
 
-    while (produced < n)
+    if (stream_is_tans (s[STREAM_LIT].mode))
       {
-        unsigned int v = stream_get (&s[STREAM_LIT]);
-
-        if (v >= 512 || !store_symbol (o, v))
+        while (produced < n)
           {
-            return 0;
-          }
+            unsigned int v = ans_get (&s[STREAM_LIT]);
 
-        ++produced;
-        ++literals;
+            if (!store_symbol (o, v))
+              {
+                return 0;
+              }
+
+            ++produced;
+            ++literals;
+          }
+      }
+    else
+      {
+        while (produced < n)
+          {
+            unsigned int v = stream_get (&s[STREAM_LIT]);
+
+            if (v >= 512 || !store_symbol (o, v))
+              {
+                return 0;
+              }
+
+            ++produced;
+            ++literals;
+          }
       }
 
     if ((s[STREAM_LIT].mode == MODE_EMPTY) != (literals == 0U)
@@ -3818,32 +3958,6 @@ free_encoder (Encoder *e)
 /*****************************************************************************/
 
 static int
-read_one9 (FILE *in, unsigned int *acc, unsigned int *nbits,
-           unsigned int *value)
-{
-  while (*nbits < 9)
-    {
-      int c = fgetc (in);
-
-      if (c == EOF)
-        {
-          return 0;
-        }
-
-      *acc = (*acc << 8) | (unsigned int)c;
-      *nbits += 8;
-    }
-
-  *nbits -= 9;
-  *value = (*acc >> *nbits) & 511U;
-  *acc &= (1U << *nbits) - 1U;
-
-  return 1;
-}
-
-/*****************************************************************************/
-
-static int
 encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
              int level, unsigned int window_n)
 {
@@ -3892,31 +4006,87 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
       e.n = n;
 
-      for (i = 0; i < n; ++i)
+      if (mode == 8)
         {
-          unsigned int v;
-
-          if (mode == 8)
-            {
-              int c = fgetc (in);
-
-              if (c == EOF)
-                {
-                  free_encoder (&e);
-
-                  return 0;
-                }
-
-              v = (unsigned int)c;
-            }
-          else if (!read_one9 (in, &acc, &nbits, &v))
+          if (!read_exact (in, e.stage, (size_t)n))
             {
               free_encoder (&e);
 
               return 0;
             }
 
-          e.buffer[e.window_n + i] = (unsigned short)v;
+          for (i = 0; i < n; ++i)
+            {
+              e.buffer[e.window_n + i] = (unsigned short)e.stage[i];
+            }
+        }
+      else
+        {
+          unsigned int needed_bits = n * 9U;
+          unsigned int needed_bytes;
+          unsigned int byte_pos = 0;
+
+          if (needed_bits <= nbits)
+            {
+              needed_bytes = 0;
+            }
+          else
+            {
+              needed_bytes = (needed_bits - nbits + 7U) / 8U;
+            }
+
+          if (needed_bytes && !read_exact (in, e.stage, (size_t)needed_bytes))
+            {
+              free_encoder (&e);
+
+              return 0;
+            }
+
+          i = 0;
+
+          if (nbits == 0)
+            {
+              while (i + 8U <= n)
+                {
+                  const unsigned char *p = e.stage + byte_pos;
+                  unsigned short *dst = e.buffer + e.window_n + i;
+
+                  dst[0] = (unsigned short)(((unsigned int)p[0] << 1)
+                                            | ((unsigned int)p[1] >> 7));
+                  dst[1] = (unsigned short)((((unsigned int)p[1] & 0x7fU) << 2)
+                                            | ((unsigned int)p[2] >> 6));
+                  dst[2] = (unsigned short)((((unsigned int)p[2] & 0x3fU) << 3)
+                                            | ((unsigned int)p[3] >> 5));
+                  dst[3] = (unsigned short)((((unsigned int)p[3] & 0x1fU) << 4)
+                                            | ((unsigned int)p[4] >> 4));
+                  dst[4] = (unsigned short)((((unsigned int)p[4] & 0x0fU) << 5)
+                                            | ((unsigned int)p[5] >> 3));
+                  dst[5] = (unsigned short)((((unsigned int)p[5] & 0x07U) << 6)
+                                            | ((unsigned int)p[6] >> 2));
+                  dst[6] = (unsigned short)((((unsigned int)p[6] & 0x03U) << 7)
+                                            | ((unsigned int)p[7] >> 1));
+                  dst[7] = (unsigned short)((((unsigned int)p[7] & 0x01U) << 8)
+                                            | (unsigned int)p[8]);
+
+                  byte_pos += 9U;
+                  i += 8U;
+                }
+            }
+
+          while (i < n)
+            {
+              while (nbits < 9U)
+                {
+                  acc = (acc << 8) | (unsigned int)e.stage[byte_pos++];
+                  nbits += 8U;
+                }
+
+              nbits -= 9U;
+              e.buffer[e.window_n + i]
+                  = (unsigned short)((acc >> nbits) & 511U);
+              acc &= (1U << nbits) - 1U;
+              ++i;
+            }
         }
 
       if (!encode_block (out, &e))
