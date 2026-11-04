@@ -22,7 +22,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.8.3 (2026-11-03)"
+#define LZ9VER "v0.8.4 (2026-11-04)"
 
 /*****************************************************************************/
 
@@ -682,8 +682,8 @@ br_init (BitReader *b, const unsigned char *p, unsigned long bits,
 static unsigned int
 br_get (BitReader *b, unsigned int n)
 {
-  unsigned int v, by, shift;
-  unsigned long start, window;
+  unsigned int v, window, shift;
+  unsigned long start, by;
 
   if (n > 16 || b->position > b->bits
       || (unsigned long)n > b->bits - b->position)
@@ -700,21 +700,44 @@ br_get (BitReader *b, unsigned int n)
 
   start = b->backwards ? (b->bits - b->position - n) : b->position;
   b->position += n;
-  by = (unsigned int)(start >> 3);
-  window = (unsigned long)b->p[by] << 16;
 
-  if ((unsigned long)by + 1UL < b->size)
+  if (b->size >= 4UL)
     {
-      window |= (unsigned long)b->p[by + 1] << 8;
+      by = start >> 3;
+
+      if (by + 4UL > b->size)
+        {
+          by = b->size - 4UL;
+        }
+
+      window = ((unsigned int)b->p[by] << 24)
+               | ((unsigned int)b->p[by + 1UL] << 16)
+               | ((unsigned int)b->p[by + 2UL] << 8)
+               | (unsigned int)b->p[by + 3UL];
+      shift = 32U - (unsigned int)(start - (by << 3)) - n;
+    }
+  else
+    {
+      unsigned long w;
+
+      by = start >> 3;
+      w = (unsigned long)b->p[by] << 16;
+
+      if (by + 1UL < b->size)
+        {
+          w |= (unsigned long)b->p[by + 1UL] << 8;
+        }
+
+      if (by + 2UL < b->size)
+        {
+          w |= (unsigned long)b->p[by + 2UL];
+        }
+
+      window = (unsigned int)w;
+      shift = 24U - (unsigned int)(start & 7UL) - n;
     }
 
-  if ((unsigned long)by + 2UL < b->size)
-    {
-      window |= (unsigned long)b->p[by + 2];
-    }
-
-  shift = 24U - (unsigned int)(start & 7UL) - n;
-  v = (unsigned int)((window >> shift) & ((1UL << n) - 1UL));
+  v = (window >> shift) & ((1U << n) - 1U);
 
   return v;
 }
@@ -896,7 +919,7 @@ norm_counts (const unsigned int *counts, unsigned int alphabet,
         }
     }
 
-  if (active < 2 || active > TABLE_N || !total)
+  if (active < 2 || active > TABLE_N || !total || total > 0x7fffffU)
     {
       return 0;
     }
@@ -921,25 +944,48 @@ norm_counts (const unsigned int *counts, unsigned int alphabet,
         }
     }
 
-  while (used < TABLE_N)
+  if (used < TABLE_N)
     {
-      unsigned int best = 0;
-      unsigned long maximum = 0;
+      unsigned long lo = 0UL, hi = (unsigned long)total << 9;
+      unsigned int deficit = TABLE_N - used;
 
       for (i = 0; i < alphabet; ++i)
         {
-          if (counts[i]
-              && (residue[i] > maximum
-                  || (best > i && residue[i] == maximum)))
+          residue[i] = counts[i] ? ((residue[i] << 9)
+                                    | (unsigned long)(511U - i)) : 0UL;
+        }
+
+      while (lo < hi)
+        {
+          unsigned long mid = lo + ((hi - lo + 1UL) >> 1);
+          unsigned int n = 0;
+
+          for (i = 0; i < alphabet; ++i)
             {
-              maximum = residue[i];
-              best = i;
+              n += (unsigned int)(residue[i] >= mid);
+            }
+
+          if (n >= deficit)
+            {
+              lo = mid;
+            }
+          else
+            {
+              hi = mid - 1UL;
             }
         }
 
-      ++freq[best];
-      residue[best] = 0;
-      ++used;
+      if (lo)
+        {
+          for (i = 0; i < alphabet; ++i)
+            {
+              if (counts[i] && residue[i] >= lo)
+                {
+                  ++freq[i];
+                  ++used;
+                }
+            }
+        }
     }
 
   return used == TABLE_N;
