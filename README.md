@@ -85,9 +85,6 @@ is only surpassed by algorithms that require *substantially* more memory (2× to
 500×) and/or processing time (enough to make native **Multics** implementations
 impractical).
 
-For most 8‑bit data, **LZ9ANS** **`-3`** meets or exceeds the performance of
-**GNU Gzip** **`-6`**.
-
 ## Hardware
 
 The overall codec architecture was deliberately engineered with hardware
