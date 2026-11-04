@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
-> Document revision **`23`** (2026‑11‑03)
+> Document revision **`24`** (2026‑11‑04)
 
 <!-- toc -->
 
@@ -671,7 +671,7 @@ frame‑header and payload bounds are checked before any corresponding read or
 allocation.
 
 **NB**: The Python implementation of the decoder prioritizes code clarity over
-performance and does is not designed to maintain bounded memory usage.
+performance and is not designed to maintain bounded memory usage.
 It should **not** be considered safe to use as a hardened service.
 
 The current UNIX host CLI tool may leave output from earlier, successfully
@@ -722,8 +722,10 @@ cost units per bit).  It counts codes in a preliminary parse, normalizes their
 tANS frequencies to 1024, estimates negative log probability plus an amortized
 descriptor cost, and compares `tANS` with `RAW` and `RLE`.  It adds exact
 extra‑bit counts for the chosen `LL`/`ML`/`OF` codes and estimates a fixed
-per‑sequence overhead.  Literal sums are accelerated with a cumulative prefix
-every 16 symbols.  Levels 8–9 consider slightly shorter alternatives when
+per‑sequence overhead.  Literal sums are accelerated with a per‑symbol
+cumulative prefix array containing `BLOCK_N + 1` entries (32,769 entries for
+the current 32K‑symbol block), allowing each literal‑range cost to be computed
+in constant time.  Levels 8–9 consider slightly shorter alternatives when
 costed.  When distance 1 could use either `RUN` or an initialized repeat slot,
 the cost‑aware parser may choose the lower estimated offset‑code cost.
 
@@ -755,11 +757,16 @@ The decoder never needs to know which parser or level was used.
 
 ### 7.1. Reference implementation memory usage
 
-The UNIX reference implementation's explicit state on a standard Linux
-x86_64 system for the default 32K window size reports **497,730 octets of
-encoder state** and **211,376 octets of decoder state**, which can be verified
-with `./lz9ans --memory`.  The 32K encoder remains below 512&nbsp;KiB.
-*This is a deliberate design choice.*
+The UNIX reference implementation's explicitly allocated state on a standard
+Linux x86_64 system for the default 32K window size reports **620,610 octets
+of encoder state** and **211,376 octets of decoder state**, which can be
+verified with `./lz9ans --memory`.  The 32K encoder remains below
+**610&nbsp;KiB**.
+
+For the 64K window size, `./lz9ans --memory-64k` reports **817,218 octets of
+encoder state** and **276,912 octets of decoder state**.  The 64K encoder
+remains below **800&nbsp;KiB**.
+*These are deliberate memory bounds for the reference implementation.*
 
 The software CRC fallback uses a slicing‑by‑8 table containing 8,192 bytes of
 static storage.  (On LP64 this is approximately 6 KiB more static storage than
@@ -767,9 +774,6 @@ the previous implementation which used a 256‑entry `unsigned long` table.)
 This table is shared by both the encoder and decoder and is reported separately
 by `--memory`; it is not included in either allocated‑state figure.  No
 block‑sized decoder allocation is added.
-
-Use `./lz9ans --memory-64k` to examine the allocations required for the 64K
-window size encoder and decoder.
 
 The reported values are **not** intended as a proof of native Multics segment
 occupancy: ANSI C89 type widths (8‑bit‑octet size assumed) and Multics PL/I word

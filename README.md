@@ -10,7 +10,7 @@ to efficiently compress **9‑bit** mainframe input data (*e.g.*, **Multics**,
 and software.
 
 It features two window sizes (32&nbsp;KiB and 64&nbsp;KiB), deterministic
-runtime memory usage (compressing in 486&nbsp;KiB or 678&nbsp;KiB,
+runtime memory usage (compressing in 606&nbsp;KiB or 798&nbsp;KiB,
 decompressing in 206&nbsp;KiB or 270&nbsp;KiB), 8‑bit data compatibility,
 word‑aligned offset optimizations for data with 36‑bit boundaries, and fast
 decompression speeds.
@@ -22,7 +22,7 @@ reference implementation offering nine different compression profiles: four
 ## Performance
 
 **LZ9ANS‑32K** (corpus of `446,584,168` input bits)
-[**486** **KiB** memory usage]:
+[**606** **KiB** memory usage]:
 
 |    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
 |---------:|:---------------:|:---------:|:---------:|---------------:|
@@ -37,7 +37,7 @@ reference implementation offering nine different compression profiles: four
 | **`‑9`** |  `142,759,776`  | `68.033%` | `3.128:1` |     `‑205,480` |
 
 **LZ9ANS‑64K** (corpus of `446,584,168` input bits)
-[**678** **KiB** memory usage]:
+[**798** **KiB** memory usage]:
 
 |    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
 |---------:|:---------------:|:---------:|:---------:|---------------:|
@@ -69,8 +69,8 @@ settings), as well as **LZ9ANS** operating in 8‑bit mode:
 | `lzop`       | LZO1X&nbsp;(LZ77+BC)   |  `212,130,184`  |      70&nbsp;KiB |  53%&nbsp;larger |
 | `gzip`       | DEFLATE&nbsp;(LZ77+HC) |  `202,579,712`  |     350&nbsp;KiB |  46%&nbsp;larger |
 | `lzfse`      | LZFSE&nbsp;(LZ77+FSE)  |  `194,587,720`  |      74&nbsp;KiB |  40%&nbsp;larger |
-| **`lz9ans`** | **LZ9ANS‑32K**         |  `192,950,176`  | **486&nbsp;KiB** |  39%&nbsp;larger |
-| **`lz9ans`** | **LZ9ANS‑64K**         |  `185,895,464`  | **678&nbsp;KiB** |  34%&nbsp;larger |
+| **`lz9ans`** | **LZ9ANS‑32K**         |  `192,950,176`  | **606&nbsp;KiB** |  39%&nbsp;larger |
+| **`lz9ans`** | **LZ9ANS‑64K**         |  `185,895,464`  | **798&nbsp;KiB** |  34%&nbsp;larger |
 | `bzip2`      | BWT+MTF+HC             |  `177,850,592`  |     1.2&nbsp;MiB |  28%&nbsp;larger |
 | `zstd`       | LZ77+HC+FSE            |  `170,129,736`  |      10&nbsp;MiB |  23%&nbsp;larger |
 | `bzip3`      | BWT+LZP+CM             |  `169,815,400`  |     8.2&nbsp;MiB |  22%&nbsp;larger |
@@ -80,7 +80,7 @@ settings), as well as **LZ9ANS** operating in 8‑bit mode:
 
 Even when processing the corpus *in 8‑bit mode* (that is, as `55,823,021`
 8‑bit octets, rather than as `49,620,463` 9‑bit nonets), **LZ9ANS**, which is
-tuned *explicitly* for compressing **9‑bit** data, more than holds it own and
+tuned *explicitly* for compressing **9‑bit** data, more than holds its own and
 is only surpassed by algorithms that require *substantially* more memory (2× to
 500×) and/or processing time (enough to make native **Multics** implementations
 impractical).
