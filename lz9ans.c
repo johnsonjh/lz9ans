@@ -68,6 +68,18 @@
 
 /*****************************************************************************/
 
+#if !defined(LZ9ANS_L8_LAZY_MAX_LENGTH)
+# define LZ9ANS_L8_LAZY_MAX_LENGTH 32U
+#endif /* if !defined(LZ9ANS_L8_LAZY_MAX_LENGTH) */
+
+/*****************************************************************************/
+
+#if LZ9ANS_L8_LAZY_MAX_LENGTH < 4U
+# error LZ9ANS_L8_LAZY_MAX_LENGTH must be at least 4
+#endif /* if LZ9ANS_L8_LAZY_MAX_LENGTH < 4U */
+
+/*****************************************************************************/
+
 #define MODE_EMPTY 0
 #define MODE_RAW 1
 #define MODE_RLE 2
@@ -1903,6 +1915,8 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
 static int
 parse_block (Encoder *e)
 {
+  const unsigned int max_lazy = e->level == 8 ? LZ9ANS_L8_LAZY_MAX_LENGTH
+                                              : 64U;
   unsigned int pos = e->window_n, end = e->window_n + e->n;
   unsigned int litstart = pos, k, length, distance, j;
   unsigned int pos_hash, next_hash = 0, cached_hash = 0;
@@ -1945,7 +1959,7 @@ parse_block (Encoder *e)
       find_match (e, pos, end, pos - litstart, pos_hash, &length, &distance,
                   &gain);
 
-      if (e->lazy && length >= 3 && length < 64 && pos + 3U < end)
+      if (e->lazy && length >= 3 && length < max_lazy && pos + 3U < end)
         {
           unsigned int nextlen, nextdist;
           long nextgain = 0;
