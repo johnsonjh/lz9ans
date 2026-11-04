@@ -6,6 +6,7 @@
 /a.out
 /*.bak
 /compile_commands.json
+/corpus/*.csv
 /corpus/obj/
 /corpus/*.txt
 *.gcda
@@ -16,6 +17,7 @@
 /notes.txt
 *.orig
 out.txt
+/probe.py
 /pvsreport
 __pycache__/
 *.rej
