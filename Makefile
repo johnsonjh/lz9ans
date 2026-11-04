@@ -70,7 +70,7 @@ pvs pvs-studio:
 clean:
 	rm -f lz9ans lz9ans.exe lz9ans_asan lz9ans_asan.exe a.out a.exe || :
 	rm -f log.pvs compile_commands.json || :
-	rm -f -r __pycache__ tests/__pycache__ pvsreport > /dev/null 2>&1 || :
+	rm -f -r tests/__pycache__ pvsreport > /dev/null 2>&1 || :
 
 distclean: clean
 	rm -f lz9ans.gcda
