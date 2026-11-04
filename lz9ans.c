@@ -3428,7 +3428,8 @@ output_decoded_block (Output *o, unsigned long start, unsigned int n)
 
           while (seg)
             {
-              unsigned int avail = (unsigned int)(sizeof (o->outbuf) - o->out_used);
+              unsigned int avail
+                  = (unsigned int)(sizeof (o->outbuf) - o->out_used);
               unsigned int chunk = seg < avail ? seg : avail;
               unsigned int k;
 
