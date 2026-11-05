@@ -2,8 +2,7 @@
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
 CC = cc
-CFLAGS = -D_ALL_SOURCE -D_GNU_SOURCE -O3 -ansi -pedantic -flto=auto \
-	 -Wall -Wextra -Werror
+CFLAGS = -D_ALL_SOURCE -D_GNU_SOURCE -O3 -ansi -pedantic -Wall -Wextra -Werror
 
 all: lz9ans
 
