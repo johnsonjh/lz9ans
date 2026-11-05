@@ -61,17 +61,22 @@
 # define HAS_ATTRIBUTE(atr) __has_attribute(atr)
 #else
 # define HAS_ATTRIBUTE(atr) 0
-#endif
+#endif /* if defined __has_attribute && (defined(__clang__)
+          || defined(__GNUC__)) */
 
 /*****************************************************************************/
 
 #undef HOT
-#if HAS_ATTRIBUTE(hot)
-# define HOT __attribute__((hot))
-#endif
-#if !defined(HOT)
+#if !defined(__CPPCHECK__) && !defined(__LINT__)
+# if HAS_ATTRIBUTE(hot)
+#  define HOT __attribute__((hot))
+# endif /* if HAS_ATTRIBUTE(hot) */
+# if !defined(HOT)
+#  define HOT /**/
+# endif /* if !defined(HOT) */
+#else
 # define HOT /**/
-#endif
+#endif /* if !defined(__CPPCHECK__) && !defined(__LINT__) */
 
 /*****************************************************************************/
 
