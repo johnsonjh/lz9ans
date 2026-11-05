@@ -3,17 +3,24 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS
 
-**LZ9ANS** is a **9‑bit** [LZ77](https://en.wikipedia.org/wiki/LZ77_and_LZ78) +
-[tANS](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems) codec designed
-to efficiently compress **9‑bit** mainframe input data (*e.g.*, **Multics**,
-**OS2200**) to standard **8‑bit** portable output streams in hardware
-and software.
+**LZ9ANS** is a **9‑bit**
+[**LZ77**](https://en.wikipedia.org/wiki/LZ77_and_LZ78) +
+[**tANS**](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems) codec
+designed to efficiently compress **9‑bit** mainframe input data (*e.g.*,
+**Multics**, **OS2200**) to standard **8‑bit** portable output streams in
+hardware and software.
 
 It features two window sizes (32&nbsp;KiB and 64&nbsp;KiB), deterministic
 runtime memory usage (compressing in 606&nbsp;KiB or 798&nbsp;KiB,
 decompressing in 206&nbsp;KiB or 270&nbsp;KiB), 8‑bit data compatibility,
 word‑aligned offset optimizations for data with 36‑bit boundaries, and fast
 decompression speeds.
+
+**LZ9ANS** uses a custom table‑based asymmetric numeral system (*tANS*)
+implementation.  Its state transitions and decoding‑table organization follow
+the same general approach used by **Finite State Entropy** (*FSE*), but its
+normalization, descriptor encoding, table conventions, and output bitstream
+representation are original and specific to **LZ9ANS**.
 
 The algorithm may be tuned to favor saving time or space, with the ANSI C89
 reference implementation offering nine different compression profiles: four
@@ -78,6 +85,9 @@ settings), as well as **LZ9ANS** operating in 8‑bit mode:
 | `lzip`       | LZMA&nbsp;(LZ77+MA+RC) |  `158,016,800`  |      13&nbsp;MiB |  14%&nbsp;larger |
 | `zpaq`       | M5&nbsp;(CM+AC)        |  `131,954,176`  |     246&nbsp;MiB |  5%&nbsp;smaller |
 
+<sup>Performance percentages are relative maximum 9‑bit **LZ9ANS**
+performance.</sup>
+
 Even when processing the corpus *in 8‑bit mode* (that is, as `55,823,021`
 8‑bit octets, rather than as `49,620,463` 9‑bit nonets), **LZ9ANS**, which is
 tuned *explicitly* for compressing **9‑bit** data, more than holds its own and
@@ -88,16 +98,17 @@ impractical).
 ## Hardware
 
 The overall codec architecture was deliberately engineered with hardware
-friendliness in mind, sometimes to the detriment of compression ratio: all
-per‑block lengths and storage requirements are explicitly bounded (symbols per
-block, payload and descriptor sizes, and window sizes), ANS state is reset
-independently for each block, decode tables change only through explicit
-descriptors, LIT symbol decoding is independent of history and previously
-emitted output, etc.
+friendliness in mind (more so than most ANS‑based schemes), sometimes to the
+detriment of compression ratio: memory usage is deterministic, window sizes
+are small, all per‑block lengths and storage requirements are explicitly
+bounded (symbols per block, payload and descriptor sizes, and window sizes),
+ANS state is reset independently for each block, decode tables change only
+through explicit descriptors, LIT symbol decoding is independent of history
+and previously emitted output, etc.
 
 These intentional design choices provide a predictable resource envelope and
 explicit block‑level control, making **LZ9ANS** well suited to efficient
-hardware implementations in ASIC and FPGA environments. Achieving high
+hardware implementations in ASIC and FPGA environments.  Achieving high
 throughput will still require careful handling of the sequential dependencies
 in entropy decoding and LZ match processing.
 
