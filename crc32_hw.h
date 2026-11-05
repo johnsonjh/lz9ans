@@ -49,11 +49,10 @@ lz9_crc32_pclmul_available (void)
     {
       return v == 2;
     }
-#   else  /* if defined( __clang__ ) || ( __GNUC__ > 4 ) \
-             || ( __GNUC__ == 4 && __GNUC_MINOR__ >= 7 ) */
+#   else
   (void)cached;
-#   endif /* if defined( __clang__ ) || ( __GNUC__ > 4 ) \
-             || ( __GNUC__ == 4 && __GNUC_MINOR__ >= 7 ) */
+#   endif /* if defined(__clang__) || (__GNUC__ > 4) \
+             || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7) */
   a = 1U;
   c = 0U;
 
@@ -68,8 +67,8 @@ lz9_crc32_pclmul_available (void)
 #   if defined(__clang__) || (__GNUC__ > 4) \
     || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)
   __atomic_store_n (&cached, v, __ATOMIC_RELAXED);
-#   endif /* if defined( __clang__ ) || ( __GNUC__ > 4 ) \
-             || ( __GNUC__ == 4 && __GNUC_MINOR__ >= 7 ) */
+#   endif /* if defined(__clang__) || (__GNUC__ > 4) \
+             || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7) */
 
   return v == 2;
 }
@@ -199,7 +198,7 @@ lz9_crc32_pclmul (unsigned int crc, const unsigned char *buf, size_t len)
 
 /*****************************************************************************/
 
-#  endif /* if defined( __x86_64__ ) || defined( __amd64__ ) */
+#  endif /* if defined(__x86_64__ ) || defined( __amd64__) */
 #  if defined(__aarch64__) && !defined(__AARCH64EB__) \
     && (defined(__clang__) || __GNUC__ >= 7)
 #   define LZ9_CRC32_ARM 1
@@ -216,11 +215,11 @@ extern unsigned long getauxval (unsigned long);
 #    include <sys/param.h>
 #    if defined(OpenBSD) && (OpenBSD >= 202409)
 #     include <sys/auxv.h>
-#    endif /* if defined( OpenBSD ) && ( OpenBSD >= 202409 ) */
+#    endif /* if defined(OpenBSD ) && ( OpenBSD >= 202409) */
 #   elif defined(__APPLE__) && defined(__MACH__)
 #    include <sys/sysctl.h>
 #    include <sys/types.h>
-#   endif /* if defined( __linux__ ) */
+#   endif /* if defined(__linux__) */
 #   include <arm_acle.h>
 #   include <stdint.h> /* C99 */
 
@@ -261,9 +260,9 @@ lz9_arm_crc_capabilities (void)
     }
 
   return caps;
-#   else /* if defined( __linux__ ) */
+#   else
   return 0;
-#   endif /* if defined( __linux__ ) */
+#   endif /* if defined( __linux__) */
 }
 
 /*****************************************************************************/
@@ -313,9 +312,9 @@ lz9_crc32_arm (unsigned int crc, const unsigned char *p, size_t n)
 
   return c ^ 0xffffffffU;
 }
-#  endif /* if defined( __aarch64__ ) && !defined( __AARCH64EB__ ) \
-            && ( defined( __clang__ ) || __GNUC__ >= 7 ) */
-# endif /* if !defined( LZ9ANS_NO_CRC32_HW ) && defined( __GNUC__ ) */
+#  endif /* if defined(__aarch64__) && !defined(__AARCH64EB__) \
+            && (defined(__clang__) || __GNUC__ >= 7) */
+# endif /* if !defined(LZ9ANS_NO_CRC32_HW) && defined(__GNUC__) */
 #endif /* if !defined(LZ9ANS_CRC32_HW_H) */
 
 /*****************************************************************************/
