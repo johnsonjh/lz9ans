@@ -119,24 +119,28 @@ See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
 ## References
 
 * J. Ziv and A. Lempel,
-  "A Universal Algorithm for Sequential Data Compression,"
+  "**A Universal Algorithm for Sequential Data Compression**,"
   *IEEE Trans. Inf. Theory*, vol. 23, no. 3, pp. 337–343, May 1977,
-  [doi: 10.1109/TIT.1977.1055714](http://dx.doi.org/10.1109/TIT.1977.1055714).
+  [doi:&nbsp;10.1109/TIT.1977.1055714](http://dx.doi.org/10.1109/TIT.1977.1055714).
+
 * J. Duda,
-  "Asymmetric numeral systems," 2009,
+  "**Asymmetric numeral systems**," 2009,
   [arXiv:0902.0271](https://arxiv.org/abs/0902.0271).
+
 * J. Duda,
-  "Asymmetric numeral systems: entropy coding combining speed of
-  Huffman coding with compression rate of arithmetic coding," 2013,
+  "**Asymmetric numeral systems: entropy coding combining speed of
+  Huffman coding with compression rate of arithmetic coding**," 2013,
   [arXiv:1311.2540](https://arxiv.org/abs/1311.2540).
+
 * E. L. Glaser, J. F. Couleur, and G. A. Oliver,
-  "System design of a computer for time-sharing applications," in
+  "**System design of a computer for time–sharing applications**," in
   *Proceedings of the November 30–December 1, 1965, Fall Joint Computer
   Conference, Part I* (AFIPS '65), pp. 197–202,
-  [doi: 10.1145/1463891.1463913](http://dx.doi.org/10.1145/1463891.1463913).
-* **REDUCE Computer Algebra System.**
-  Rev. 7457, Reduce Algebra Project, 2026,
-  [reduce-algebra.sourceforge.io](https://reduce-algebra.sourceforge.io/).
+  [doi:&nbsp;10.1145/1463891.1463913](http://dx.doi.org/10.1145/1463891.1463913).
+
+* "**REDUCE Computer Algebra System**,"
+  Rev. 7457, *Reduce Algebra Project*, 2026,
+  [reduce–algebra.sourceforge.io](https://reduce-algebra.sourceforge.io/).
 
 ## License
 
