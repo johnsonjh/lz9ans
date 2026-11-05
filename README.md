@@ -99,12 +99,12 @@ impractical).
 
 The overall codec architecture was deliberately engineered with hardware
 friendliness in mind (more so than most ANS‑based schemes), sometimes to the
-detriment of compression ratio: memory usage is deterministic, window sizes
-are small, all per‑block lengths and storage requirements are explicitly
-bounded (symbols per block, payload and descriptor sizes, and window sizes),
-ANS state is reset independently for each block, decode tables change only
-through explicit descriptors, LIT symbol decoding is independent of history
-and previously emitted output, etc.
+detriment of compression ratio: memory usage is deterministic, all per‑block
+lengths and storage requirements are explicitly bounded (symbols per block,
+payload and descriptor sizes, and window sizes), ANS state is reset
+independently for each block, decode tables change only through explicit
+descriptors, LIT symbol decoding is independent of history and previously
+emitted output, etc.
 
 These intentional design choices provide a predictable resource envelope and
 explicit block‑level control, making **LZ9ANS** well suited to efficient
