@@ -137,6 +137,12 @@ See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
   *Internet Engineering Task Force (IETF), Request for Comments (RFC) 8878*,
   Feb. 2021, [doi:&nbsp;10.17487/RFC8878](http://dx.doi.org/10.17487/RFC8878).
 
+* V. Gopal, E. Ozturk, J. Guilford, G. Wolrich, W. K. Feghali, and M. G. Dixon,
+  "**Fast CRC Computation for Generic Polynomials Using PCLMULQDQ
+  Instruction**," *Intel Corporation*, *White Paper*, Order No. 323102,
+  Dec. 2009,
+  [Fossies:&nbsp;`crc-pclmulqdq.pdf`](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf)
+
 * E. L. Glaser, J. F. Couleur, and G. A. Oliver,
   "**System design of a computer for time–sharing applications**," in
   *Proceedings of the November 30–December 1, 1965, Fall Joint Computer
