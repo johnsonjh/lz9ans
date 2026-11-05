@@ -138,9 +138,9 @@ See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
   Conference, Part I* (AFIPS '65), pp. 197–202,
   [doi:&nbsp;10.1145/1463891.1463913](http://dx.doi.org/10.1145/1463891.1463913).
 
-* "**REDUCE Computer Algebra System**,"
-  Rev. 7457, *Reduce Algebra Project*, 2026,
-  [reduce–algebra.sourceforge.io](https://reduce-algebra.sourceforge.io/).
+* A. C. Hearn, A. C. Norman, *et al*., "**REDUCE Computer Algebra System**,"
+  [*Reduce Algebra Project*](https://reduce-algebra.sourceforge.io/),
+  1968–2026.
 
 ## License
 
