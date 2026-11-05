@@ -157,7 +157,7 @@ early testing phases of this work.
   "**Fast CRC Computation for Generic Polynomials Using PCLMULQDQ
   Instruction**," *Intel Corporation*, *White Paper*, Order No. 323102,
   Dec. 2009,
-  [Fossies:&nbsp;`crc‑pclmulqdq.pdf`](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf)
+  [Fossies:&nbsp;`crc‑pclmulqdq.pdf`](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf).
 
 * E. L. Glaser, J. F. Couleur, and G. A. Oliver,
   "**System design of a computer for time–sharing applications**," in
