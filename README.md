@@ -116,6 +116,16 @@ in entropy decoding and LZ match processing.
 
 See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
 
+## Contributing
+
+* Do **not** open pull requests with large amounts of LLM‑generated code.
+  These will be immediately rejected.
+
+* Usage of AI (artificial intelligence) tools by contributors *is* currently
+  permitted, subject to the same terms and conditions as the
+  [LLVM AI Tool Use Policy](https://llvm.org/docs/AIToolPolicy.html), but
+  this permission may be withdrawn at any time and without notice.
+
 ## Notes
 
 The author gratefully acknowledges the use of the **REDUCE Computer Algebra
@@ -147,7 +157,7 @@ early testing phases of this work.
   "**Fast CRC Computation for Generic Polynomials Using PCLMULQDQ
   Instruction**," *Intel Corporation*, *White Paper*, Order No. 323102,
   Dec. 2009,
-  [Fossies:&nbsp;`crc-pclmulqdq.pdf`](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf)
+  [Fossies:&nbsp;`crc‑pclmulqdq.pdf`](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf)
 
 * E. L. Glaser, J. F. Couleur, and G. A. Oliver,
   "**System design of a computer for time–sharing applications**," in
