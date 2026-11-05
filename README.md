@@ -116,6 +116,12 @@ in entropy decoding and LZ match processing.
 
 See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
 
+## Notes
+
+The author gratefully acknowledges the use of the **REDUCE Computer Algebra
+System**, which was instrumental in the prototyping, design evaluation, and
+early testing phases of this work.
+
 ## References
 
 * J. Ziv and A. Lempel,
