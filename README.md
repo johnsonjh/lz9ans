@@ -139,8 +139,8 @@ See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
   [doi:&nbsp;10.1145/1463891.1463913](http://dx.doi.org/10.1145/1463891.1463913).
 
 * A. C. Hearn, A. C. Norman, *et al*., "**REDUCE Computer Algebra System**,"
-  [*Reduce Algebra Project*](https://reduce-algebra.sourceforge.io/),
-  1968–2026.
+  1968–2026,
+  [Reduce Algebra Project](https://reduce-algebra.sourceforge.io/).
 
 ## License
 
