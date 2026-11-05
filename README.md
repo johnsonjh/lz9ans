@@ -132,6 +132,11 @@ See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
   Huffman coding with compression rate of arithmetic coding**," 2013,
   [arXiv:1311.2540](https://arxiv.org/abs/1311.2540).
 
+* Y. Collet and M. Kucherawy,
+  "**Zstandard Compression**,"
+  *Internet Engineering Task Force (IETF), Request for Comments (RFC) 8878*,
+  Feb. 2021, [doi:&nbsp;10.17487/RFC8878](http://dx.doi.org/10.17487/RFC8878).
+
 * E. L. Glaser, J. F. Couleur, and G. A. Oliver,
   "**System design of a computer for time–sharing applications**," in
   *Proceedings of the November 30–December 1, 1965, Fall Joint Computer
