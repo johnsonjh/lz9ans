@@ -22,7 +22,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.8.5 (2026-11-04)"
+#define LZ9VER "v0.8.6 (2026-11-05)"
 
 /*****************************************************************************/
 
@@ -53,6 +53,30 @@
 #define FRAME_HEADER_MAX_N 4096U
 #define FHEAD_N FRAME_HEADER_MIN_N
 #define CRC_BUFFER_N 4096U
+
+/*****************************************************************************/
+
+#undef HAS_ATTRIBUTE
+#if defined __has_attribute && (defined(__clang__) || defined(__GNUC__))
+# define HAS_ATTRIBUTE(atr) __has_attribute(atr)
+#else
+# define HAS_ATTRIBUTE(atr) 0
+#endif /* if defined __has_attribute && (defined(__clang__)
+          || defined(__GNUC__)) */
+
+/*****************************************************************************/
+
+#undef HOT
+#if !defined(__CPPCHECK__) && !defined(__LINT__)
+# if HAS_ATTRIBUTE(hot)
+#  define HOT __attribute__((hot))
+# endif /* if HAS_ATTRIBUTE(hot) */
+# if !defined(HOT)
+#  define HOT /**/
+# endif /* if !defined(HOT) */
+#else
+# define HOT /**/
+#endif /* if !defined(__CPPCHECK__) && !defined(__LINT__) */
 
 /*****************************************************************************/
 
@@ -141,9 +165,19 @@
 
 #if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
 # define LZ9_INLINE __inline__
+__extension__ typedef unsigned long long lz9_u64; /* long long needs 64-bit */
 #else
-# define LZ9_INLINE
-#endif
+# define LZ9_INLINE /**/
+#endif /* if defined(__GNUC__) && !defined(__CPPCHECK__)
+          && !defined(__LINT__) */
+
+/*****************************************************************************/
+
+#if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
+typedef char lz9_u64_type_must_be_at_least_64_bits_compile_time_assertion[
+  sizeof (lz9_u64) * CHAR_BIT >= 64 ? 1 : -1];
+#endif /* if defined(__GNUC__) && !defined(__CPPCHECK__)
+          && !defined(__LINT__) */
 
 /*****************************************************************************/
 
@@ -311,8 +345,8 @@ sequence_tag (const Sequence *q)
 /*****************************************************************************/
 
 static int write_exact (FILE *f, const void *p, size_t n);
-static unsigned int stream_get (Stream *s);
-static unsigned int extra_get (ExtraReader *x, unsigned int n);
+static LZ9_INLINE unsigned int stream_get (Stream *s);
+static LZ9_INLINE unsigned int extra_get (ExtraReader *x, unsigned int n);
 
 /*****************************************************************************/
 
@@ -473,18 +507,32 @@ crc_bytes (const unsigned char *p, unsigned int n)
 
 /*****************************************************************************/
 
-static void
+static HOT LZ9_INLINE void
 pack8_symbols (const unsigned short *v, unsigned char *p)
 {
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
+  lz9_u64 w0, w1, hi, hi_be;
+
+  w0 = ((lz9_u64)v[0] << 27) | ((lz9_u64)v[1] << 18) | ((lz9_u64)v[2] << 9)
+       | (lz9_u64)v[3];
+  w1 = ((lz9_u64)v[4] << 27) | ((lz9_u64)v[5] << 18) | ((lz9_u64)v[6] << 9)
+       | (lz9_u64)v[7];
+  hi = (w0 << 28) | (w1 >> 8);
+  hi_be = __builtin_bswap64 (hi);
+  (void)memcpy (p, &hi_be, 8);
+  p[8] = (unsigned char)w1;
+#else
   p[0] = (unsigned char)(v[0] >> 1);
-  p[1] = (unsigned char)(((v[0] &   1U) << 7) | (v[1] >> 2));
-  p[2] = (unsigned char)(((v[1] &   3U) << 6) | (v[2] >> 3));
-  p[3] = (unsigned char)(((v[2] &   7U) << 5) | (v[3] >> 4));
-  p[4] = (unsigned char)(((v[3] &  15U) << 4) | (v[4] >> 5));
-  p[5] = (unsigned char)(((v[4] &  31U) << 3) | (v[5] >> 6));
-  p[6] = (unsigned char)(((v[5] &  63U) << 2) | (v[6] >> 7));
+  p[1] = (unsigned char)(((v[0] & 1U) << 7) | (v[1] >> 2));
+  p[2] = (unsigned char)(((v[1] & 3U) << 6) | (v[2] >> 3));
+  p[3] = (unsigned char)(((v[2] & 7U) << 5) | (v[3] >> 4));
+  p[4] = (unsigned char)(((v[3] & 15U) << 4) | (v[4] >> 5));
+  p[5] = (unsigned char)(((v[4] & 31U) << 3) | (v[5] >> 6));
+  p[6] = (unsigned char)(((v[5] & 63U) << 2) | (v[6] >> 7));
   p[7] = (unsigned char)(((v[6] & 127U) << 1) | (v[7] >> 8));
   p[8] = (unsigned char)v[7];
+#endif /* if defined(__GNUC__) && (defined(__x86_64__)
+          || defined(__amd64__)) */
 }
 
 /*****************************************************************************/
@@ -632,7 +680,7 @@ bw_init (BitWriter *b, unsigned char *p, unsigned long bytes)
 
 /*****************************************************************************/
 
-static LZ9_INLINE void
+static HOT LZ9_INLINE void
 bw_add (BitWriter *b, unsigned int value, unsigned int bits)
 {
   unsigned long byte;
@@ -676,7 +724,7 @@ bw_add (BitWriter *b, unsigned int value, unsigned int bits)
     b->p[byte] |= (unsigned char)((value >> remaining) & ((1U << space) - 1U));
     b->bits += space;
 
-    while (remaining >= 8U)
+    if (remaining >= 8U)
       {
         remaining -= 8U;
         ++byte;
@@ -709,7 +757,7 @@ br_init (BitReader *b, const unsigned char *p, unsigned long bits,
 
 /*****************************************************************************/
 
-static LZ9_INLINE unsigned int
+static HOT LZ9_INLINE unsigned int
 br_get (BitReader *b, unsigned int n)
 {
   unsigned int v, window, shift;
@@ -924,7 +972,8 @@ ans_get (Stream *s)
 
   sym = s->table->dsym[old];
   nb = s->table->dbits[old];
-  s->state = (unsigned short)(s->table->dbase[old] + br_get (&s->br, nb));
+  s->state = (unsigned short)(s->table->dbase[old]
+                              + (nb ? br_get (&s->br, nb) : 0U));
 
   return sym;
 }
@@ -1299,7 +1348,7 @@ get_var (const unsigned char *p, unsigned long *off, unsigned long len,
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 len_code (unsigned int len, unsigned int bias, unsigned int *extra,
           unsigned int *bits)
 {
@@ -1357,7 +1406,7 @@ promote_rep (unsigned int *rep, unsigned int d)
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 classify_offset (const Encoder *e, unsigned int d)
 {
   unsigned int i;
@@ -1406,7 +1455,7 @@ classify_offset (const Encoder *e, unsigned int d)
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 distance_code (unsigned int d, unsigned int tag, unsigned int window_n,
                unsigned int *extra, unsigned int *bits)
 {
@@ -1490,7 +1539,7 @@ aligned_distance_cost_wins (const Encoder *e)
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 extra_get (ExtraReader *x, unsigned int n)
 {
   unsigned int value;
@@ -1512,7 +1561,7 @@ extra_get (ExtraReader *x, unsigned int n)
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 decode_len (unsigned int code, unsigned int bias, ExtraReader *extra)
 {
   if (code < 16)
@@ -1532,7 +1581,7 @@ decode_len (unsigned int code, unsigned int bias, ExtraReader *extra)
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
              unsigned int window_n, unsigned int of_alphabet,
              int aligned_distances)
@@ -1643,17 +1692,16 @@ decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 hash3 (const unsigned short *p)
 {
-  unsigned long x = ((unsigned long)p[0] * 2654435761UL)
-                    ^ ((unsigned long)p[1] * 2246822519UL)
-                    ^ ((unsigned long)p[2] * 3266489917UL);
+  unsigned int x = ((unsigned int)p[0] * 2654435761U)
+                   ^ ((unsigned int)p[1] * 2246822519U)
+                   ^ ((unsigned int)p[2] * 3266489917U);
 
-  x &= 0xffffffffUL; /* same hash with 32-bit and 64-bit unsigned long */
   x ^= x >> 16;
 
-  return (unsigned int)x & HASH_MASK;
+  return x & HASH_MASK;
 }
 
 /*****************************************************************************/
@@ -1760,7 +1808,7 @@ hash_insert (Encoder *e, unsigned int pos, unsigned int end)
 
 /*****************************************************************************/
 
-static void
+static HOT LZ9_INLINE void
 consider_match (const Encoder *e, unsigned int pos, unsigned int max,
                 unsigned long base_ll_price,
                 unsigned int cand, unsigned int p0, unsigned int p1,
@@ -1777,10 +1825,36 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
 
   k = 3;
 
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
+  while (k + 4U <= max)
+    {
+      lz9_u64 a, b, diff;
+
+      (void)memcpy (&a, buf + cand + k, sizeof (a));
+      (void)memcpy (&b, buf + pos + k, sizeof (b));
+      diff = a ^ b;
+
+      if (diff)
+        {
+          k += (unsigned int)(__builtin_ctzll (diff) >> 4);
+
+          goto match_done;
+        }
+
+      k += 4U;
+    }
+#endif /* if defined(__GNUC__) && (defined(__x86_64__) \
+          || defined(__amd64__)) */
+
   while (k < max && buf[cand + k] == buf[pos + k])
     {
       ++k;
     }
+
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
+match_done:
+#endif /* if defined(__GNUC__) && (defined(__x86_64__) \
+          || defined(__amd64__)) */
 
   if (e->use_cost)
     {
@@ -2012,30 +2086,39 @@ parse_block (Encoder *e)
           ++e->sn;
           e->lit_count += pos - litstart;
 
-          for (k = 0; k < length; ++k)
+          if (pos + 2U < end)
+            {
+              unsigned int h = pos_hash;
+
+              e->link[pos & (e->window_n - 1U)] = e->head[h];
+              e->head[h] = (int)pos;
+            }
+
+          if (pos + 3U < end)
+            {
+              unsigned int at = pos + 1U;
+              unsigned int h = have_next_hash ? next_hash
+                                              : hash3 (e->buffer + at);
+
+              e->link[at & (e->window_n - 1U)] = e->head[h];
+              e->head[h] = (int)at;
+            }
+
+          for (k = 2U; k < length; ++k)
             {
               unsigned int at = pos + k;
 
-              if (at + 2U < end)
+              if (at + 2U >= end)
                 {
-                  unsigned int h;
-
-                  if (k == 0)
-                    {
-                      h = pos_hash;
-                    }
-                  else if (k == 1 && have_next_hash)
-                    {
-                      h = next_hash;
-                    }
-                  else
-                    {
-                      h = hash3 (e->buffer + at);
-                    }
-
-                  e->link[at & (e->window_n - 1U)] = e->head[h];
-                  e->head[h] = (int)at;
+                  break;
                 }
+
+              {
+                unsigned int h = hash3 (e->buffer + at);
+
+                e->link[at & (e->window_n - 1U)] = e->head[h];
+                e->head[h] = (int)at;
+              }
             }
 
           pos += length;
@@ -3143,7 +3226,7 @@ stream_begin (Stream *s, unsigned long bits, const unsigned char *p)
 
 /*****************************************************************************/
 
-static unsigned int
+static LZ9_INLINE unsigned int
 stream_get (Stream *s)
 {
   if (s->mode == MODE_RAW)
@@ -3259,7 +3342,7 @@ store_match (Output *o, unsigned int d, unsigned int ml)
     }
   else if (d == 1U)
     {
-      unsigned int v = ring[src];
+      unsigned short v = ring[src];
       unsigned int remaining = ml;
 
       while (remaining)
@@ -3275,11 +3358,20 @@ store_match (Output *o, unsigned int d, unsigned int ml)
 
           for (i = 0; i < count; ++i)
             {
-              ring[dst + i] = (unsigned short)v;
+              ring[dst + i] = v;
             }
 
           dst = (dst + count) & mask;
           remaining -= count;
+        }
+    }
+  else if (dst + ml <= o->window_n && src + ml <= o->window_n)
+    {
+      unsigned int i;
+
+      for (i = 0; i < ml; ++i)
+        {
+          ring[dst + i] = ring[src + i];
         }
     }
   else
@@ -4047,6 +4139,32 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
           if (nbits == 0)
             {
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
+              while (i + 8U <= n)
+                {
+                  const unsigned char *p = e.stage + byte_pos;
+                  unsigned short *dst = e.buffer + e.window_n + i;
+                  lz9_u64 hi_be, hi, w0, w1;
+
+                  (void)memcpy (&hi_be, p, 8);
+                  hi = __builtin_bswap64 (hi_be);
+                  w0 = hi >> 28;
+                  w1 = ((hi & (lz9_u64)0x0fffffffUL) << 8)
+                       | (unsigned int)p[8];
+
+                  dst[0] = (unsigned short)((w0 >> 27) & 511U);
+                  dst[1] = (unsigned short)((w0 >> 18) & 511U);
+                  dst[2] = (unsigned short)((w0 >> 9) & 511U);
+                  dst[3] = (unsigned short)(w0 & 511U);
+                  dst[4] = (unsigned short)((w1 >> 27) & 511U);
+                  dst[5] = (unsigned short)((w1 >> 18) & 511U);
+                  dst[6] = (unsigned short)((w1 >> 9) & 511U);
+                  dst[7] = (unsigned short)(w1 & 511U);
+
+                  byte_pos += 9U;
+                  i += 8U;
+                }
+#else
               while (i + 8U <= n)
                 {
                   const unsigned char *p = e.stage + byte_pos;
@@ -4072,6 +4190,8 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                   byte_pos += 9U;
                   i += 8U;
                 }
+#endif /* if defined(__GNUC__) && (defined(__x86_64__) \
+          || defined(__amd64__)) */
             }
 
           while (i < n)
