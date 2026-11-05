@@ -16,9 +16,9 @@ decompressing in 206&nbsp;KiB or 270&nbsp;KiB), 8‑bit data compatibility,
 word‑aligned offset optimizations for data with 36‑bit boundaries, and fast
 decompression speeds.
 
-**LZ9ANS** uses a custom table‑based asymmetric numeral system (*tANS*)
+**LZ9ANS** uses a custom table‑based asymmetric numeral system (tANS)
 implementation.  Its state transitions and decoding‑table organization follow
-the same general approach used by **Finite State Entropy** (*FSE*), but its
+the same general approach used by **Finite State Entropy** (FSE), but its
 normalization, descriptor encoding, table conventions, and output bitstream
 representation are original and specific to **LZ9ANS**.
 
