@@ -56,6 +56,25 @@
 
 /*****************************************************************************/
 
+#undef HAS_ATTRIBUTE
+#if defined __has_attribute && (defined(__clang__) || defined(__GNUC__))
+# define HAS_ATTRIBUTE(atr) __has_attribute(atr)
+#else
+# define HAS_ATTRIBUTE(atr) 0
+#endif
+
+/*****************************************************************************/
+
+#undef HOT
+#if HAS_ATTRIBUTE(hot)
+# define HOT __attribute__((hot))
+#endif
+#if !defined(HOT)
+# define HOT /**/
+#endif
+
+/*****************************************************************************/
+
 #if !defined(LZ9ANS_EARLY_STORED_LITERAL_PERCENT)
 # define LZ9ANS_EARLY_STORED_LITERAL_PERCENT 97U
 #endif /* if !defined(LZ9ANS_EARLY_STORED_LITERAL_PERCENT) */
@@ -483,7 +502,7 @@ crc_bytes (const unsigned char *p, unsigned int n)
 
 /*****************************************************************************/
 
-static LZ9_INLINE void
+static HOT LZ9_INLINE void
 pack8_symbols (const unsigned short *v, unsigned char *p)
 {
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
@@ -656,7 +675,7 @@ bw_init (BitWriter *b, unsigned char *p, unsigned long bytes)
 
 /*****************************************************************************/
 
-static LZ9_INLINE void
+static HOT LZ9_INLINE void
 bw_add (BitWriter *b, unsigned int value, unsigned int bits)
 {
   unsigned long byte;
@@ -733,7 +752,7 @@ br_init (BitReader *b, const unsigned char *p, unsigned long bits,
 
 /*****************************************************************************/
 
-static LZ9_INLINE unsigned int
+static HOT LZ9_INLINE unsigned int
 br_get (BitReader *b, unsigned int n)
 {
   unsigned int v, window, shift;
@@ -1784,7 +1803,7 @@ hash_insert (Encoder *e, unsigned int pos, unsigned int end)
 
 /*****************************************************************************/
 
-static LZ9_INLINE void
+static HOT LZ9_INLINE void
 consider_match (const Encoder *e, unsigned int pos, unsigned int max,
                 unsigned long base_ll_price,
                 unsigned int cand, unsigned int p0, unsigned int p1,
