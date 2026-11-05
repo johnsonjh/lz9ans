@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 8 (2026‑11‑01) stream format
 
-> Document revision **`24`** (2026‑11‑04)
+> Document revision **`26`** (2026‑11‑05)
 
 <!-- toc -->
 
@@ -104,8 +104,8 @@ zero bits to finish the last octet if necessary.
 The first eight values of `vectors/mixed9.input` are:
 
 ```text
-values:      0, 127, 255, 256, 511, 1, 320, 17
-packed hex:  00 1f df f0 0f f8 06 80 11
+values:        0,  127,  255,  256,  511,  1,  320,  17
+packed hex:  0x00 0x1f 0xdf 0xf0 0x0f 0xf8 0x06 0x80 0x11
 ```
 
 The reverse process reads nine MSB‑first bits at a time.  For the current
