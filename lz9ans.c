@@ -95,6 +95,9 @@
 #define MODE_TANS 3
 #define MODE_REUSE 4
 #define MODE_PHASED 5
+
+/*****************************************************************************/
+
 #define BLOCK_STORED 0
 #define BLOCK_LZ 1
 
