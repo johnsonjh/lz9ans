@@ -28,7 +28,7 @@ reference implementation offering nine different compression profiles: four
 
 ## Performance
 
-**LZ9ANS‑32K** (corpus of `446,584,168` input bits)
+**LZ9ANS‑32K** (corpus of `446,584,168` input bits)<br>
 [**663** **KiB** encoder state; **209** **KiB** decoder state]:
 
 |    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
@@ -43,7 +43,7 @@ reference implementation offering nine different compression profiles: four
 | **`‑8`** |  `140,142,088`  | `68.619%` | `3.187:1` |     `‑283,016` |
 | **`‑9`** |  `139,847,432`  | `68.685%` | `3.193:1` |     `‑294,656` |
 
-**LZ9ANS‑64K** (corpus of `446,584,168` input bits)
+**LZ9ANS‑64K** (corpus of `446,584,168` input bits)<br>
 [**855** **KiB** encoder state; **273** **KiB** decoder state]:
 
 |    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
