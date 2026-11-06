@@ -22,7 +22,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.8.7 (2026-11-05)"
+#define LZ9VER "v0.9.0 (2026-11-06)"
 
 /*****************************************************************************/
 
@@ -30,8 +30,11 @@
 #define WINDOW_DEFAULT 32768U
 #define WINDOW_64K 65536U
 #define FEATURE_WINDOW_64K 1U
+#define FEATURE_PHASED_TABLES 2U
+#define FEATURE_MIN_MATCH_2 4U
 #define FEATURE_ALIGNED_DISTANCES 8U
 #define FEATURE_AUTO_ALIGNED_DISTANCES 16U
+#define FEATURE_KNOWN_MASK 31U
 #define OPTION_ALIGNED_DISTANCES 4U
 #define OPTION_AUTO_ALIGNED_DISTANCES 8U
 #define BLOCK_FLAG_ALIGNED_DISTANCES 16U
@@ -39,44 +42,26 @@
 #define HASH_MASK (HASH_N - 1U)
 #define TABLE_LOG 10
 #define TABLE_N (1U << TABLE_LOG)
-#define SEQ_MAX (BLOCK_N / 3U + 1U)
+#define SEQ_MAX (BLOCK_N / 2U + 1U)
+#define MIN_MATCH_DEFAULT 3U
+#define MIN_MATCH_SHORT 2U
+#define PHASE_GROUPS_MAX 2U
+#define PHASE_MIN_SYMBOLS 64U
+#define DEC_TABLE_COUNT 11U
+#define DEC_POISON_SLOT 10U
 #define STAGE_MAX 81920U
-#define TABLE_CACHE_COUNT 4U
+#define TABLE_CACHE_COUNT 10U
 #define TABLE_CACHE_BYTES (TABLE_CACHE_COUNT * 512U * sizeof (unsigned short))
 #define STAGE_DATA_MAX ((STAGE_MAX - TABLE_CACHE_BYTES - 7UL) & ~7UL)
 #define DESC_MAX 8192U
-#define BLOCK_PREFIX_N 7U
-#define LZ_BLOCK_HEADER_N 27U
-#define STORED_BLOCK_HEADER_N 11U
+#define BLOCK_PREFIX_N 3U
+#define LZ_BLOCK_HEADER_N 23U
+#define STORED_BLOCK_HEADER_N 7U
 #define FRAME_HEADER_PREFIX_N 13U
 #define FRAME_HEADER_MIN_N 17U
 #define FRAME_HEADER_MAX_N 4096U
 #define FHEAD_N FRAME_HEADER_MIN_N
 #define CRC_BUFFER_N 4096U
-
-/*****************************************************************************/
-
-#undef HAS_ATTRIBUTE
-#if defined __has_attribute && (defined(__clang__) || defined(__GNUC__))
-# define HAS_ATTRIBUTE(atr) __has_attribute(atr)
-#else
-# define HAS_ATTRIBUTE(atr) 0
-#endif /* if defined __has_attribute && (defined(__clang__)
-          || defined(__GNUC__)) */
-
-/*****************************************************************************/
-
-#undef HOT
-#if !defined(__CPPCHECK__) && !defined(__LINT__)
-# if HAS_ATTRIBUTE(hot)
-#  define HOT __attribute__((hot))
-# endif /* if HAS_ATTRIBUTE(hot) */
-# if !defined(HOT)
-#  define HOT /**/
-# endif /* if !defined(HOT) */
-#else
-# define HOT /**/
-#endif /* if !defined(__CPPCHECK__) && !defined(__LINT__) */
 
 /*****************************************************************************/
 
@@ -109,6 +94,7 @@
 #define MODE_RLE 2
 #define MODE_TANS 3
 #define MODE_REUSE 4
+#define MODE_PHASED 5
 #define BLOCK_STORED 0
 #define BLOCK_LZ 1
 
@@ -119,7 +105,7 @@
 #define STREAM_ML 2
 #define STREAM_OF 3
 #define STREAM_EXTRA 4
-#define FORMAT_V8 8U
+#define FORMAT_V9 9U
 #define STREAM_COUNT 5U
 #define ENTROPY_STREAM_COUNT 4U
 #define OF_ALPHABET_32K 20U
@@ -165,15 +151,40 @@
 
 #if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
 # define LZ9_INLINE __inline__
-__extension__ typedef unsigned long long lz9_u64; /* long long needs 64-bit */
 #else
-# define LZ9_INLINE /**/
+# define LZ9_INLINE
 #endif /* if defined(__GNUC__) && !defined(__CPPCHECK__)
-          && !defined(__LINT__) */
+          && !defined(__LINT__)  */
+
+/*****************************************************************************/
+
+#undef HAS_ATTRIBUTE
+#if defined __has_attribute && (defined(__clang__) || defined(__GNUC__))
+# define HAS_ATTRIBUTE(atr) __has_attribute(atr)
+#else
+# define HAS_ATTRIBUTE(atr) 0
+#endif /* if defined __has_attribute && (defined(__clang__)
+          || defined(__GNUC__))  */
+
+/*****************************************************************************/
+
+#undef HOT
+#if !defined(__CPPCHECK__) && !defined(__LINT__)
+# if HAS_ATTRIBUTE(hot)
+#  define HOT __attribute__((hot))
+# endif /* if HAS_ATTRIBUTE(hot) */
+#endif /* if !defined(__CPPCHECK__) && !defined(__LINT__) */
+
+/*****************************************************************************/
+
+#if !defined(HOT)
+# define HOT /**/
+#endif /* if !defined(HOT) */
 
 /*****************************************************************************/
 
 #if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
+__extension__ typedef unsigned long long lz9_u64;
 typedef char lz9_u64_type_must_be_at_least_64_bits_compile_time_assertion[
   sizeof (lz9_u64) * CHAR_BIT >= 64 ? 1 : -1];
 #endif /* if defined(__GNUC__) && !defined(__CPPCHECK__)
@@ -198,14 +209,58 @@ typedef struct
 {
   unsigned short freq[512];
   unsigned short cum[512];
-  unsigned short dsym[TABLE_N];
-  unsigned short dbase[TABLE_N];
   unsigned short estate[TABLE_N];
   unsigned short threshold[512];
-  unsigned char dbits[TABLE_N];
   unsigned char highbits[512];
   unsigned short alphabet;
 } AnsTable;
+
+/*****************************************************************************/
+
+#define DEC_BASE_MASK 1023U
+#define DEC_NB_SHIFT 10U
+#define DEC_NB_MASK 15U
+#define DEC_SYM_SHIFT 14U
+#define DEC_POISON (1023U << DEC_SYM_SHIFT)
+
+/*****************************************************************************/
+
+typedef struct
+{
+  unsigned int e[TABLE_N];
+  unsigned short alphabet;
+} DecTable;
+
+/*****************************************************************************/
+
+typedef struct
+{
+  unsigned char groups;
+  unsigned char gmap[4];
+} PhasePartition;
+
+/*****************************************************************************/
+
+static const PhasePartition phase_partitions[ENTROPY_STREAM_COUNT][2]
+    = {
+        { { 2, { 0, 1, 0, 0 } },   /* LIT 0: 023|1 */
+          { 2, { 0, 1, 0, 1 } } }, /* LIT 1: 02|13 */
+        { { 2, { 0, 1, 0, 1 } },   /*  LL 0: 02|13 */
+          { 0, { 0, 0, 0, 0 } } },
+        { { 2, { 0, 0, 1, 1 } },   /*  ML 0: 01|23 */
+          { 0, { 0, 0, 0, 0 } } },
+        { { 0, { 0, 0, 0, 0 } },
+          { 0, { 0, 0, 0, 0 } } }
+      };
+
+/*****************************************************************************/
+
+static const unsigned char phase_partition_count[ENTROPY_STREAM_COUNT]
+    = { 2, 1, 1, 0 };
+
+/*****************************************************************************/
+
+static const unsigned char phase_table_base[3] = { 4, 6, 8 };
 
 /*****************************************************************************/
 
@@ -241,7 +296,8 @@ typedef struct
   const unsigned char *data;
   BitReader br;
   unsigned short state;
-  AnsTable *table;
+  DecTable *table;
+  const DecTable *ptab[4];
 } Stream;
 
 /*****************************************************************************/
@@ -281,8 +337,13 @@ typedef struct
   int lazy;
   int level;
   int use_cost;
+  unsigned int min_match;
+  unsigned int features;
+  unsigned long frame_pos;
+  AnsTable *gtable;
   unsigned int reps[3];
   unsigned short costs[4][512];
+  unsigned int pcounts[4][512];
   unsigned int prefix[BLOCK_N + 1U];
 } Encoder;
 
@@ -304,6 +365,8 @@ typedef struct
   unsigned int distance_flags;
   unsigned int window_n;
   unsigned int of_alphabet;
+  unsigned int min_match;
+  int phased;
   unsigned char outbuf[8192];
   unsigned int out_used;
   unsigned long produced;
@@ -364,6 +427,14 @@ static int
 stream_is_tans (int mode)
 {
   return mode == MODE_TANS || mode == MODE_REUSE;
+}
+
+/*****************************************************************************/
+
+static int
+stream_uses_ans (int mode)
+{
+  return mode == MODE_TANS || mode == MODE_REUSE || mode == MODE_PHASED;
 }
 
 /*****************************************************************************/
@@ -840,7 +911,8 @@ floor_log2 (unsigned int n)
 /*****************************************************************************/
 
 /*
- * Deterministic tANS. Encoder inverse of the standard FSE-style decoder:
+ * Deterministic tANS.
+ * Encoder inverse of the standard FSE-style decoder:
  * next_count = freq[s] ... 2*freq[s]-1;
  * nb = TABLE_LOG - floor_log2(next_count);
  * next_state = (next_count << nb)-TABLE_N + read_bits(nb).
@@ -851,6 +923,7 @@ ans_build (AnsTable *t, const unsigned short *freq, unsigned int alphabet)
 {
   unsigned int s, x, pos = 0, cumulative = 0, step = 643U;
   unsigned short seen[512];
+  unsigned short spread[TABLE_N];
 
   if (alphabet > 512)
     {
@@ -891,7 +964,7 @@ ans_build (AnsTable *t, const unsigned short *freq, unsigned int alphabet)
     {
       for (x = 0; x < freq[s]; ++x)
         {
-          t->dsym[pos] = (unsigned short)s;
+          spread[pos] = (unsigned short)s;
           pos = (pos + step) & (TABLE_N - 1U);
         }
     }
@@ -905,7 +978,7 @@ ans_build (AnsTable *t, const unsigned short *freq, unsigned int alphabet)
     {
       unsigned int f, count, bits, base, logc;
 
-      s = t->dsym[x];
+      s = spread[x];
       f = t->freq[s];
       count = f + seen[s]++;
       logc = floor_log2 (count);
@@ -923,9 +996,80 @@ ans_build (AnsTable *t, const unsigned short *freq, unsigned int alphabet)
           return 0;
         }
 
-      t->dbits[x] = (unsigned char)bits;
-      t->dbase[x] = (unsigned short)base;
       t->estate[t->cum[s] + count - f] = (unsigned short)x;
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+dec_build (DecTable *t, const unsigned short *freq, unsigned int alphabet)
+{
+  unsigned int s, x, pos = 0, cumulative = 0, step = 643U;
+  unsigned short seen[512];
+  unsigned short spread[TABLE_N];
+
+  if (alphabet > 512)
+    {
+      return 0;
+    }
+
+  t->alphabet = (unsigned short)alphabet;
+
+  for (s = 0; s < alphabet; ++s)
+    {
+      cumulative += freq[s];
+      seen[s] = 0;
+
+      if (freq[s] && floor_log2 (freq[s]) > TABLE_LOG)
+        {
+          return 0;
+        }
+    }
+
+  if (cumulative != TABLE_N)
+    {
+      return 0;
+    }
+
+  for (s = 0; s < alphabet; ++s)
+    {
+      for (x = 0; x < freq[s]; ++x)
+        {
+          spread[pos] = (unsigned short)s;
+          pos = (pos + step) & (TABLE_N - 1U);
+        }
+    }
+
+  if (pos != 0)
+    {
+      return 0;
+    }
+
+  for (x = 0; x < TABLE_N; ++x)
+    {
+      unsigned int count, bits, base, logc;
+
+      s = spread[x];
+      count = freq[s] + seen[s]++;
+      logc = floor_log2 (count);
+
+      if (logc > TABLE_LOG)
+        {
+          return 0;
+        }
+
+      bits = TABLE_LOG - logc;
+      base = (count << bits) - TABLE_N;
+
+      if (base >= TABLE_N || base + (1U << bits) > TABLE_N)
+        {
+          return 0;
+        }
+
+      t->e[x] = base | (bits << DEC_NB_SHIFT) | (s << DEC_SYM_SHIFT);
     }
 
   return 1;
@@ -959,9 +1103,9 @@ ans_put (AnsTable *t, BitWriter *b, unsigned int sym, unsigned short *state)
 /*****************************************************************************/
 
 static LZ9_INLINE unsigned int
-ans_get (Stream *s)
+ans_get_with (Stream *s, const DecTable *t)
 {
-  unsigned int old = s->state, sym, nb;
+  unsigned int old = s->state, ent, nb;
 
   if (old >= TABLE_N)
     {
@@ -970,75 +1114,60 @@ ans_get (Stream *s)
       return 0;
     }
 
-  sym = s->table->dsym[old];
-  nb = s->table->dbits[old];
-  s->state = (unsigned short)(s->table->dbase[old]
+  ent = t->e[old];
+  nb = (ent >> DEC_NB_SHIFT) & DEC_NB_MASK;
+  s->state = (unsigned short)((ent & DEC_BASE_MASK)
                               + (nb ? br_get (&s->br, nb) : 0U));
 
-  return sym;
+  return ent >> DEC_SYM_SHIFT;
+}
+
+/*****************************************************************************/
+
+static LZ9_INLINE unsigned int
+ans_get (Stream *s)
+{
+  return ans_get_with (s, s->table);
 }
 
 /*****************************************************************************/
 
 static int
-norm_counts (const unsigned int *counts, unsigned int alphabet,
-             unsigned int total, unsigned short *freq)
+norm_active (const unsigned int *counts, const unsigned int *idx,
+             unsigned int active, unsigned int total, unsigned short *freq)
 {
-  unsigned int i, active = 0, remaining, used = 0;
-  unsigned long residue[512];
+  unsigned int k, remaining, used = 0;
+  unsigned int key[512];
 
-  for (i = 0; i < alphabet; ++i)
-    {
-      if (counts[i])
-        {
-          ++active;
-        }
-    }
-
-  if (active < 2 || active > TABLE_N || !total || total > 0x7fffffU)
+  if (active < 2U || active > 512U || !total || total > 0x3fffffU)
     {
       return 0;
     }
 
   remaining = TABLE_N - active;
 
-  for (i = 0; i < alphabet; ++i)
+  for (k = 0; k < active; ++k)
     {
-      if (counts[i])
-        {
-          unsigned long q
-              = (unsigned long)counts[i] * (unsigned long)remaining;
-
-          freq[i] = (unsigned short)(1U + (unsigned int)(q / total));
-          residue[i] = q % total;
-          used += freq[i];
-        }
-      else
-        {
-          freq[i] = 0;
-          residue[i] = 0;
-        }
+      unsigned int i = idx[k];
+      unsigned int q = counts[i] * remaining;
+      freq[i] = (unsigned short)(1U + q / total);
+      key[k] = ((q % total) << 9) | (511U - i);
+      used += freq[i];
     }
 
   if (used < TABLE_N)
     {
-      unsigned long lo = 0UL, hi = (unsigned long)total << 9;
+      unsigned int lo = 0U, hi = total << 9;
       unsigned int deficit = TABLE_N - used;
-
-      for (i = 0; i < alphabet; ++i)
-        {
-          residue[i] = counts[i] ? ((residue[i] << 9)
-                                    | (unsigned long)(511U - i)) : 0UL;
-        }
 
       while (lo < hi)
         {
-          unsigned long mid = lo + ((hi - lo + 1UL) >> 1);
+          unsigned int mid = lo + ((hi - lo + 1U) >> 1);
           unsigned int n = 0;
 
-          for (i = 0; i < alphabet; ++i)
+          for (k = 0; k < active; ++k)
             {
-              n += (unsigned int)(residue[i] >= mid);
+              n += (unsigned int)(key[k] >= mid);
             }
 
           if (n >= deficit)
@@ -1047,17 +1176,17 @@ norm_counts (const unsigned int *counts, unsigned int alphabet,
             }
           else
             {
-              hi = mid - 1UL;
+              hi = mid - 1U;
             }
         }
 
       if (lo)
         {
-          for (i = 0; i < alphabet; ++i)
+          for (k = 0; k < active; ++k)
             {
-              if (counts[i] && residue[i] >= lo)
+              if (key[k] >= lo)
                 {
-                  ++freq[i];
+                  ++freq[idx[k]];
                   ++used;
                 }
             }
@@ -1065,6 +1194,33 @@ norm_counts (const unsigned int *counts, unsigned int alphabet,
     }
 
   return used == TABLE_N;
+}
+
+/*****************************************************************************/
+
+static int
+norm_counts (const unsigned int *counts, unsigned int alphabet,
+             unsigned int total, unsigned short *freq)
+{
+  unsigned int i, active = 0;
+  unsigned int idx[512];
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      freq[i] = 0;
+
+      if (counts[i])
+        {
+          idx[active++] = i;
+        }
+    }
+
+  if (active < 2U)
+    {
+      return 0;
+    }
+
+  return norm_active (counts, idx, active, total, freq);
 }
 
 /*****************************************************************************/
@@ -1119,12 +1275,118 @@ table_cache_matches (const Encoder *e, unsigned int kind,
 
 /*****************************************************************************/
 
+static unsigned int cost_q12[TABLE_N + 1U];
+
+/*****************************************************************************/
+
+static void
+init_costs (void)
+{
+  unsigned int f, i;
+
+  cost_q12[0] = 0;
+
+  for (f = 1; f <= TABLE_N; ++f)
+    {
+      unsigned int k = floor_log2 (f), low = 1U << k;
+      unsigned long z, z2, term, sum, log2m, c;
+
+      if (f == low)
+        {
+          cost_q12[f] = (TABLE_LOG - k) << 12;
+
+          continue;
+        }
+
+      z = (((unsigned long)(f - low)) << 16)
+          / ((unsigned long)f + (unsigned long)low);
+      z2 = (z * z) >> 16;
+      term = z;
+      sum = 0;
+
+      for (i = 0; i < 8U; ++i)
+        {
+          sum += term / (2UL * i + 1UL);
+          term = (term * z2) >> 16;
+        }
+
+      log2m = ((sum * 2UL) * 47274UL) >> 15;
+      c = ((unsigned long)(TABLE_LOG - k) << 16) - log2m;
+      cost_q12[f] = (unsigned int)((c + 8UL) >> 4);
+    }
+}
+
+/*****************************************************************************/
+
+static unsigned long
+tans_freq_bits_list (unsigned int kind, const unsigned short *freq,
+                     const unsigned int *idx, unsigned int used)
+{
+  unsigned int k;
+  unsigned long bits = 0;
+
+  if (kind == STREAM_LIT)
+    {
+      for (k = 0; k < used; ++k)
+        {
+          bits += 2UL * floor_log2 (freq[idx[k]]) + 1UL;
+        }
+    }
+  else
+    {
+      unsigned int remaining = used;
+      unsigned int assigned = 0;
+
+      for (k = 0; k < used; ++k)
+        {
+          unsigned int f = freq[idx[k]];
+          unsigned int range, value, log_range, cutoff;
+
+          --remaining;
+          range = TABLE_N - assigned - remaining;
+          value = f - 1U;
+          log_range = floor_log2 (range);
+          cutoff = (1U << (log_range + 1U)) - range;
+          bits += log_range + (value >= cutoff ? 1UL : 0UL);
+          assigned += f;
+        }
+    }
+
+  return bits;
+}
+
+/*****************************************************************************/
+
+static unsigned long
+tans_freq_bits (unsigned int kind, unsigned int alphabet,
+                const unsigned short *freq)
+{
+  unsigned int i, used = 0;
+  unsigned int idx[512];
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      if (freq[i])
+        {
+          idx[used++] = i;
+        }
+    }
+
+  if (!used)
+    {
+      return 0UL;
+    }
+
+  return tans_freq_bits_list (kind, freq, idx, used);
+}
+
+/*****************************************************************************/
+
 static unsigned long
 compact_tans_bits (const Encoder *e, unsigned int kind,
                    unsigned int alphabet, const unsigned short *freq)
 {
   unsigned int i, used = 0;
-  unsigned long bits = 0;
 
   if (table_cache_matches (e, kind, freq, alphabet))
     {
@@ -1144,40 +1406,7 @@ compact_tans_bits (const Encoder *e, unsigned int kind,
       return 0;
     }
 
-  if (kind == STREAM_LIT)
-    {
-      for (i = 0; i < alphabet; ++i)
-        {
-          if (freq[i])
-            {
-              bits += 2UL * floor_log2 (freq[i]) + 1UL;
-            }
-        }
-    }
-  else
-    {
-      unsigned int remaining = used;
-      unsigned int assigned = 0;
-
-      for (i = 0; i < alphabet; ++i)
-        {
-
-          if (freq[i])
-            {
-              unsigned int range, value, log_range, cutoff;
-
-              --remaining;
-              range = TABLE_N - assigned - remaining;
-              value = (unsigned int)freq[i] - 1U;
-              log_range = floor_log2 (range);
-              cutoff = (1U << (log_range + 1U)) - range;
-              bits += log_range + (value >= cutoff ? 1UL : 0UL);
-              assigned += freq[i];
-            }
-        }
-    }
-
-  return bits;
+  return tans_freq_bits (kind, alphabet, freq);
 }
 
 /*****************************************************************************/
@@ -1228,27 +1457,17 @@ put_truncated (BitWriter *w, unsigned int value, unsigned int range)
 /*****************************************************************************/
 
 static int
-put_compact_tans_descriptor (Encoder *e, unsigned int kind,
-                             unsigned int alphabet,
-                             const unsigned short *freq)
+put_tans_model (Encoder *e, unsigned int kind, unsigned int alphabet,
+                const unsigned short *freq)
 {
-  unsigned short *cache = table_cache (e, kind);
-  unsigned long size = compact_tans_desc_size (e, kind, alphabet, freq);
   unsigned int i, used = 0;
   unsigned int bitmap_bytes = (alphabet + 7U) / 8U;
   unsigned long bitmap_start;
   BitWriter w;
 
-  if (e->desc_len + size > DESC_MAX)
+  if (e->desc_len + 1UL + bitmap_bytes > DESC_MAX)
     {
       return 0;
-    }
-
-  if (size == 1UL)
-    {
-      e->desc[e->desc_len++] = MODE_REUSE;
-
-      return 1;
     }
 
   e->desc[e->desc_len++] = MODE_TANS;
@@ -1302,6 +1521,36 @@ put_compact_tans_descriptor (Encoder *e, unsigned int kind,
     }
 
   e->desc_len += (w.bits + 7UL) / 8UL;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+put_compact_tans_descriptor (Encoder *e, unsigned int kind,
+                             unsigned int alphabet,
+                             const unsigned short *freq)
+{
+  unsigned short *cache = table_cache (e, kind);
+
+  if (table_cache_matches (e, kind, freq, alphabet))
+    {
+      if (e->desc_len >= DESC_MAX)
+        {
+          return 0;
+        }
+
+      e->desc[e->desc_len++] = MODE_REUSE;
+
+      return 1;
+    }
+
+  if (!put_tans_model (e, kind, alphabet, freq))
+    {
+      return 0;
+    }
+
   (void)memcpy (cache, freq, alphabet * sizeof (unsigned short));
 
   if (alphabet < 512U)
@@ -1776,13 +2025,15 @@ offset_price (const Encoder *e, unsigned int distance)
 static LZ9_INLINE unsigned int
 ml_price (const Encoder *e, unsigned int ml)
 {
-  if (ml < 19U)
+  unsigned int t = ml - e->min_match;
+
+  if (t < 16U)
     {
-      return estimated_code_cost (e, STREAM_ML, ml - 3U);
+      return estimated_code_cost (e, STREAM_ML, t);
     }
   else
     {
-      unsigned int k = floor_log2 (ml - 18U);
+      unsigned int k = floor_log2 (t - 15U);
 
       return (unsigned int)(estimated_code_cost (e, STREAM_ML, 16U + k)
                             + (unsigned long)k * COST_SCALE);
@@ -1865,7 +2116,7 @@ match_done:
 
       trial[0] = k;
       trial[1] = k > 3U ? k - 1U : k;
-      trial[2] = k >= 19U ? 18U : k;
+      trial[2] = k > e->min_match + 15U ? e->min_match + 15U : k;
 
       for (t = 0; t < trial_count; ++t)
         {
@@ -1895,6 +2146,33 @@ match_done:
     {
       *best = k;
       *distance = pos - cand;
+    }
+}
+
+/*****************************************************************************/
+
+static void
+consider_short (const Encoder *e, unsigned int pos, unsigned int pos_rel,
+                unsigned long base_ll_price, unsigned int dist,
+                unsigned int *best, unsigned int *distance, long *best_gain)
+{
+  const unsigned short *buf = e->buffer;
+  long saving;
+
+  if (buf[pos - dist] != buf[pos] || buf[pos - dist + 1U] != buf[pos + 1U])
+    {
+      return;
+    }
+
+  saving = (long)literal_price (e, pos_rel, pos_rel + 2U)
+           - (long)(base_ll_price + offset_price (e, dist)
+                    + ml_price (e, 2U));
+
+  if (saving > *best_gain)
+    {
+      *best_gain = saving;
+      *best = 2U;
+      *distance = dist;
     }
 }
 
@@ -1975,6 +2253,28 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
 
       cand = e->link[((unsigned int)cand) & (e->window_n - 1U)];
       ++checks;
+    }
+
+  if (best < 3U && e->use_cost && e->min_match == MIN_MATCH_SHORT)
+    {
+      unsigned int pos_rel = pos - e->window_n;
+
+      for (i = 0; i < 3U; ++i)
+        {
+          unsigned int rep = e->reps[i];
+
+          if (rep && rep <= pos - history_start)
+            {
+              consider_short (e, pos, pos_rel, base_ll_price, rep,
+                              &best, &d, &best_gain);
+            }
+        }
+
+      if (pos - history_start >= 1U)
+        {
+          consider_short (e, pos, pos_rel, base_ll_price, 1U,
+                          &best, &d, &best_gain);
+        }
     }
 
   *length = best;
@@ -2061,7 +2361,7 @@ parse_block (Encoder *e)
             }
         }
 
-      if (length >= 3)
+      if (length >= 2)
         {
           if (e->sn >= SEQ_MAX)
             {
@@ -2169,7 +2469,7 @@ symbol_of_seq (const Encoder *e, unsigned int kind, const Sequence *q)
 
   if (kind == STREAM_ML)
     {
-      unsigned int t = q->ml - 3U;
+      unsigned int t = q->ml - e->min_match;
 
       return t < 16U ? t : 16U + floor_log2 (t - 15U);
     }
@@ -2569,18 +2869,464 @@ estimate_costs (Encoder *e)
 
 /*****************************************************************************/
 
+#define CHOICE_FRESH 0U
+#define CHOICE_REUSE 1U
+#define CHOICE_PHASED 2U
+#define PHASE_MARGIN_BITS 16UL
+
+/*****************************************************************************/
+
+static unsigned int
+count_stream_phased (Encoder *e, unsigned int kind)
+{
+  unsigned int i, v, pos, ph;
+  unsigned int base = (unsigned int)(e->frame_pos & 3UL);
+
+  if (kind == STREAM_LIT)
+    {
+      unsigned int total = 0;
+
+      (void)memset (e->pcounts, 0, sizeof (e->pcounts));
+      pos = e->window_n;
+
+      for (i = 0; i < e->sn; ++i)
+        {
+          unsigned int j;
+
+          ph = (base + pos) & 3U;
+
+          for (j = 0; j < e->seq[i].ll; ++j)
+            {
+              ++e->pcounts[ph][e->buffer[pos + j]];
+              ph = (ph + 1U) & 3U;
+            }
+
+          total += e->seq[i].ll;
+          pos += e->seq[i].ll + e->seq[i].ml;
+        }
+
+      ph = (base + pos) & 3U;
+
+      while (pos < e->window_n + e->n)
+        {
+          ++e->pcounts[ph][e->buffer[pos++]];
+          ph = (ph + 1U) & 3U;
+          ++total;
+        }
+
+      for (v = 0; v < 512U; ++v)
+        {
+          e->counts[v] = e->pcounts[0][v] + e->pcounts[1][v]
+                         + e->pcounts[2][v] + e->pcounts[3][v];
+
+          if (e->counts[v] && v > e->max_literal)
+            {
+              e->max_literal = v;
+            }
+        }
+
+      return total;
+    }
+
+  for (ph = 0; ph < 4U; ++ph)
+    {
+      (void)memset (e->pcounts[ph], 0, sizeof (e->pcounts[ph]));
+    }
+
+  pos = base;
+
+  for (i = 0; i < e->sn; ++i)
+    {
+      const Sequence *q = &e->seq[i];
+
+      if (kind == STREAM_LL)
+        {
+          ++e->pcounts[pos & 3U][symbol_of_seq (e, kind, q)];
+        }
+
+      pos += q->ll;
+
+      if (kind == STREAM_ML)
+        {
+          ++e->pcounts[pos & 3U][symbol_of_seq (e, kind, q)];
+        }
+
+      pos += q->ml;
+    }
+
+  for (v = 0; v < 512U; ++v)
+    {
+      e->counts[v] = 0;
+    }
+
+  for (v = 0; v < 32U; ++v)
+    {
+      e->counts[v] = e->pcounts[0][v] + e->pcounts[1][v]
+                     + e->pcounts[2][v] + e->pcounts[3][v];
+    }
+
+  return e->sn;
+}
+
+/*****************************************************************************/
+
+/*
+ * Estimated size in bits of one phased group: its sub-descriptor plus the
+ * ideal tANS payload.  A group that uses a single symbol gets a dummy second
+ * symbol with count one so that it can be written as a mode-3 model.  When
+ * the group slot already holds a model that gives every used symbol a
+ * non-zero frequency, a one-octet REUSE sub-descriptor competes with the
+ * fresh model.  Returns ~0UL when no model can be built.
+ */
+
+static unsigned long
+phase_group_eval (unsigned int kind, unsigned int alphabet,
+                  const unsigned int *hist, const unsigned short *slot,
+                  unsigned short *freq, unsigned char *is_empty,
+                  unsigned char *is_reuse, unsigned long *desc_bytes)
+{
+  unsigned int i, k, total = 0, used = 0, slot_sum = 0;
+  unsigned int idx[512];
+  unsigned long payload = 0, bytes, bits;
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      slot_sum += slot[i];
+
+      if (hist[i])
+        {
+          idx[used++] = i;
+          total += hist[i];
+        }
+    }
+
+  *is_reuse = 0U;
+
+  if (!used)
+    {
+      *is_empty = 1U;
+      *desc_bytes = 1UL;
+
+      return 8UL;
+    }
+
+  *is_empty = 0U;
+  (void)memset (freq, 0, alphabet * sizeof (unsigned short));
+
+  if (used == 1U)
+    {
+      unsigned int tmp[512];
+      unsigned int only = idx[0], dummy = only == 0U ? 1U : 0U;
+
+      (void)memcpy (tmp, hist, alphabet * sizeof (unsigned int));
+      tmp[dummy] = 1U;
+      idx[0] = only < dummy ? only : dummy;
+      idx[1] = only < dummy ? dummy : only;
+
+      if (!norm_active (tmp, idx, 2U, total + 1U, freq))
+        {
+          return ~0UL;
+        }
+
+      used = 2U;
+    }
+  else if (!norm_active (hist, idx, used, total, freq))
+    {
+      return ~0UL;
+    }
+
+  for (k = 0; k < used; ++k)
+    {
+      payload += (unsigned long)hist[idx[k]] * cost_q12[freq[idx[k]]];
+    }
+
+  bytes = 1UL + (alphabet + 7U) / 8U
+          + (tans_freq_bits_list (kind, freq, idx, used) + 7UL) / 8UL;
+  bits = bytes * 8UL + (payload >> 12);
+  *desc_bytes = bytes;
+
+  if (slot_sum == TABLE_N)
+    {
+      unsigned long reuse_payload = 0;
+
+      for (k = 0; k < used; ++k)
+        {
+          i = idx[k];
+
+          if (hist[i])
+            {
+              if (!slot[i])
+                {
+                  return bits;
+                }
+
+              reuse_payload += (unsigned long)hist[i] * cost_q12[slot[i]];
+            }
+        }
+
+      if (8UL + (reuse_payload >> 12) < bits)
+        {
+          *is_reuse = 1U;
+          *desc_bytes = 1UL;
+
+          return 8UL + (reuse_payload >> 12);
+        }
+    }
+
+  return bits;
+}
+
+/*****************************************************************************/
+
+static int
+choose_phased (const Encoder *e, unsigned int kind, unsigned int alphabet,
+               unsigned long best_bits, unsigned int *pid_out,
+               unsigned short freqs[PHASE_GROUPS_MAX][512],
+               unsigned char *empty_out, unsigned char *reuse_out,
+               unsigned long *desc_bytes_out)
+{
+  unsigned int pid, g, ph, i;
+  int found = 0;
+  unsigned int hist[PHASE_GROUPS_MAX][512];
+  unsigned short tf[PHASE_GROUPS_MAX][512];
+
+  for (pid = 0; pid < phase_partition_count[kind]; ++pid)
+    {
+      const PhasePartition *pp = &phase_partitions[kind][pid];
+      unsigned long bits = TABLE_LOG + 16UL, dbytes = 2UL;
+      unsigned char tmp_empty[PHASE_GROUPS_MAX];
+      unsigned char tmp_reuse[PHASE_GROUPS_MAX];
+      int ok = 1;
+
+      for (g = 0; g < pp->groups; ++g)
+        {
+          (void)memset (hist[g], 0, alphabet * sizeof (unsigned int));
+        }
+
+      for (ph = 0; ph < 4U; ++ph)
+        {
+          unsigned int *h = hist[pp->gmap[ph]];
+
+          for (i = 0; i < alphabet; ++i)
+            {
+              h[i] += e->pcounts[ph][i];
+            }
+        }
+
+      for (g = 0; g < pp->groups; ++g)
+        {
+          unsigned long gb, db;
+
+          gb = phase_group_eval (kind, alphabet, hist[g],
+                                 table_cache (e, phase_table_base[kind] + g),
+                                 tf[g], &tmp_empty[g], &tmp_reuse[g], &db);
+
+          if (gb == ~0UL)
+            {
+              ok = 0;
+
+              break;
+            }
+
+          bits += gb;
+          dbytes += db;
+        }
+
+      if (ok && bits + PHASE_MARGIN_BITS < best_bits)
+        {
+          best_bits = bits;
+          found = 1;
+          *pid_out = pid;
+          *desc_bytes_out = dbytes;
+          (void)memcpy (freqs, tf, sizeof (tf));
+          (void)memcpy (empty_out, tmp_empty, sizeof (tmp_empty));
+          (void)memcpy (reuse_out, tmp_reuse, sizeof (tmp_reuse));
+        }
+    }
+
+  return found;
+}
+
+/*****************************************************************************/
+
+static int
+encode_phased (Encoder *e, unsigned int kind, BitWriter *w,
+               unsigned int alphabet, unsigned int pid,
+               unsigned short freqs[PHASE_GROUPS_MAX][512],
+               const unsigned char *empty, const unsigned char *reuse)
+{
+  const PhasePartition *pp = &phase_partitions[kind][pid];
+  AnsTable *pt[4];
+  unsigned int g, ph, i, pos;
+  unsigned int base = (unsigned int)(e->frame_pos & 3UL);
+  unsigned short state = 0;
+
+  for (g = 0; g < pp->groups; ++g)
+    {
+      const unsigned short *source
+          = reuse[g] ? table_cache (e, phase_table_base[kind] + g) : freqs[g];
+
+      if (!empty[g] && !ans_build (&e->gtable[g], source, alphabet))
+        {
+          return 0;
+        }
+    }
+
+  for (ph = 0; ph < 4U; ++ph)
+    {
+      pt[ph] = &e->gtable[pp->gmap[ph]];
+    }
+
+  if (kind == STREAM_LIT)
+    {
+      unsigned int j;
+
+      pos = e->window_n + e->n;
+
+      for (j = 0; j < e->last_lit; ++j)
+        {
+          --pos;
+          ans_put (pt[(base + pos) & 3U], w, e->buffer[pos], &state);
+        }
+
+      for (i = e->sn; i; --i)
+        {
+          pos -= e->seq[i - 1].ml;
+
+          for (j = 0; j < e->seq[i - 1].ll; ++j)
+            {
+              --pos;
+              ans_put (pt[(base + pos) & 3U], w, e->buffer[pos], &state);
+            }
+        }
+    }
+  else
+    {
+      pos = base + e->n - e->last_lit;
+
+      for (i = e->sn; i; --i)
+        {
+          const Sequence *q = &e->seq[i - 1];
+          unsigned int mstart = pos - q->ml, sstart = mstart - q->ll;
+
+          ans_put (pt[(kind == STREAM_LL ? sstart : mstart) & 3U], w,
+                   symbol_of_seq (e, kind, q), &state);
+          pos = sstart;
+        }
+    }
+
+  bw_add (w, state, TABLE_LOG);
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+put_phased_descriptor (Encoder *e, unsigned int kind, unsigned int alphabet,
+                       unsigned int pid,
+                       unsigned short freqs[PHASE_GROUPS_MAX][512],
+                       const unsigned char *empty, const unsigned char *reuse)
+{
+  const PhasePartition *pp = &phase_partitions[kind][pid];
+  unsigned int g;
+
+  if (e->desc_len + 2UL > DESC_MAX)
+    {
+      return 0;
+    }
+
+  e->desc[e->desc_len++] = MODE_PHASED;
+  e->desc[e->desc_len++] = (unsigned char)pid;
+
+  for (g = 0; g < pp->groups; ++g)
+    {
+      unsigned short *slot = table_cache (e, phase_table_base[kind] + g);
+
+      if (empty[g] || reuse[g])
+        {
+          if (e->desc_len >= DESC_MAX)
+            {
+              return 0;
+            }
+
+          e->desc[e->desc_len++] = empty[g] ? MODE_EMPTY : MODE_REUSE;
+        }
+      else
+        {
+          if (!put_tans_model (e, kind, alphabet, freqs[g]))
+            {
+              return 0;
+            }
+
+          (void)memcpy (slot, freqs[g], alphabet * sizeof (unsigned short));
+
+          if (alphabet < 512U)
+            {
+              (void)memset (slot + alphabet, 0,
+                            (512U - alphabet) * sizeof (unsigned short));
+            }
+        }
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+/*
+ * The cached REUSE model can code the block only when every symbol in the
+ * current stream has a non-zero cached frequency.
+ */
+
+static int
+table_cache_covers (const Encoder *e, unsigned int kind,
+                    unsigned int alphabet)
+{
+  const unsigned short *cache = table_cache (e, kind);
+  unsigned int i, sum = 0;
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      sum += cache[i];
+    }
+
+  if (sum != TABLE_N)
+    {
+      return 0;
+    }
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      if (e->counts[i] && !cache[i])
+        {
+          return 0;
+        }
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
 static int
 encode_one_stream (Encoder *e, unsigned int kind)
 {
   unsigned int i, total, single = 0,
                          alphabet = stream_alphabet (kind, e->of_alphabet);
   unsigned int width, mode = MODE_RAW, stream_max = 0;
+  unsigned int choice = CHOICE_FRESH, pid = 0;
   unsigned short freq[512];
+  unsigned short pfreq[PHASE_GROUPS_MAX][512];
+  unsigned char pempty[PHASE_GROUPS_MAX];
+  unsigned char preuse[PHASE_GROUPS_MAX];
   unsigned long start = e->stage_len;
   unsigned long ansbits = 0;
+  int phase_ok = (e->features & FEATURE_PHASED_TABLES) != 0U
+                 && kind <= STREAM_ML;
   BitWriter w;
 
-  total = count_stream (e, kind);
+  total = phase_ok ? count_stream_phased (e, kind) : count_stream (e, kind);
 
   for (i = 0; i < alphabet; ++i)
     {
@@ -2620,16 +3366,103 @@ encode_one_stream (Encoder *e, unsigned int kind)
 
   if (mode == MODE_RAW)
     {
-      if (norm_counts (e->counts, alphabet, total, freq)
-          && ans_build (e->table, freq, alphabet))
+      if (norm_counts (e->counts, alphabet, total, freq))
         {
-          bw_init (&w, e->stage + start, STAGE_DATA_MAX - start);
-          encode_values (e, kind, &w, e->table, width);
+          unsigned long fresh_cost = compact_tans_desc_size (e, kind,
+                                                             alphabet, freq);
+          unsigned long desc_cost = fresh_cost;
+          int built;
 
-          if (!w.failed)
+          built = ans_build (e->table, freq, alphabet);
+          bw_init (&w, e->stage + start, STAGE_DATA_MAX - start);
+
+          if (built)
             {
-              unsigned long desc_cost
-                  = compact_tans_desc_size (e, kind, alphabet, freq);
+              encode_values (e, kind, &w, e->table, width);
+            }
+
+          if (built && !w.failed)
+            {
+              unsigned long fresh_bytes, best_bits, phased_bytes = 0;
+
+              ansbits = w.bits;
+              fresh_bytes = (ansbits + 7UL) / 8UL;
+              best_bits = (fresh_bytes + fresh_cost) * 8UL + TABLE_LOG;
+
+              if (e->level >= 6
+                  && !table_cache_matches (e, kind, freq, alphabet)
+                  && table_cache_covers (e, kind, alphabet))
+                {
+                  AnsTable reuse_table;
+                  BitWriter reuse_writer;
+
+                  bw_init (&reuse_writer, e->stage + start,
+                           STAGE_DATA_MAX - start);
+
+                  if (ans_build (&reuse_table, table_cache (e, kind),
+                                 alphabet))
+                    {
+                      encode_values (e, kind, &reuse_writer, &reuse_table,
+                                     width);
+
+                      if (!reuse_writer.failed)
+                        {
+                          unsigned long reuse_bytes
+                              = (reuse_writer.bits + 7UL) / 8UL;
+
+                          if (reuse_bytes + 1UL < fresh_bytes + fresh_cost)
+                            {
+                              choice = CHOICE_REUSE;
+                              desc_cost = 1UL;
+                              ansbits = reuse_writer.bits;
+                              best_bits = (reuse_bytes + 1UL) * 8UL
+                                          + TABLE_LOG;
+                              w = reuse_writer;
+                            }
+                          else
+                            {
+                              bw_init (&w, e->stage + start,
+                                       STAGE_DATA_MAX - start);
+                              built = ans_build (e->table, freq, alphabet);
+
+                              if (built)
+                                {
+                                  encode_values (e, kind, &w, e->table, width);
+                                }
+                            }
+                        }
+                      else
+                        {
+                          bw_init (&w, e->stage + start,
+                                   STAGE_DATA_MAX - start);
+                          built = ans_build (e->table, freq, alphabet);
+
+                          if (built)
+                            {
+                              encode_values (e, kind, &w, e->table, width);
+                            }
+                        }
+                    }
+                }
+
+              if (phase_ok && total >= PHASE_MIN_SYMBOLS
+                  && choose_phased (e, kind, alphabet, best_bits, &pid,
+                                    pfreq, pempty, preuse, &phased_bytes))
+                {
+                  choice = CHOICE_PHASED;
+                  desc_cost = phased_bytes;
+                  bw_init (&w, e->stage + start, STAGE_DATA_MAX - start);
+                  built = encode_phased (e, kind, &w, alphabet, pid, pfreq,
+                                         pempty, preuse);
+                  if (built)
+                    {
+                      ansbits = w.bits;
+                    }
+                }
+            }
+
+          if (built && !w.failed)
+            {
               ansbits = w.bits;
 
               if (((ansbits + 7UL) / 8UL) + desc_cost
@@ -2666,7 +3499,24 @@ encode_one_stream (Encoder *e, unsigned int kind)
     }
   else if (mode == MODE_TANS)
     {
-      if (!put_compact_tans_descriptor (e, kind, alphabet, freq))
+      if (choice == CHOICE_PHASED)
+        {
+          if (!put_phased_descriptor (e, kind, alphabet, pid, pfreq, pempty,
+                                      preuse))
+            {
+              return 0;
+            }
+        }
+      else if (choice == CHOICE_REUSE)
+        {
+          if (e->desc_len >= DESC_MAX)
+            {
+              return 0;
+            }
+
+          e->desc[e->desc_len++] = MODE_REUSE;
+        }
+      else if (!put_compact_tans_descriptor (e, kind, alphabet, freq))
         {
           return 0;
         }
@@ -2709,7 +3559,7 @@ extra_parts (const Encoder *e, const Sequence *q, unsigned int values[4],
   unsigned int code, d = sequence_distance (q);
 
   (void)len_code (q->ll, 0, &values[0], &widths[0]);
-  (void)len_code (q->ml, 3, &values[1], &widths[1]);
+  (void)len_code (q->ml, e->min_match, &values[1], &widths[1]);
   values[2] = 0U;
   widths[2] = 0U;
   code = distance_code (d, sequence_tag (q), e->window_n,
@@ -2798,27 +3648,26 @@ make_block_header (unsigned char *hdr, unsigned int type,
   unsigned int i, padding = 0;
 
   (void)memset (hdr, 0, LZ_BLOCK_HEADER_N);
-  (void)memcpy (hdr, "LZ9B", 4);
 
-  hdr[4] = (unsigned char)(type
+  hdr[0] = (unsigned char)(type
                            | (aligned_distances
                                   ? BLOCK_FLAG_ALIGNED_DISTANCES : 0U));
 
-  store16 (hdr + 5, n);
-  store16 (hdr + 7, q);
-  store16 (hdr + 9, (unsigned int)dl);
+  store16 (hdr + 1, n);
+  store16 (hdr + 3, q);
+  store16 (hdr + 5, (unsigned int)dl);
 
   for (i = 0; i < STREAM_COUNT; ++i)
     {
       unsigned long bytes = (bits[i] + 7UL) / 8UL;
       unsigned int pad = (unsigned int)((8UL - (bits[i] & 7UL)) & 7UL);
 
-      store16 (hdr + 11 + 2U * i, (unsigned int)bytes);
+      store16 (hdr + 7 + 2U * i, (unsigned int)bytes);
       padding |= pad << (3U * i);
     }
 
-  store16 (hdr + 21, padding);
-  store32 (hdr + 23, crc);
+  store16 (hdr + 17, padding);
+  store32 (hdr + 19, crc);
 }
 
 /*****************************************************************************/
@@ -2851,10 +3700,9 @@ write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
     }
 
   (void)memset (h, 0, sizeof (h));
-  (void)memcpy (h, "LZ9B", 4);
-  h[4] = (unsigned char)(BLOCK_STORED | (width << 2));
-  store16 (h + 5, e->n);
-  store32 (h + 7, crc);
+  h[0] = (unsigned char)(BLOCK_STORED | (width << 2));
+  store16 (h + 1, e->n);
+  store32 (h + 3, crc);
 
   return write_exact (out, h, sizeof (h))
          && write_exact (out, e->stage, (size_t)nbytes);
@@ -3004,10 +3852,164 @@ encode_block (FILE *out, Encoder *e)
 /*****************************************************************************/
 
 static int
-parse_descriptor (Stream *s, AnsTable *t, unsigned int kind,
-                  unsigned int of_alphabet, const unsigned char *p,
-                  unsigned long *offset, unsigned long len)
+parse_tans_model (DecTable *t, unsigned int kind, unsigned int alphabet,
+                  const unsigned char *p, unsigned long *offset,
+                  unsigned long len)
 {
+  unsigned int nused = 0, i, sum = 0, bitmap_bytes;
+  unsigned short freq[512];
+  const unsigned char *bitmap;
+  BitReader r;
+
+  (void)memset (freq, 0, sizeof (freq));
+
+  bitmap_bytes = (alphabet + 7U) / 8U;
+
+  if (*offset + bitmap_bytes > len)
+    {
+      return 0;
+    }
+
+  bitmap = p + *offset;
+  *offset += bitmap_bytes;
+
+  if ((alphabet & 7U)
+      && (bitmap[bitmap_bytes - 1U]
+          & ((1U << (8U - (alphabet & 7U))) - 1U)))
+    {
+      return 0;
+    }
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      if (bitmap[i >> 3] & (1U << (7U - (i & 7U))))
+        {
+          ++nused;
+        }
+    }
+
+  if (nused < 2U)
+    {
+      return 0;
+    }
+
+  br_init (&r, p + *offset, (len - *offset) * 8UL, 0);
+
+  {
+    unsigned int remaining = nused;
+
+    for (i = 0; i < alphabet; ++i)
+      {
+        if (bitmap[i >> 3] & (1U << (7U - (i & 7U))))
+          {
+            unsigned int f;
+
+            if (kind == STREAM_LIT)
+              {
+                unsigned int zeros = 0, bit;
+
+                do
+                  {
+                    bit = br_get (&r, 1U);
+
+                    if (r.failed)
+                      {
+                        return 0;
+                      }
+
+                    if (!bit)
+                      {
+                        ++zeros;
+
+                        if (zeros > TABLE_LOG)
+                          {
+                            return 0;
+                          }
+                      }
+                  }
+                while (!bit);
+
+                f = (1U << zeros) | br_get (&r, zeros);
+              }
+            else
+              {
+                unsigned int range, bits, cutoff, value;
+
+                --remaining;
+                range = TABLE_N - sum - remaining;
+                bits = floor_log2 (range);
+                cutoff = (1U << (bits + 1U)) - range;
+                value = br_get (&r, bits);
+
+                if (value >= cutoff)
+                  {
+                    value = (value << 1) | br_get (&r, 1U);
+                    value -= cutoff;
+                  }
+
+                f = value + 1U;
+              }
+
+            if (r.failed || !f || sum > TABLE_N || f > TABLE_N - sum)
+              {
+                return 0;
+              }
+
+            freq[i] = (unsigned short)f;
+            sum += f;
+          }
+      }
+    }
+
+  if (sum != TABLE_N)
+    {
+      return 0;
+    }
+
+  {
+    unsigned int padding = (unsigned int)((8UL - (r.position & 7UL))
+                                           & 7UL);
+
+    if (padding && br_get (&r, padding) != 0U)
+      {
+        return 0;
+      }
+  }
+
+  if (r.failed || (r.position & 7UL) || !dec_build (t, freq, alphabet))
+    {
+      return 0;
+    }
+
+  *offset += r.position / 8UL;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static void
+dec_poison (DecTable *t, unsigned int alphabet)
+{
+  unsigned int x;
+
+  t->alphabet = (unsigned short)alphabet;
+
+  for (x = 0; x < TABLE_N; ++x)
+    {
+      t->e[x] = DEC_POISON;
+    }
+}
+
+/*****************************************************************************/
+
+static int
+parse_descriptor (Stream *s, DecTable *tables, unsigned int kind,
+                  unsigned int of_alphabet, int phased,
+                  const unsigned char *p, unsigned long *offset,
+                  unsigned long len)
+{
+  DecTable *t = tables + kind;
   unsigned int alphabet = stream_alphabet (kind, of_alphabet);
   unsigned int v;
 
@@ -3047,132 +4049,82 @@ parse_descriptor (Stream *s, AnsTable *t, unsigned int kind,
     }
   else if (s->mode == MODE_TANS)
     {
-      unsigned int nused = 0, i, sum = 0, bitmap_bytes;
-      unsigned short freq[512];
-      const unsigned char *bitmap;
-      BitReader r;
+      if (!parse_tans_model (t, kind, alphabet, p, offset, len))
+        {
+          return 0;
+        }
+    }
+  else if (s->mode == MODE_PHASED)
+    {
+      unsigned int pid, g, ph, tans_groups = 0;
+      const PhasePartition *pp;
+      const DecTable *gp[PHASE_GROUPS_MAX];
+      DecTable *gt;
 
-      (void)memset (freq, 0, sizeof (freq));
-
-      bitmap_bytes = (alphabet + 7U) / 8U;
-
-      if (*offset + bitmap_bytes > len)
+      if (!phased || kind > STREAM_ML || *offset >= len)
         {
           return 0;
         }
 
-      bitmap = p + *offset;
-      *offset += bitmap_bytes;
+      pid = p[(*offset)++];
 
-      if ((alphabet & 7U)
-          && (bitmap[bitmap_bytes - 1U]
-              & ((1U << (8U - (alphabet & 7U))) - 1U)))
+      if (pid >= phase_partition_count[kind])
         {
           return 0;
         }
 
-      for (i = 0; i < alphabet; ++i)
+      pp = &phase_partitions[kind][pid];
+      gt = tables + phase_table_base[kind];
+
+      for (g = 0; g < pp->groups; ++g)
         {
-          if (bitmap[i >> 3] & (1U << (7U - (i & 7U))))
+          unsigned int gmode;
+
+          if (*offset >= len)
             {
-              ++nused;
+              return 0;
+            }
+
+          gmode = p[(*offset)++];
+          gp[g] = gt + g;
+
+          if (gmode == MODE_TANS)
+            {
+              if (!parse_tans_model (gt + g, kind, alphabet, p, offset, len))
+                {
+                  return 0;
+                }
+
+              ++tans_groups;
+            }
+          else if (gmode == MODE_REUSE)
+            {
+              if (gt[g].alphabet != alphabet)
+                {
+                  return 0;
+                }
+
+              ++tans_groups;
+            }
+          else if (gmode == MODE_EMPTY)
+            {
+              gp[g] = tables + DEC_POISON_SLOT;
+            }
+          else
+            {
+              return 0;
             }
         }
 
-      if (nused < 2U)
+      if (!tans_groups)
         {
           return 0;
         }
 
-      br_init (&r, p + *offset, (len - *offset) * 8UL, 0);
-
-      {
-        unsigned int remaining = nused;
-
-        for (i = 0; i < alphabet; ++i)
-          {
-            if (bitmap[i >> 3] & (1U << (7U - (i & 7U))))
-              {
-                unsigned int f;
-
-                if (kind == STREAM_LIT)
-                  {
-                    unsigned int zeros = 0, bit;
-
-                    do
-                      {
-                        bit = br_get (&r, 1U);
-
-                        if (r.failed)
-                          {
-                            return 0;
-                          }
-
-                        if (!bit)
-                          {
-                            ++zeros;
-
-                            if (zeros > TABLE_LOG)
-                              {
-                                return 0;
-                              }
-                          }
-                      }
-                    while (!bit);
-
-                    f = (1U << zeros) | br_get (&r, zeros);
-                  }
-                else
-                  {
-                    unsigned int range, bits, cutoff, value;
-
-                    --remaining;
-                    range = TABLE_N - sum - remaining;
-                    bits = floor_log2 (range);
-                    cutoff = (1U << (bits + 1U)) - range;
-                    value = br_get (&r, bits);
-
-                    if (value >= cutoff)
-                      {
-                        value = (value << 1) | br_get (&r, 1U);
-                        value -= cutoff;
-                      }
-
-                    f = value + 1U;
-                  }
-
-                if (r.failed || !f || sum > TABLE_N || f > TABLE_N - sum)
-                  {
-                    return 0;
-                  }
-
-                freq[i] = (unsigned short)f;
-                sum += f;
-              }
-          }
-        }
-
-      if (sum != TABLE_N)
+      for (ph = 0; ph < 4U; ++ph)
         {
-          return 0;
+          s->ptab[ph] = gp[pp->gmap[ph]];
         }
-
-      {
-        unsigned int padding = (unsigned int)((8UL - (r.position & 7UL))
-                                               & 7UL);
-
-        if (padding && br_get (&r, padding) != 0U)
-          {
-            return 0;
-          }
-      }
-
-      if (r.failed || (r.position & 7UL) || !ans_build (t, freq, alphabet))
-        {
-          return 0;
-        }
-
-      *offset += r.position / 8UL;
     }
   else if (s->mode == MODE_REUSE)
     {
@@ -3196,9 +4148,9 @@ stream_begin (Stream *s, unsigned long bits, const unsigned char *p)
 {
   s->bits = bits;
   s->data = p;
-  br_init (&s->br, p, bits, stream_is_tans (s->mode));
+  br_init (&s->br, p, bits, stream_uses_ans (s->mode));
 
-  if (stream_is_tans (s->mode))
+  if (stream_uses_ans (s->mode))
     {
       if (bits < TABLE_LOG)
         {
@@ -3251,6 +4203,19 @@ stream_get (Stream *s)
 
 /*****************************************************************************/
 
+static LZ9_INLINE unsigned int
+stream_get_ph (Stream *s, unsigned int phase)
+{
+  if (s->mode == MODE_PHASED)
+    {
+      return ans_get_with (s, s->ptab[phase]);
+    }
+
+  return stream_get (s);
+}
+
+/*****************************************************************************/
+
 static int
 stream_end (const Stream *s)
 {
@@ -3259,7 +4224,7 @@ stream_end (const Stream *s)
       return 0;
     }
 
-  if (stream_is_tans (s->mode) && s->state != 0)
+  if (stream_uses_ans (s->mode) && s->state != 0)
     {
       return 0;
     }
@@ -3693,8 +4658,45 @@ block_crc_end (Output *o, unsigned int n, unsigned long expected)
 /*****************************************************************************/
 
 static int
+decode_phased_literals (Output *o, Stream *s, unsigned long count)
+{
+  const DecTable *pt[4];
+  unsigned int ph = (unsigned int)o->produced & 3U, i;
+
+  for (i = 0; i < 4U; ++i)
+    {
+      pt[i] = s->ptab[(ph + i) & 3U];
+    }
+
+  while (count >= 4UL)
+    {
+      for (i = 0; i < 4U; ++i)
+        {
+          if (!store_symbol (o, ans_get_with (s, pt[i])))
+            {
+              return 0;
+            }
+        }
+
+      count -= 4UL;
+    }
+
+  for (i = 0; i < (unsigned int)count; ++i)
+    {
+      if (!store_symbol (o, ans_get_with (s, pt[i])))
+        {
+          return 0;
+        }
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
 decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
-              unsigned char *desc, AnsTable *tables)
+              unsigned char *desc, DecTable *tables)
 {
   unsigned char h[LZ_BLOCK_HEADER_N];
   unsigned long bitlen[STREAM_COUNT], lengths[STREAM_COUNT], total = 0;
@@ -3702,24 +4704,25 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   unsigned int i, n, q, type, width;
   unsigned int padding;
   int aligned_distances;
+  unsigned int min_match = o->min_match;
   unsigned long off = 0, pos = 0;
   Stream s[ENTROPY_STREAM_COUNT];
   BitReader raw_extra;
   ExtraReader extra;
 
-  if (!read_exact (in, h, BLOCK_PREFIX_N) || memcmp (h, "LZ9B", 4) != 0)
+  if (!read_exact (in, h, BLOCK_PREFIX_N))
     {
       return 0;
     }
 
-  type = h[4] & 3U;
+  type = h[0] & 3U;
 
   if (type == BLOCK_STORED)
     {
       unsigned long stored_bits, stored_bytes;
       BitReader r;
 
-      width = h[4] >> 2;
+      width = h[0] >> 2;
 
       if (width != 7U && width != 8U && width != 9U)
         {
@@ -3732,8 +4735,8 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
           return 0;
         }
 
-      n = load16 (h + 5);
-      expected = load32 (h + 7);
+      n = load16 (h + 1);
+      expected = load32 (h + 3);
 
       if (!n || n > max_n || n > BLOCK_N)
         {
@@ -3777,21 +4780,21 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       return 0;
     }
 
-  width = (h[4] >> 2) & 3U;
+  width = (h[0] >> 2) & 3U;
   aligned_distances
       = OUTPUT_AUTO_ALIGNED_DISTANCES (o)
-            ? ((h[4] & BLOCK_FLAG_ALIGNED_DISTANCES) != 0U)
+            ? ((h[0] & BLOCK_FLAG_ALIGNED_DISTANCES) != 0U)
             : OUTPUT_ALIGNED_DISTANCES (o);
-  n = load16 (h + 5);
-  q = load16 (h + 7);
-  desc_len = load16 (h + 9);
-  padding = load16 (h + 21);
-  expected = load32 (h + 23);
+  n = load16 (h + 1);
+  q = load16 (h + 3);
+  desc_len = load16 (h + 5);
+  padding = load16 (h + 17);
+  expected = load32 (h + 19);
 
-  if ((h[4] & 0xe0U)
-      || ((h[4] & BLOCK_FLAG_ALIGNED_DISTANCES)
+  if ((h[0] & 0xe0U)
+      || ((h[0] & BLOCK_FLAG_ALIGNED_DISTANCES)
           && !OUTPUT_AUTO_ALIGNED_DISTANCES (o))
-      || width != 0U || !n || n > max_n || n > BLOCK_N || q > n / 3U
+      || width != 0U || !n || n > max_n || n > BLOCK_N || q > n / min_match
       || desc_len > DESC_MAX || (padding & 0x8000U))
     {
       return 0;
@@ -3802,7 +4805,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       unsigned int pad = (padding >> (3U * i)) & 7U;
       unsigned long max_bits;
 
-      lengths[i] = load16 (h + 11 + 2U * i);
+      lengths[i] = load16 (h + 7 + 2U * i);
 
       if ((!lengths[i] && pad) || pad > lengths[i] * 8UL)
         {
@@ -3817,11 +4820,11 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
         }
       else if (i < STREAM_EXTRA)
         {
-          max_bits = (unsigned long)(BLOCK_N / 3U) * 10UL + TABLE_LOG;
+          max_bits = (unsigned long)(BLOCK_N / min_match) * 10UL + TABLE_LOG;
         }
       else
         {
-          max_bits = (unsigned long)(BLOCK_N / 3U) * 46UL;
+          max_bits = (unsigned long)(BLOCK_N / min_match) * 46UL;
         }
 
       if (bitlen[i] > max_bits || total + lengths[i] > STAGE_MAX)
@@ -3859,7 +4862,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
     {
       unsigned int kind = i;
 
-      if (!parse_descriptor (&s[i], &tables[i], kind, o->of_alphabet,
+      if (!parse_descriptor (&s[i], tables, kind, o->of_alphabet, o->phased,
                              desc, &off, desc_len))
         {
           return 0;
@@ -3897,7 +4900,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       {
         unsigned int j, lr, ml, d, code;
 
-        code = stream_get (&s[STREAM_LL]);
+        code = stream_get_ph (&s[STREAM_LL], (unsigned int)o->produced & 3U);
         lr = decode_len (code, 0, &extra);
 
         if (extra.failed || lr > n - produced)
@@ -3905,7 +4908,14 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
             return 0;
           }
 
-        if (stream_is_tans (s[STREAM_LIT].mode))
+        if (s[STREAM_LIT].mode == MODE_PHASED)
+          {
+            if (!decode_phased_literals (o, &s[STREAM_LIT], lr))
+              {
+                return 0;
+              }
+          }
+        else if (stream_is_tans (s[STREAM_LIT].mode))
           {
             for (j = 0; j < lr; ++j)
               {
@@ -3932,8 +4942,8 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
         produced += lr;
         literals += lr;
-        code = stream_get (&s[STREAM_ML]);
-        ml = decode_len (code, 3, &extra);
+        code = stream_get_ph (&s[STREAM_ML], (unsigned int)o->produced & 3U);
+        ml = decode_len (code, min_match, &extra);
         code = stream_get (&s[STREAM_OF]);
         d = decode_dist (code, &extra, o->reps, o->window_n,
                          o->of_alphabet, aligned_distances);
@@ -3943,7 +4953,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
               = (o->produced < o->window_n) ? (unsigned int)o->produced
                                             : o->window_n;
 
-          if (extra.failed || ml < 3 || ml > n - produced
+          if (extra.failed || ml < min_match || ml > n - produced
               || (d - 1U) >= max_d)
             {
               return 0;
@@ -3954,7 +4964,18 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
         produced += ml;
       }
 
-    if (stream_is_tans (s[STREAM_LIT].mode))
+    if (s[STREAM_LIT].mode == MODE_PHASED)
+      {
+        unsigned long rest = n - produced;
+
+        if (!decode_phased_literals (o, &s[STREAM_LIT], rest))
+          {
+            return 0;
+          }
+
+        literals += rest;
+      }
+    else if (stream_is_tans (s[STREAM_LIT].mode))
       {
         while (produced < n)
           {
@@ -4019,6 +5040,7 @@ allocated_encoder (Encoder *e, unsigned int window_n)
   e->stage = (unsigned char *)malloc (STAGE_MAX);
   e->desc = (unsigned char *)malloc (DESC_MAX);
   e->table = (AnsTable *)malloc (sizeof (AnsTable));
+  e->gtable = (AnsTable *)malloc (PHASE_GROUPS_MAX * sizeof (AnsTable));
 
   if (e->stage)
     {
@@ -4031,7 +5053,7 @@ allocated_encoder (Encoder *e, unsigned int window_n)
     }
 
   return e->buffer && e->seq && e->head && e->link && e->stage && e->desc
-         && e->table;
+         && e->table && e->gtable;
 }
 
 /*****************************************************************************/
@@ -4046,13 +5068,14 @@ free_encoder (Encoder *e)
   free (e->stage);
   free (e->desc);
   free (e->table);
+  free (e->gtable);
 }
 
 /*****************************************************************************/
 
 static int
 encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
-             int level, unsigned int window_n)
+             int level, unsigned int window_n, unsigned int features)
 {
   static const unsigned short depth[9] = { 2, 4, 8, 12, 24, 48, 96, 192, 512 };
   Encoder e;
@@ -4073,12 +5096,17 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   e.of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K
                                          : OF_ALPHABET_32K;
   e.input_mode = mode;
+  e.features = features;
+  e.min_match = (features & FEATURE_MIN_MATCH_2) ? MIN_MATCH_SHORT
+                                                 : MIN_MATCH_DEFAULT;
   (void)memcpy (hdr, "LZ9A", 4);
-  hdr[4] = FORMAT_V8;
+  hdr[4] = FORMAT_V9;
   hdr[5] = (unsigned char)mode;
   store16 (hdr + 6, FHEAD_N);
   store32 (hdr + 8, elements);
   hdr[12] = (unsigned char)((window_n == WINDOW_64K ? FEATURE_WINDOW_64K : 0U)
+                            | (features & (FEATURE_PHASED_TABLES
+                                           | FEATURE_MIN_MATCH_2))
                             | FEATURE_ALIGNED_DISTANCES
                             | FEATURE_AUTO_ALIGNED_DISTANCES);
   store32 (hdr + 13, crc_bytes (hdr, 13));
@@ -4098,6 +5126,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
       unsigned int hist_new;
 
       e.n = n;
+      e.frame_pos = done;
 
       if (mode == 8)
         {
@@ -4319,12 +5348,12 @@ decode_file (FILE *in, FILE *out)
   unsigned long total, done = 0;
   unsigned int feature_flags, window_n, header_len;
   unsigned char *stage = (unsigned char *)0, *desc = (unsigned char *)0;
-  AnsTable *tables = (AnsTable *)0;
+  DecTable *tables = (DecTable *)0;
   Output *o = (Output *)0;
   int okay = 0, unknown_count = 0;
 
   if (!read_exact (in, hdr, FRAME_HEADER_PREFIX_N)
-      || memcmp (hdr, "LZ9A", 4) != 0 || hdr[4] != FORMAT_V8
+      || memcmp (hdr, "LZ9A", 4) != 0 || hdr[4] != FORMAT_V9
       || (hdr[5] != 8 && hdr[5] != 9))
     {
       return 0;
@@ -4345,8 +5374,7 @@ decode_file (FILE *in, FILE *out)
   feature_flags = (unsigned int)hdr[12];
   total = load32 (hdr + 8);
 
-  if ((feature_flags & ~(FEATURE_WINDOW_64K | FEATURE_ALIGNED_DISTANCES
-                         | FEATURE_AUTO_ALIGNED_DISTANCES)) != 0U
+  if ((feature_flags & ~FEATURE_KNOWN_MASK) != 0U
       || ((feature_flags & FEATURE_AUTO_ALIGNED_DISTANCES)
           && !(feature_flags & FEATURE_ALIGNED_DISTANCES))
       || !parse_frame_extensions (hdr, header_len, total, &unknown_count)
@@ -4359,7 +5387,7 @@ decode_file (FILE *in, FILE *out)
       = (feature_flags & FEATURE_WINDOW_64K) ? WINDOW_64K : WINDOW_DEFAULT;
   stage = (unsigned char *)malloc (STAGE_MAX);
   desc = (unsigned char *)malloc (DESC_MAX);
-  tables = (AnsTable *)malloc (ENTROPY_STREAM_COUNT * sizeof (AnsTable));
+  tables = (DecTable *)malloc (DEC_TABLE_COUNT * sizeof (DecTable));
   o = (Output *)calloc (1U, sizeof (Output));
 
   if (!stage || !desc || !tables || !o)
@@ -4367,7 +5395,8 @@ decode_file (FILE *in, FILE *out)
       goto cleanup;
     }
 
-  (void)memset (tables, 0, ENTROPY_STREAM_COUNT * sizeof (AnsTable));
+  (void)memset (tables, 0, DEC_TABLE_COUNT * sizeof (DecTable));
+  dec_poison (tables + DEC_POISON_SLOT, 512U);
 
   o->out = out;
   o->out_mode = hdr[5];
@@ -4379,6 +5408,9 @@ decode_file (FILE *in, FILE *out)
   o->window_n = window_n;
   o->of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K
                                           : OF_ALPHABET_32K;
+  o->min_match = (feature_flags & FEATURE_MIN_MATCH_2) ? MIN_MATCH_SHORT
+                                                       : MIN_MATCH_DEFAULT;
+  o->phased = (feature_flags & FEATURE_PHASED_TABLES) != 0U;
   o->ring = (unsigned short *)calloc (window_n, sizeof (unsigned short));
 
   if (!o->ring)
@@ -4491,6 +5523,14 @@ input_count (FILE *in, unsigned int mode, unsigned long *count)
 
 /*****************************************************************************/
 
+static unsigned int
+default_features (int level)
+{
+  return level >= 6 ? FEATURE_PHASED_TABLES | FEATURE_MIN_MATCH_2 : 0U;
+}
+
+/*****************************************************************************/
+
 int
 main (int argc, char **argv)
 {
@@ -4499,6 +5539,7 @@ main (int argc, char **argv)
   unsigned int mode = 0;
   int level = 5, verbose = 0, level_seen = 0, window_seen = 0, i, okay;
   unsigned int window_n = WINDOW_DEFAULT;
+  unsigned int features;
   clock_t start, finish;
 
   if ((argc == 2 && !strcmp (argv[1], "--memory"))
@@ -4513,12 +5554,13 @@ main (int argc, char **argv)
             + (unsigned long)SEQ_MAX * sizeof (Sequence)
             + (unsigned long)HASH_N * sizeof (int)
             + (unsigned long)win * sizeof (int) + STAGE_MAX + DESC_MAX
-            + (unsigned long)sizeof (AnsTable);
+            + (unsigned long)sizeof (AnsTable)
+            + (unsigned long)PHASE_GROUPS_MAX * sizeof (AnsTable);
       unsigned long dec = (unsigned long)sizeof (Output)
                           + (unsigned long)win * sizeof (unsigned short)
                           + STAGE_MAX + DESC_MAX
-                          + (unsigned long)ENTROPY_STREAM_COUNT
-                            * sizeof (AnsTable)
+                          + (unsigned long)DEC_TABLE_COUNT
+                            * sizeof (DecTable)
                           + (unsigned long)ENTROPY_STREAM_COUNT
                             * sizeof (Stream);
       (void)printf (
@@ -4558,7 +5600,6 @@ main (int argc, char **argv)
       (void)fprintf (stderr,
               "  --window=<32k|64k>:"
               "  use 32k or 64k symbol history window (default: 32k)\n");
-
       return 2;
     }
 
@@ -4670,12 +5711,14 @@ main (int argc, char **argv)
       return 2;
     }
 
+  features = default_features (level);
   init_crc ();
+  init_costs ();
   start = clock ();
 
   if (mode)
     {
-      okay = encode_file (in, out, mode, count, level, window_n);
+      okay = encode_file (in, out, mode, count, level, window_n, features);
     }
   else
     {

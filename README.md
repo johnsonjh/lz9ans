@@ -11,8 +11,8 @@ designed to efficiently compress **9‑bit** mainframe input data (*e.g.*,
 hardware and software.
 
 It features two window sizes (32&nbsp;KiB and 64&nbsp;KiB), deterministic
-runtime memory usage (compressing in 606&nbsp;KiB or 798&nbsp;KiB,
-decompressing in 206&nbsp;KiB or 270&nbsp;KiB), 8‑bit data compatibility,
+runtime memory usage (compressing in 663&nbsp;KiB or 855&nbsp;KiB,
+decompressing in 209&nbsp;KiB or 273&nbsp;KiB), 8‑bit data compatibility,
 word‑aligned offset optimizations for data with 36‑bit boundaries, and fast
 decompression speeds.
 
@@ -29,34 +29,34 @@ reference implementation offering nine different compression profiles: four
 ## Performance
 
 **LZ9ANS‑32K** (corpus of `446,584,168` input bits)
-[**606** **KiB** memory usage]:
+[**663** **KiB** encoder state; **209** **KiB** decoder state]:
 
 |    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
 |---------:|:---------------:|:---------:|:---------:|---------------:|
-| **`‑1`** |  `156,524,320`  | `64.951%` | `2.853:1` | `‑290,059,848` |
-| **`‑2`** |  `153,334,488`  | `65.665%` | `2.912:1` |   `‑3,189,832` |
-| **`‑3`** |  `151,348,568`  | `66.110%` | `2.951:1` |   `‑1,985,920` |
-| **`‑4`** |  `150,173,456`  | `66.373%` | `2.974:1` |   `‑1,175,112` |
-| **`‑5`** |  `144,212,568`  | `67.708%` | `3.097:1` |   `‑5,960,888` |
-| **`‑6`** |  `143,597,728`  | `67.845%` | `3.110:1` |     `‑614,840` |
-| **`‑7`** |  `143,247,824`  | `67.924%` | `3.118:1` |     `‑349,904` |
-| **`‑8`** |  `142,979,328`  | `67.984%` | `3.123:1` |     `‑268,496` |
-| **`‑9`** |  `142,759,776`  | `68.033%` | `3.128:1` |     `‑205,480` |
+| **`‑1`** |  `156,469,760`  | `64.963%` | `2.854:1` | `‑290,114,408` |
+| **`‑2`** |  `153,279,928`  | `65.677%` | `2.914:1` |   `‑3,189,832` |
+| **`‑3`** |  `151,294,008`  | `66.122%` | `2.952:1` |   `‑1,985,920` |
+| **`‑4`** |  `150,118,896`  | `66.385%` | `2.975:1` |   `‑1,175,112` |
+| **`‑5`** |  `144,158,008`  | `67.720%` | `3.098:1` |   `‑5,960,888` |
+| **`‑6`** |  `140,781,144`  | `68.476%` | `3.172:1` |   `‑3,376,864` |
+| **`‑7`** |  `140,425,104`  | `68.556%` | `3.180:1` |     `‑356,040` |
+| **`‑8`** |  `140,142,088`  | `68.619%` | `3.187:1` |     `‑283,016` |
+| **`‑9`** |  `139,847,432`  | `68.685%` | `3.193:1` |     `‑294,656` |
 
 **LZ9ANS‑64K** (corpus of `446,584,168` input bits)
-[**798** **KiB** memory usage]:
+[**855** **KiB** encoder state; **273** **KiB** decoder state]:
 
 |    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
 |---------:|:---------------:|:---------:|:---------:|---------------:|
-| **`‑1`** |  `155,032,776`  | `65.285%` | `2.881:1` | `‑291,551,392` |
-| **`‑2`** |  `151,466,024`  | `66.083%` | `2.948:1` |   `‑3,566,752` |
-| **`‑3`** |  `149,144,208`  | `66.603%` | `2.994:1` |   `‑2,321,816` |
-| **`‑4`** |  `147,680,264`  | `66.931%` | `3.024:1` |   `‑1,463,944` |
-| **`‑5`** |  `140,692,744`  | `68.496%` | `3.174:1` |   `‑6,987,520` |
-| **`‑6`** |  `139,938,088`  | `68.665%` | `3.191:1` |     `‑754,656` |
-| **`‑7`** |  `139,483,248`  | `68.767%` | `3.202:1` |     `‑454,840` |
-| **`‑8`** |  `139,146,440`  | `68.842%` | `3.209:1` |     `‑336,808` |
-| **`‑9`** |  `138,890,944`  | `68.899%` | `3.215:1` |     `‑240,992` |
+| **`‑1`** |  `154,978,216`  | `65.297%` | `2.882:1` | `‑291,605,952` |
+| **`‑2`** |  `151,411,464`  | `66.096%` | `2.949:1` |   `‑3,566,752` |
+| **`‑3`** |  `149,089,648`  | `66.616%` | `2.995:1` |   `‑2,321,816` |
+| **`‑4`** |  `147,625,704`  | `66.943%` | `3.025:1` |   `‑1,463,944` |
+| **`‑5`** |  `140,638,184`  | `68.508%` | `3.175:1` |   `‑6,987,520` |
+| **`‑6`** |  `137,295,304`  | `69.257%` | `3.253:1` |   `‑3,342,880` |
+| **`‑7`** |  `136,834,096`  | `69.360%` | `3.264:1` |     `‑461,208` |
+| **`‑8`** |  `136,477,824`  | `69.440%` | `3.272:1` |     `‑356,272` |
+| **`‑9`** |  `136,155,360`  | `69.512%` | `3.280:1` |     `‑322,464` |
 
 On Multics (and OS2200) systems, an **11%** on‑disk savings can be realized by
 packing the 8‑bit **LZ9ANS** output stream to a more compact (but less
@@ -70,20 +70,20 @@ settings), as well as **LZ9ANS** operating in 8‑bit mode:
 
 |      Utility | Algorithm              | Compressed bits | Memory           | Performance      |
 |-------------:|:-----------------------|:---------------:|-----------------:|-----------------:|
-| `lzfx`       | LZF&nbsp;(LZSS)        |  `281,115,248`  |      70&nbsp;KiB | 102%&nbsp;larger |
-| `compress`   | LZW                    |  `279,608,608`  |     400&nbsp;KiB | 101%&nbsp;larger |
-| `lz4`        | LZ77+VLE               |  `221,797,064`  |     512&nbsp;KiB |  60%&nbsp;larger |
-| `lzop`       | LZO1X&nbsp;(LZ77+BC)   |  `212,130,184`  |      70&nbsp;KiB |  53%&nbsp;larger |
-| `gzip`       | DEFLATE&nbsp;(LZ77+HC) |  `202,579,712`  |     350&nbsp;KiB |  46%&nbsp;larger |
-| `lzfse`      | LZFSE&nbsp;(LZ77+FSE)  |  `194,587,720`  |      74&nbsp;KiB |  40%&nbsp;larger |
-| **`lz9ans`** | **LZ9ANS‑32K**         |  `192,950,176`  | **606&nbsp;KiB** |  39%&nbsp;larger |
-| **`lz9ans`** | **LZ9ANS‑64K**         |  `185,895,464`  | **798&nbsp;KiB** |  34%&nbsp;larger |
-| `bzip2`      | BWT+MTF+HC             |  `177,850,592`  |     1.2&nbsp;MiB |  28%&nbsp;larger |
-| `zstd`       | LZ77+HC+FSE            |  `170,129,736`  |      10&nbsp;MiB |  23%&nbsp;larger |
-| `bzip3`      | BWT+LZP+CM             |  `169,815,400`  |     8.2&nbsp;MiB |  22%&nbsp;larger |
-| `brotli`     | LZ77+HC+CD             |  `161,977,528`  |     210&nbsp;MiB |  17%&nbsp;larger |
-| `lzip`       | LZMA&nbsp;(LZ77+MA+RC) |  `158,016,800`  |      13&nbsp;MiB |  14%&nbsp;larger |
-| `zpaq`       | M5&nbsp;(CM+AC)        |  `131,954,176`  |     246&nbsp;MiB |  5%&nbsp;smaller |
+| `lzfx`       | LZF&nbsp;(LZSS)        |  `281,115,248`  |      70&nbsp;KiB | 106%&nbsp;larger |
+| `compress`   | LZW                    |  `279,608,608`  |     400&nbsp;KiB | 106%&nbsp;larger |
+| `lz4`        | LZ77+VLE               |  `221,797,064`  |     512&nbsp;KiB |  63%&nbsp;larger |
+| `lzop`       | LZO1X&nbsp;(LZ77+BC)   |  `212,130,184`  |      70&nbsp;KiB |  56%&nbsp;larger |
+| `gzip`       | DEFLATE&nbsp;(LZ77+HC) |  `202,579,712`  |     350&nbsp;KiB |  49%&nbsp;larger |
+| `lzfse`      | LZFSE&nbsp;(LZ77+FSE)  |  `194,587,720`  |      74&nbsp;KiB |  43%&nbsp;larger |
+| **`lz9ans`** | **LZ9ANS‑32K**         |  `191,003,576`  | **663&nbsp;KiB** |  40%&nbsp;larger |
+| **`lz9ans`** | **LZ9ANS‑64K**         |  `184,093,112`  | **855&nbsp;KiB** |  35%&nbsp;larger |
+| `bzip2`      | BWT+MTF+HC             |  `177,850,592`  |     1.2&nbsp;MiB |  31%&nbsp;larger |
+| `zstd`       | LZ77+HC+FSE            |  `170,129,736`  |      10&nbsp;MiB |  26%&nbsp;larger |
+| `bzip3`      | BWT+LZP+CM             |  `169,815,400`  |     8.2&nbsp;MiB |  25%&nbsp;larger |
+| `brotli`     | LZ77+HC+CD             |  `161,977,528`  |     210&nbsp;MiB |  19%&nbsp;larger |
+| `lzip`       | LZMA&nbsp;(LZ77+MA+RC) |  `158,016,800`  |      13&nbsp;MiB |  16%&nbsp;larger |
+| `zpaq`       | M5&nbsp;(CM+AC)        |  `131,954,176`  |     246&nbsp;MiB |  3%&nbsp;smaller |
 
 <sup>Performance percentages above are relative to maximum 9‑bit **LZ9ANS**
 performance.</sup>

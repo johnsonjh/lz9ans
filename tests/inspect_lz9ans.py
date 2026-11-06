@@ -41,46 +41,45 @@ def frame_header(data):
 
 
 def block_header(data, position):
-    check(position + 7 <= len(data), "truncated block prefix")
-    check(data[position : position + 4] == b"LZ9B", "invalid block magic")
-    block_type = data[position + 4] & 3
+    check(position + 3 <= len(data), "truncated block prefix")
+    block_type = data[position] & 3
     if block_type == 0:
-        header_size = 11
+        header_size = 7
         check(position + header_size <= len(data), "truncated STORED header")
         h = data[position : position + header_size]
         result = {
             "type": 0,
-            "width": h[4] >> 2,
-            "n": u16(h, 5),
+            "width": h[0] >> 2,
+            "n": u16(h, 1),
             "q": 0,
             "desc_length": 0,
-            "byte_lengths": (((u16(h, 5) * (h[4] >> 2) + 7) // 8), 0, 0, 0, 0),
+            "byte_lengths": (((u16(h, 1) * (h[0] >> 2) + 7) // 8), 0, 0, 0, 0),
             "bit_lengths": (0, 0, 0, 0, 0),
-            "crc": u32(h, 7),
+            "crc": u32(h, 3),
             "header_size": header_size,
         }
         result["bit_lengths"] = (result["n"] * result["width"], 0, 0, 0, 0)
     elif block_type == 1:
-        header_size = 27
+        header_size = 23
         check(position + header_size <= len(data), "truncated LZ header")
         h = data[position : position + header_size]
-        n, q, desc_length = struct.unpack_from("<HHH", h, 5)
-        byte_lengths = struct.unpack_from("<5H", h, 11)
-        padding = u16(h, 21)
+        n, q, desc_length = struct.unpack_from("<HHH", h, 1)
+        byte_lengths = struct.unpack_from("<5H", h, 7)
+        padding = u16(h, 17)
         bit_lengths = tuple(
             byte_lengths[i] * 8 - ((padding >> (3 * i)) & 7) for i in range(5)
         )
         result = {
             "type": 1,
-            "width": (h[4] >> 2) & 3,
-            "aligned": bool(h[4] & 16),
+            "width": (h[0] >> 2) & 3,
+            "aligned": bool(h[0] & 16),
             "n": n,
             "q": q,
             "desc_length": desc_length,
             "byte_lengths": byte_lengths,
             "bit_lengths": bit_lengths,
             "padding": padding,
-            "crc": u32(h, 23),
+            "crc": u32(h, 19),
             "header_size": header_size,
         }
     else:
@@ -162,13 +161,70 @@ def build_transition(freq):
     return transition
 
 
-def parse_descriptor(desc, position, kind, alphabet, table_cache):
+# Phased entropy tables (FORMAT.md 10.9): per stream kind, the valid
+# partitions, each given as the group index of phases 0..3.  Group tables live
+# in table_cache slots PHASE_BASE[kind] + group, persisting across blocks.
+
+PHASE_PARTITIONS = {
+    0: ([0, 1, 0, 0], [0, 1, 0, 1]),
+    1: ([0, 1, 0, 1],),
+    2: ([0, 0, 1, 1],),
+}
+PHASE_BASE = {0: 4, 1: 6, 2: 8}
+
+
+def parse_tans_model(desc, position, kind, alphabet):
+    """Parse one mode-3 model body (after the mode octet) -> (transition, position)."""
+    bitmap_bytes = (alphabet + 7) // 8
+    check(position + bitmap_bytes <= len(desc), "truncated table bitmap")
+    bitmap = desc[position : position + bitmap_bytes]
+    position += bitmap_bytes
+    if alphabet % 8:
+        check(
+            not (bitmap[-1] & ((1 << (8 - alphabet % 8)) - 1)),
+            "nonzero unused bitmap bits",
+        )
+    present = [
+        symbol
+        for symbol in range(alphabet)
+        if bitmap[symbol // 8] & (1 << (7 - symbol % 8))
+    ]
+    check(2 <= len(present) <= alphabet, "bad table occupancy")
+    freq = [0] * alphabet
+    bits = Bits(desc[position:], (len(desc) - position) * 8)
+    assigned = 0
+    remaining = len(present)
+    for symbol in present:
+        if kind == 0:
+            zeros = 0
+            while bits.get(1) == 0:
+                zeros += 1
+                check(zeros <= 10, "oversized Elias-gamma frequency")
+            value = (1 << zeros) | bits.get(zeros)
+        else:
+            remaining -= 1
+            limit = 1024 - assigned - remaining
+            value = truncated_value(bits, limit) + 1
+        check(1 <= value <= 1024 - assigned, "invalid normalized frequency")
+        freq[symbol] = value
+        assigned += value
+    check(assigned == 1024, "bad normalized frequency sum")
+    padding = (-bits.position) & 7
+    if padding:
+        check(bits.get(padding) == 0, "nonzero descriptor padding")
+    position += bits.position // 8
+    return build_transition(freq), position
+
+
+def parse_descriptor(
+    desc, position, kind, alphabet, table_cache, phased=False, stats=None
+):
     check(position < len(desc), "truncated descriptor")
     mode = desc[position]
     position += 1
     symbol = width = None
     transition = None
-    check(mode in (0, 1, 2, 3, 4), "invalid entropy mode")
+    check(mode in (0, 1, 2, 3, 4, 5), "invalid entropy mode")
     if mode == 0:
         pass
     elif mode == 1:
@@ -183,46 +239,42 @@ def parse_descriptor(desc, position, kind, alphabet, table_cache):
     elif mode == 4:
         transition = table_cache[kind]
         check(transition is not None, "reuse before table initialization")
-    else:
-        bitmap_bytes = (alphabet + 7) // 8
-        check(position + bitmap_bytes <= len(desc), "truncated table bitmap")
-        bitmap = desc[position : position + bitmap_bytes]
-        position += bitmap_bytes
-        if alphabet % 8:
-            check(
-                not (bitmap[-1] & ((1 << (8 - alphabet % 8)) - 1)),
-                "nonzero unused bitmap bits",
-            )
-        present = [
-            symbol
-            for symbol in range(alphabet)
-            if bitmap[symbol // 8] & (1 << (7 - symbol % 8))
-        ]
-        check(2 <= len(present) <= alphabet, "bad table occupancy")
-        freq = [0] * alphabet
-        bits = Bits(desc[position:], (len(desc) - position) * 8)
-        assigned = 0
-        remaining = len(present)
-        for symbol in present:
-            if kind == 0:
-                zeros = 0
-                while bits.get(1) == 0:
-                    zeros += 1
-                    check(zeros <= 10, "oversized Elias-gamma frequency")
-                value = (1 << zeros) | bits.get(zeros)
+        if stats is not None:
+            stats["normal_reuse"] += 1
+    elif mode == 5:
+        check(phased and kind in PHASE_PARTITIONS, "phased table not allowed")
+        check(position < len(desc), "truncated phased descriptor")
+        pid = desc[position]
+        position += 1
+        check(pid < len(PHASE_PARTITIONS[kind]), "invalid phase partition")
+        gmap = PHASE_PARTITIONS[kind][pid]
+        groups = []
+        live = 0
+        for group in range(max(gmap) + 1):
+            check(position < len(desc), "truncated phased group")
+            sub = desc[position]
+            position += 1
+            slot = PHASE_BASE[kind] + group
+            if sub == 3:
+                table, position = parse_tans_model(desc, position, kind, alphabet)
+                table_cache[slot] = table
+                groups.append(table)
+                live += 1
+            elif sub == 4:
+                check(
+                    table_cache[slot] is not None, "group reuse before initialization"
+                )
+                groups.append(table_cache[slot])
+                live += 1
+                if stats is not None:
+                    stats["phased_group_reuse"] += 1
             else:
-                remaining -= 1
-                limit = 1024 - assigned - remaining
-                value = truncated_value(bits, limit) + 1
-            check(1 <= value <= 1024 - assigned, "invalid normalized frequency")
-            freq[symbol] = value
-            assigned += value
-        check(assigned == 1024, "bad normalized frequency sum")
-        padding = (-bits.position) & 7
-        if padding:
-            check(bits.get(padding) == 0, "nonzero descriptor padding")
-        position += bits.position // 8
-        transition = build_transition(freq)
+                check(sub == 0, "invalid phased group mode")
+                groups.append(None)
+        check(live > 0, "phased descriptor without a model")
+        transition = [groups[gmap[phase]] for phase in range(4)]
+    else:
+        transition, position = parse_tans_model(desc, position, kind, alphabet)
         table_cache[kind] = transition
     return (mode, symbol, width, transition), position
 
@@ -232,10 +284,10 @@ class Symbols:
         self.count = count
         self.used = 0
         self.mode, self.symbol, self.width, self.transition = descriptor
-        self.bits = Bits(data, meaningful, self.mode in (3, 4))
-        self.state = self.bits.get(10) if self.mode in (3, 4) else 0
+        self.bits = Bits(data, meaningful, self.mode in (3, 4, 5))
+        self.state = self.bits.get(10) if self.mode in (3, 4, 5) else 0
 
-    def get(self):
+    def get(self, phase=0):
         if self.count is not None:
             check(self.used < self.count, "too many entropy symbols")
         self.used += 1
@@ -243,8 +295,10 @@ class Symbols:
             return self.bits.get(self.width)
         if self.mode == 2:
             return self.symbol
-        check(self.mode in (3, 4), "read from empty entropy stream")
-        symbol, count, baseline = self.transition[self.state]
+        check(self.mode in (3, 4, 5), "read from empty entropy stream")
+        table = self.transition[phase] if self.mode == 5 else self.transition
+        check(table is not None, "symbol from an empty phase group")
+        symbol, count, baseline = table[self.state]
         self.state = baseline + self.bits.get(count)
         check(self.state < 1024, "ANS state out of range")
         return symbol
@@ -255,7 +309,7 @@ class Symbols:
             check(self.used == count, "wrong entropy symbol count")
             check((self.mode == 0) == (count == 0), "empty descriptor mismatch")
         self.bits.finish()
-        if self.mode in (3, 4):
+        if self.mode in (3, 4, 5):
             check(self.state == 0, "bad terminal ANS state")
 
 
@@ -322,7 +376,7 @@ def decode(data):
     version, mode = data[4], data[5]
     header_length = u16(data, 6)
     check(
-        version == 8
+        version == 9
         and mode in (8, 9)
         and 17 <= header_length <= 4096
         and header_length <= len(data),
@@ -333,7 +387,9 @@ def decode(data):
         zlib.crc32(data[: header_length - 4]) == u32(data, header_length - 4),
         "corrupt frame header",
     )
-    check((flags & ~0x19) == 0, "unsupported or reserved feature flags")
+    check((flags & ~0x1F) == 0, "unsupported or reserved feature flags")
+    phased = bool(flags & 2)
+    min_match = 2 if flags & 4 else 3
     auto_aligned = bool(flags & 16)
     aligned_global = bool(flags & 8)
     check(not auto_aligned or aligned_global, "invalid auto-alignment flags")
@@ -345,22 +401,21 @@ def decode(data):
     output = []
     reps = [0, 0, 0]
     stats = Counter()
-    table_cache = [None] * 4
+    table_cache = [None] * 10
 
     while len(output) < target:
-        check(position + 7 <= len(data), "missing block prefix")
-        prefix = data[position : position + 7]
-        check(prefix[:4] == b"LZ9B", "invalid block magic")
-        block_type = prefix[4] & 3
+        check(position + 3 <= len(data), "missing block prefix")
+        prefix = data[position : position + 3]
+        block_type = prefix[0] & 3
         block_start = len(output)
 
         if block_type == 0:
-            check(position + 11 <= len(data), "truncated STORED header")
-            h = data[position : position + 11]
-            position += 11
-            width = h[4] >> 2
-            n = u16(h, 5)
-            expected_crc = u32(h, 7)
+            check(position + 7 <= len(data), "truncated STORED header")
+            h = data[position : position + 7]
+            position += 7
+            width = h[0] >> 2
+            n = u16(h, 1)
+            expected_crc = u32(h, 3)
             check(0 < n <= min(32768, target - len(output)), "bad STORED dimensions")
             check(width in (7, 8, 9), "bad STORED width")
             meaningful = n * width
@@ -378,32 +433,34 @@ def decode(data):
                 output.append(value)
             bits.finish()
         elif block_type == 1:
-            check(position + 27 <= len(data), "truncated LZ header")
-            h = data[position : position + 27]
-            position += 27
-            check((h[4] & 0xE0) == 0, "invalid LZ block flags")
-            width = (h[4] >> 2) & 3
-            block_aligned = bool(h[4] & 16)
+            check(position + 23 <= len(data), "truncated LZ header")
+            h = data[position : position + 23]
+            position += 23
+            check((h[0] & 0xE0) == 0, "invalid LZ block flags")
+            width = (h[0] >> 2) & 3
+            block_aligned = bool(h[0] & 16)
             check(width == 0, "nonzero LZ block width")
             check(
                 not block_aligned or auto_aligned,
                 "block alignment flag without per-block mode",
             )
             aligned_distances = block_aligned if auto_aligned else aligned_global
-            n, sequence_count, desc_length = struct.unpack_from("<HHH", h, 5)
-            byte_lengths = struct.unpack_from("<5H", h, 11)
-            padding = u16(h, 21)
-            expected_crc = u32(h, 23)
+            n, sequence_count, desc_length = struct.unpack_from("<HHH", h, 1)
+            byte_lengths = struct.unpack_from("<5H", h, 7)
+            padding = u16(h, 17)
+            expected_crc = u32(h, 19)
             check(
                 0 < n <= min(32768, target - len(output))
-                and sequence_count <= n // 3
+                and sequence_count <= n // min_match
                 and desc_length <= 8192
                 and (padding & 0x8000) == 0,
                 "bad LZ block dimensions",
             )
             meaningful_lengths = []
             max_bits = (
-                [32768 * 10 + 10] + [32768 // 3 * 10 + 10] * 3 + [32768 // 3 * 46]
+                [32768 * 10 + 10]
+                + [32768 // min_match * 10 + 10] * 3
+                + [32768 // min_match * 46]
             )
             for index, byte_length in enumerate(byte_lengths):
                 pad = (padding >> (3 * index)) & 7
@@ -431,9 +488,11 @@ def decode(data):
             for kind in kinds:
                 alphabet = 512 if kind == 0 else of_alphabet if kind == 3 else 32
                 descriptor, index = parse_descriptor(
-                    desc, index, kind, alphabet, table_cache
+                    desc, index, kind, alphabet, table_cache, phased, stats
                 )
                 descriptors.append(descriptor)
+                if descriptor[0] == 5:
+                    stats[f"phased_kind{kind}"] += 1
             check(index == len(desc), "extra entropy descriptor bytes")
             for stream_descriptor in descriptors[1:]:
                 check(
@@ -448,10 +507,10 @@ def decode(data):
             used_literals = 0
             produced = 0
             for _ in range(sequence_count):
-                run = decode_length(streams[1].get(), 0, extra)
+                run = decode_length(streams[1].get(len(output) & 3), 0, extra)
                 check(produced + run <= n, "invalid literal run")
                 for _ in range(run):
-                    value = streams[0].get()
+                    value = streams[0].get(len(output) & 3)
                     check(
                         value < (256 if mode == 8 else 512),
                         "literal exceeds frame input width",
@@ -459,8 +518,12 @@ def decode(data):
                     output.append(value)
                 used_literals += run
                 produced += run
-                match_length = decode_length(streams[2].get(), 3, extra)
+                match_length = decode_length(
+                    streams[2].get(len(output) & 3), min_match, extra
+                )
                 stats["match_lt19" if match_length < 19 else "match_ge19"] += 1
+                if match_length == 2:
+                    stats["match_2"] += 1
                 code = streams[3].get()
                 stats[f"offset_{code}"] += 1
                 if code <= 2:
@@ -499,7 +562,7 @@ def decode(data):
                 check(
                     1 <= distance <= window
                     and distance <= len(output)
-                    and match_length >= 3
+                    and match_length >= min_match
                     and produced + match_length <= n,
                     "invalid match length or distance",
                 )
@@ -508,7 +571,7 @@ def decode(data):
                 produced += match_length
             trailing = n - produced
             for _ in range(trailing):
-                value = streams[0].get()
+                value = streams[0].get(len(output) & 3)
                 check(
                     value < (256 if mode == 8 else 512),
                     "terminal literal exceeds frame input width",

@@ -65,23 +65,27 @@ def main():
             f"{len(encoded32)} bytes; offset_19={stats32['offset_19']}"
         )
 
-        # A v7 frame must not be accepted by the v8 implementation. Recompute
-        # the header CRC so rejection is specifically for the version number.
-        bad_version = bytearray(encoded32)
-        bad_version[4] = 7
+        # No previous frame version is accepted. Recompute the header CRC so
+        # rejection is specifically for the version number.
         import zlib
 
-        bad_version[13:17] = zlib.crc32(bad_version[:13]).to_bytes(4, "little")
-        archive.write_bytes(bad_version)
-        result = run(binary, "d", archive, recovered)
-        assert result.returncode != 0, "C decoder accepted v7 frame"
-        try:
-            decode(bytes(bad_version))
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("independent decoder accepted v7 frame")
-        print("PASS explicit rejection of version 7")
+        for old_version in (7, 8):
+            bad_version = bytearray(encoded32)
+            bad_version[4] = old_version
+            bad_version[13:17] = zlib.crc32(bad_version[:13]).to_bytes(4, "little")
+            archive.write_bytes(bad_version)
+            result = run(binary, "d", archive, recovered)
+            assert result.returncode != 0, f"C decoder accepted v{old_version} frame"
+            try:
+                decode(bytes(bad_version))
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(
+                    f"independent decoder accepted v{old_version} frame"
+                )
+
+        print("PASS explicit rejection of previous frame versions")
 
 
 if __name__ == "__main__":

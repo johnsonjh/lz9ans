@@ -33,18 +33,17 @@ def run(*args, expect=0):
 
 def stored9_block(symbols):
     payload = pack9(symbols)
-    header = bytearray(11)
-    header[:4] = b"LZ9B"
-    header[4] = 9 << 2
-    struct.pack_into("<H", header, 5, len(symbols))
-    struct.pack_into("<I", header, 7, zlib.crc32(payload))
+    header = bytearray(7)
+    header[0] = 9 << 2
+    struct.pack_into("<H", header, 1, len(symbols))
+    struct.pack_into("<I", header, 3, zlib.crc32(payload))
     return bytes(header) + payload
 
 
 def split_block_frame(blocks, total):
     header = bytearray(17)
     header[:4] = b"LZ9A"
-    header[4] = 8
+    header[4] = 9
     header[5] = 9
     struct.pack_into("<H", header, 6, len(header))
     struct.pack_into("<I", header, 8, total)
@@ -75,7 +74,7 @@ def main():
             run("d", archive, decoded)
             assert decoded.read_bytes() == raw, count
 
-        # A valid v8 frame may have short non-final blocks.  These deliberately
+        # A valid v9 frame may have short non-final blocks.  These deliberately
         # chosen block lengths leave a partial packed-9 byte at the boundary,
         # exercising the bulk output packer's carry-in path.
         first_symbols = [rng.randrange(512) for _ in range(11)]
@@ -136,7 +135,7 @@ def main():
         damaged = bytearray(archive.read_bytes())
         position = frame_header(damaged)["length"]
         header = block_header(damaged, position)
-        crc_offset = position + (7 if header["type"] == 0 else 23)
+        crc_offset = position + (3 if header["type"] == 0 else 19)
         damaged[crc_offset] ^= 1
         archive.write_bytes(damaged)
         run("d", archive, decoded, expect=1)

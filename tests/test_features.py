@@ -43,7 +43,7 @@ def aligned_block_flags(data):
     while position < len(data):
         header = block_header(data, position)
         block_type = header["type"]
-        assert header["header_size"] == (11 if block_type == 0 else 27)
+        assert header["header_size"] == (7 if block_type == 0 else 23)
         flags.append((block_type, bool(block_type == 1 and header.get("aligned"))))
         position = header["next_position"]
     assert position == len(data)
@@ -68,25 +68,35 @@ def main():
         previous = record
     short_long = bytes(short_long)
 
-    # V8 uses a one-octet frame feature mask. Bits 3 and 4 advertise
-    # automatic per-block aligned-distance selection.
+    # V9 uses a one-octet frame feature mask. Bits 3 and 4 advertise
+    # automatic per-block aligned-distance selection. Bits 1 and 2 advertise
+    # phased entropy tables and two-symbol matches, enabled only at levels 6-9.
     cases = [
-        ("base-8", 8, bytes(range(256)) * 400, [], 24),
-        ("base-9", 9, packed9, [], 24),
-        ("window32-explicit", 8, block_a + block_a, ["--window=32k"], 24),
-        ("window64-exact32k", 8, block_a + block_a, ["--window=64k"], 25),
-        ("window64-exact64k", 8, block_a + block_b + block_a, ["--window=64k"], 25),
-        ("raw-extra", 8, short_long, [], 24),
+        ("level5-8", 8, bytes(range(256)) * 400, "-5", [], 24),
+        ("level6-8", 8, bytes(range(256)) * 400, "-6", [], 30),
+        ("level5-9", 9, packed9, "-5", [], 24),
+        ("level6-9", 9, packed9, "-6", [], 30),
+        ("window32-explicit", 8, block_a + block_a, "-6", ["--window=32k"], 30),
+        ("window64-exact32k", 8, block_a + block_a, "-6", ["--window=64k"], 31),
+        (
+            "window64-exact64k",
+            8,
+            block_a + block_b + block_a,
+            "-6",
+            ["--window=64k"],
+            31,
+        ),
+        ("raw-extra", 8, short_long, "-6", [], 30),
     ]
-    with tempfile.TemporaryDirectory(prefix="lz9ans-v8-test-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="lz9ans-v9-test-") as temporary:
         temp = Path(temporary)
         source, archive, decoded = (temp / name for name in ("in", "arc", "out"))
-        for name, mode, raw, options, flags in cases:
+        for name, mode, raw, level, options, flags in cases:
             source.write_bytes(raw)
-            run("c" + str(mode), source, archive, "-6", *options)
+            run("c" + str(mode), source, archive, level, *options)
             data = archive.read_bytes()
             assert data[:4] == b"LZ9A"
-            assert data[4] == 8, (name, "encoder did not emit v8")
+            assert data[4] == 9, (name, "encoder did not emit v9")
             assert struct.unpack_from("<H", data, 6)[0] == 17
             assert data[12] == flags, (name, "wrong flags")
             header_length = frame_header(data)["length"]
@@ -195,6 +205,43 @@ def main():
             len(reuse_frame),
         )
 
+        # At levels 6-9, a cached table may be selected for a different
+        # normalized histogram when trial encoding proves that its payload
+        # plus the one-octet REUSE descriptor is smaller.  The input keeps
+        # the same 256-symbol support in each region while shifting two
+        # frequencies enough to produce a distinct model.
+        base_counts = [128] * 256
+        first_counts = base_counts[:]
+        first_counts[0] += 1024
+        first_counts[1] -= 1024
+        second_counts = base_counts[:]
+        second_counts[2] += 1024
+        second_counts[3] -= 1024
+
+        def histogram_values(counts, seed):
+            values = []
+            for symbol, count in enumerate(counts):
+                values.extend([symbol] * count)
+            random.Random(seed).shuffle(values)
+            return values
+
+        changed_model = pack9(
+            histogram_values(first_counts, 15) + histogram_values(second_counts, 16)
+        )
+        for level in (5, 6):
+            source.write_bytes(changed_model)
+            run("c9", source, archive, f"-{level}")
+            changed_frame = archive.read_bytes()
+            changed_decoded, changed_stats = decode(changed_frame)
+            assert changed_decoded == changed_model
+            run("d", archive, decoded)
+            assert decoded.read_bytes() == changed_model
+            if level == 5:
+                assert changed_stats["normal_reuse"] == 0, changed_stats
+            else:
+                assert changed_stats["normal_reuse"] >= 1, changed_stats
+            print("PASS measured normal REUSE selection level", level, changed_stats)
+
         # Automatic aligned-distance coding is now the default.  The frame
         # advertises per-block selection, and the ninth-bit gate prevents the
         # transformation from being considered for ordinary 8-bit blocks.
@@ -210,16 +257,16 @@ def main():
         run("d", archive, decoded)
         assert decoded.read_bytes() == aligned_9
 
-        # V8 streams using frame-wide aligned-distance mode remain readable.
+        # V9 streams using frame-wide aligned-distance mode remain readable.
         # Convert this one-block per-block frame to that form:
         # retain the aligned payload, clear the block selector, and clear the
         # per-block frame flag while leaving the global alignment flag set.
         frame_wide_aligned = bytearray(auto_frame)
-        frame_wide_aligned[12] = 8
+        frame_wide_aligned[12] = auto_frame[12] & ~16
         frame_wide_aligned[13:17] = struct.pack(
             "<I", zlib.crc32(frame_wide_aligned[:13])
         )
-        frame_wide_aligned[17 + 4] &= ~16
+        frame_wide_aligned[17] &= ~16
         archive.write_bytes(frame_wide_aligned)
         run("d", archive, decoded)
         assert decoded.read_bytes() == aligned_9
@@ -239,9 +286,9 @@ def main():
         assert decoded.read_bytes() == aligned_8
 
         # Frames with neither aligned-distance feature flag retain baseline
-        # v8 semantics and remain readable by both decoders.
+        # V9 semantics and remain readable by both decoders.
         alignment_disabled = bytearray(gated_frame)
-        alignment_disabled[12] = 0
+        alignment_disabled[12] = gated_frame[12] & ~(8 | 16)
         alignment_disabled[13:17] = struct.pack(
             "<I", zlib.crc32(alignment_disabled[:13])
         )
@@ -331,8 +378,8 @@ def main():
                 "independent decoder accepted auto flag without aligned flag"
             )
 
-        # Reserved low-order feature bits must remain zero.
-        for reserved_bit in (2, 4):
+        # Reserved feature bits must remain zero.
+        for reserved_bit in (64, 128):
             malformed = bytearray(original)
             malformed[12] = reserved_bit
             malformed[13:17] = struct.pack("<I", zlib.crc32(malformed[:13]))
@@ -357,8 +404,12 @@ def main():
         ):
             run("c8", source, archive, removed_option, expect=2)
 
-        # V8 deliberately has no prior-version compatibility path.
-        for old_version in (3, 4, 5, 6, 7):
+        # Phased-table and short-match controls are deliberately not CLI options.
+        for removed_option in ("--no-phased-tables", "--no-short-matches"):
+            run("c8", source, archive, removed_option, expect=2)
+
+        # V9 deliberately has no prior-version compatibility path.
+        for old_version in (3, 4, 5, 6, 7, 8, 10):
             malformed = bytearray(original)
             malformed[4] = old_version
             malformed[13:17] = struct.pack("<I", zlib.crc32(malformed[:13]))
@@ -376,7 +427,7 @@ def main():
         run("c8", source, archive, "--distance-context", expect=2)
         run("c8", source, archive, "--window=64k", "--window=64k", expect=2)
 
-        # Differential malformed-stream tests for the V8 feature combination.
+        # Differential malformed-stream tests for the V9 feature combination.
         source.write_bytes(short_long + block_a + block_b + block_a)
         run("c8", source, archive, "-6", "--window=64k")
         original = archive.read_bytes()
@@ -417,7 +468,7 @@ def main():
                     "mutated archive changed decoded data",
                 )
     print(
-        "PASS v8 feature flags, raw bypass bits, 32K/64K distances, unsupported-option handling, and malformed-stream tests"
+        "PASS v9 feature flags, raw bypass bits, 32K/64K distances, unsupported-option handling, and malformed-stream tests"
     )
 
 
