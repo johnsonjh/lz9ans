@@ -34,7 +34,7 @@ def pack_bits(values, width):
 
 def make_frame_header(mode, count, flags=0, extensions=b""):
     length = 13 + len(extensions) + 4
-    header = bytearray(b"LZ9A" + bytes((8, mode)) + struct.pack("<H", length))
+    header = bytearray(b"LZ9A" + bytes((9, mode)) + struct.pack("<H", length))
     header += struct.pack("<I", count) + bytes((flags,)) + extensions
     header += struct.pack("<I", zlib.crc32(header))
     return bytes(header)
@@ -44,14 +44,13 @@ def make_literal_frame(values, width=7, mode=8):
     payload = pack_bits(values, width)
     meaningful = len(values) * width
     padding = (8 - (meaningful & 7)) & 7
-    block = bytearray(27)
-    block[:4] = b"LZ9B"
-    block[4] = 1  # LZ, no optional flags
-    struct.pack_into("<HHH", block, 5, len(values), 0, 5)
+    block = bytearray(23)
+    block[0] = 1  # LZ, no optional flags
+    struct.pack_into("<HHH", block, 1, len(values), 0, 5)
     lengths = (len(payload), 0, 0, 0, 0)
-    struct.pack_into("<5H", block, 11, *lengths)
-    struct.pack_into("<H", block, 21, padding)
-    struct.pack_into("<I", block, 23, zlib.crc32(pack9(values)))
+    struct.pack_into("<5H", block, 7, *lengths)
+    struct.pack_into("<H", block, 17, padding)
+    struct.pack_into("<I", block, 19, zlib.crc32(pack9(values)))
     descriptor = bytes((1, width, 0, 0, 0))  # RAW LIT, EMPTY LL/ML/OF
     return make_frame_header(mode, len(values)) + bytes(block) + descriptor + payload
 
@@ -98,7 +97,7 @@ def must_reject(data, directory, name):
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix="lz9ans-v8-format-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="lz9ans-v9-format-") as temporary:
         temp = Path(temporary)
 
         # Exercise every representable padding count in the LIT stream.
@@ -121,7 +120,7 @@ def main():
 
         # The high reserved bit in the packed 15-bit padding field is invalid.
         bad_reserved_padding = bytearray(make_literal_frame([1, 2, 3], 7))
-        bad_reserved_padding[17 + 22] |= 0x80
+        bad_reserved_padding[17 + 18] |= 0x80
         must_reject(bytes(bad_reserved_padding), temp, "reserved-padding-bit")
 
         # A valid unknown noncritical frame TLV is skipped by both decoders.
@@ -167,12 +166,12 @@ def main():
         # END is reserved for the future streaming/terminal-metadata feature.
         # The current known-length decoder must reject both its minimal and
         # extended encodings rather than treating them as data or ignoring them.
-        must_reject(sample + b"LZ9B\x02", temp, "reserved-minimal-end-record")
+        must_reject(sample + b"\x02", temp, "reserved-minimal-end-record")
         final_truncation_sample = make_literal_frame([0b101101000], 9, mode=9)
         end_tlv = tlv(0x82, b"\x03")  # truncate three zero low bits of final symbol
-        end_prefix = b"LZ9B\x06" + struct.pack("<H", len(end_tlv)) + end_tlv
+        end_prefix = b"\x06" + struct.pack("<H", len(end_tlv)) + end_tlv
         extended_end = end_prefix + struct.pack("<I", zlib.crc32(end_prefix))
-        assert len(extended_end) == 4 + 1 + 2 + len(end_tlv) + 4
+        assert len(extended_end) == 1 + 2 + len(end_tlv) + 4
         must_reject(
             final_truncation_sample + extended_end,
             temp,
@@ -180,7 +179,7 @@ def main():
         )
         invalid_end_tlv = tlv(0x82, b"\x09")
         invalid_end_prefix = (
-            b"LZ9B\x06" + struct.pack("<H", len(invalid_end_tlv)) + invalid_end_tlv
+            b"\x06" + struct.pack("<H", len(invalid_end_tlv)) + invalid_end_tlv
         )
         invalid_extended_end = invalid_end_prefix + struct.pack(
             "<I", zlib.crc32(invalid_end_prefix)
@@ -208,7 +207,7 @@ def main():
         must_reject(bytes(oversized_header), temp, "oversized-frame-header")
 
     print(
-        "PASS v8 compact headers, all LIT padding counts, TLV validation, and reserved streaming/END rejection"
+        "PASS v9 compact headers, all LIT padding counts, TLV validation, and reserved streaming/END rejection"
     )
 
 

@@ -23,11 +23,11 @@ from inspect_lz9ans import (
 def scan_modes(data):
     assert data[:4] == b"LZ9A"
     frame = frame_header(data)
-    assert frame["version"] == 8
+    assert frame["version"] == 9
     pos = frame["length"]
     flags = frame["flags"]
     found = {"stored": 0, "lz": 0, "tans": 0, "reuse": 0, "raw": 0, "rle": 0}
-    tables = [None] * 4
+    tables = [None] * 10
     kinds = (0, 1, 2, 3)
     while pos < len(data):
         block = block_header(data, pos)
@@ -45,14 +45,14 @@ def scan_modes(data):
                     else 21 if flags & 1 and kind == 3 else 20 if kind == 3 else 32
                 )
                 descriptor, index = parse_descriptor(
-                    desc, index, kind, alphabet, tables
+                    desc, index, kind, alphabet, tables, bool(flags & 0x02)
                 )
                 mode = descriptor[0]
                 if mode == 1:
                     found["raw"] += 1
                 elif mode == 2:
                     found["rle"] += 1
-                elif mode in (3, 4):
+                elif mode in (3, 4, 5):
                     found["tans"] += 1
                     if mode == 4:
                         found["reuse"] += 1

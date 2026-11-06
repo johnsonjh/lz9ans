@@ -23,37 +23,42 @@ VECTORS = {
     "empty8": (
         "c8",
         1,
-        "fd76cddc8175fb63f9b16c3d082ceea254bf684dc8240a1f99b0964c2cf4265f",
+        "c2cc46e5e963872f68ee43ff3592cf72320110c97f0d270cc11ce0a2782e1d84",
     ),
     "abc8": (
         "c8",
         1,
-        "c3c7e9ce160dcc5b767b462da109be9c6c163b2508a3520639275f8f651a05f4",
+        "775135fe7d9a110e1c4c0e7b46612fe292c174500c0a3bc7cb921d5bcafc0bc5",
     ),
     "run8": (
         "c8",
         6,
-        "0f8e1acd5795861afdb9da92eeafb5846391a794041f9aac2ed48c8825d0c743",
+        "dab23891e60115f4b978b0e91465a91f0df66bb40e032ace094fc3ba229434a6",
     ),
     "mixed9": (
         "c9",
         6,
-        "c8cdb0550ebe11242a3ac2b664af92652bbd3e2c4bdcaeef2d1d1719a807a1af",
+        "aaccb9f56512dd68a5f58bd68ca2f12a001a75935e596baed28c6ddcf18eec33",
     ),
     "switch8": (
         "c8",
         6,
-        "fd66b1558f29ea94f648c070b6d2a9358a6cc7296daa3c4b978ed52aba6c15e5",
+        "352bd0b529f643a1a5e292c63b01e7c09b7500a39239895e768b2b467fceb1b0",
     ),
     "longdist16k": (
         "c8",
         9,
-        "574ffc85c9bd00c2012f8626caebee42bf88f2caf49f72ba07aa0ac7531c53c7",
+        "b710c0a6e4fb656cfe84764c4c53857bf58c497d53a7014a9fce3c732af01d31",
     ),
     "longdist32k": (
         "c8",
         9,
-        "170a43b6fe53b2bf19e20b20419213ba87a249975c781908983ffaf2cebd970a",
+        "93c7724edf107fda106720e011d54f8a78c4b8771903aa451d2f25135b5d9d61",
+    ),
+    "phased9": (
+        "c9",
+        9,
+        "ea0602478f02c4065f28ef27897872b48e250ab8bcf297b5704667c83f948cfb",
     ),
 }
 
@@ -73,9 +78,13 @@ def main():
             raw = (ROOT / "../vectors" / f"{name}.input").read_bytes()
             vector = (ROOT / "../vectors" / f"{name}.lz9a").read_bytes()
             assert sha256(vector).hexdigest() == expected_hash, name
-            assert vector[:4] == b"LZ9A" and vector[4] == 8, name
+            assert vector[:4] == b"LZ9A" and vector[4] == 9, name
             assert frame_header(vector)["length"] == 17, name
-            assert vector[12] == 0x18, name
+            assert vector[12] == (0x18 if level <= 5 else 0x1E), name
+            if len(vector) > 17:
+                header = block_header(vector, 17)
+                assert header["header_size"] in (7, 23), name
+                assert vector[17:21] != b"LZ9B", name
             if name == "mixed9":
                 header = block_header(vector, 17)
                 assert header["type"] == 1
@@ -106,7 +115,10 @@ def main():
             if name == "longdist32k":
                 assert stats["offset_19"] == 1
                 assert stats["stored"] == 1
-            print("PASS byte-exact v8", name)
+            if name == "phased9":
+                assert all(stats[f"phased_kind{k}"] > 0 for k in (0, 1, 2)), stats
+                assert stats["match_2"] > 0, stats
+            print("PASS byte-exact v9", name)
 
         # The RUN fixture has no initialized MRU distance. Change its OF RLE
         # symbol to REP0; the independent and C decoders must reject it.
@@ -116,12 +128,14 @@ def main():
         desc_start = 17 + block["header_size"]
         descriptor = block["descriptor"]
         index = 0
-        tables = [None] * 4
+        tables = [None] * 10
         offset_start = None
         for kind in (0, 1, 2, 3):
             start = index
             alphabet = 512 if kind == 0 else 20 if kind == 3 else 32
-            parsed, index = parse_descriptor(descriptor, index, kind, alphabet, tables)
+            parsed, index = parse_descriptor(
+                descriptor, index, kind, alphabet, tables, bool(vector[12] & 0x02)
+            )
             if kind == 3:
                 assert parsed[0] == 2 and descriptor[start + 1] == 3
                 offset_start = start

@@ -47,7 +47,12 @@ def main():
                 result = run(mode, source, archive, f"-{level}")
                 assert result.returncode == 0, (level, name, result.stderr.decode())
                 frame = archive.read_bytes()
-                assert frame[4] == 8, (level, name, "wrong format version")
+                assert frame[4] == 9, (level, name, "wrong format version")
+                assert frame[12] == (0x18 if level <= 5 else 0x1E), (
+                    level,
+                    name,
+                    "wrong feature flags",
+                )
                 independent, _ = decode(frame)
                 assert independent == raw, (level, name, "independent decode mismatch")
                 result = run("d", archive, decoded)

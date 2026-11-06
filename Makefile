@@ -20,7 +20,8 @@ test: lz9ans
 	./tests/test_window.py
 	./tests/test_verbose.py
 	./tests/test_features.py
-	./tests/test_v8_format.py
+	./tests/test_phased.py
+	./tests/test_v9_format.py
 	./tests/test_early_stored.py
 	./tests/test_crc_batch.py
 	env CC="$${CC:-$(CC)}" CFLAGS="$${EXTRA_CFLAGS:-} $(CFLAGS)" \
@@ -64,7 +65,6 @@ pvs pvs-studio:
 	scan-build bear -- $(MAKE) all
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
-
 
 clean:
 	rm -f lz9ans lz9ans.exe lz9ans_asan lz9ans_asan.exe a.out a.exe || :
