@@ -327,8 +327,8 @@ lz9_crc32_arm (unsigned int crc, const unsigned char *p, size_t n)
  * eval: (setq-local display-fill-column-indicator-column 80)
  * eval: (display-fill-column-indicator-mode 1)
  * End:
- *
- * vim: set ft=c expandtab ts=2 sw=2 tw=0 ai cc=80 :
  */
 
+/*****************************************************************************/
+/* vim: set ft=c ts=2 sw=2 tw=0 ai expandtab cc=80 : */
 /*****************************************************************************/
