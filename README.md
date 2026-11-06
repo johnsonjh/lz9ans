@@ -118,8 +118,8 @@ See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
 
 ## Contributing
 
-* Do **not** open pull requests with large amounts of LLM‑generated code.
-  These will be immediately rejected.
+* Do **not** open unsolicited pull requests with large amounts of
+  LLM‑generated code.  These will be immediately rejected.
 
 * Usage of AI (artificial intelligence) tools by contributors *is* currently
   permitted, subject to the same terms and conditions as the
