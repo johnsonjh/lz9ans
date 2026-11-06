@@ -1620,13 +1620,6 @@ len_code (unsigned int len, unsigned int bias, unsigned int *extra,
 
 /*****************************************************************************/
 
-/*
- * Offset codes 0..2 repeat, 3 RUN, 4..18 explicit distance buckets,
- * 19 the exact 32768 endpoint. Repeat-slot tag is stored separately.
- */
-
-/*****************************************************************************/
-
 static void
 promote_rep (unsigned int *rep, unsigned int d)
 {
@@ -2969,15 +2962,6 @@ count_stream_phased (Encoder *e, unsigned int kind)
 }
 
 /*****************************************************************************/
-
-/*
- * Estimated size in bits of one phased group: its sub-descriptor plus the
- * ideal tANS payload.  A group that uses a single symbol gets a dummy second
- * symbol with count one so that it can be written as a mode-3 model.  When
- * the group slot already holds a model that gives every used symbol a
- * non-zero frequency, a one-octet REUSE sub-descriptor competes with the
- * fresh model.  Returns ~0UL when no model can be built.
- */
 
 static unsigned long
 phase_group_eval (unsigned int kind, unsigned int alphabet,
