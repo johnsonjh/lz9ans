@@ -730,6 +730,7 @@ load32_be (const unsigned char *p)
 static int
 write_exact (FILE *f, const void *p, size_t n)
 {
+  /*LINTED E_RET_INT_IMPLICITLY*/
   return fwrite (p, 1, n, f) == n;
 }
 
@@ -738,6 +739,7 @@ write_exact (FILE *f, const void *p, size_t n)
 static int
 read_exact (FILE *f, void *p, size_t n)
 {
+  /*LINTED E_RET_INT_IMPLICITLY*/
   return fread (p, 1, n, f) == n;
 }
 
@@ -5254,6 +5256,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
       return 0;
     }
 
+  /*LINTED E_RET_INT_IMPLICITLY*/
   if (fgetc (in) != EOF || ferror (in) || ferror (out))
     {
       free_encoder (&e);
@@ -5718,6 +5721,7 @@ main (int argc, char **argv)
     {
       long bytes;
 
+      /*LINTED E_RET_INT_IMPLICITLY*/
       if (fflush (out) != 0 || fseek (out, 0, SEEK_END) != 0
           || (bytes = ftell (out)) < 0)
         {
@@ -5805,8 +5809,8 @@ main (int argc, char **argv)
  * eval: (setq-local display-fill-column-indicator-column 80)
  * eval: (display-fill-column-indicator-mode 1)
  * End:
- *
- * vim: set ft=c expandtab ts=2 sw=2 tw=0 ai cc=80 :
  */
 
+/*****************************************************************************/
+/* vim: set ft=c ts=2 sw=2 tw=0 ai expandtab cc=80 : */
 /*****************************************************************************/
