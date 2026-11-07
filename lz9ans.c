@@ -848,12 +848,13 @@ bw_add (BitWriter *b, unsigned int value, unsigned int bits)
 static void
 bw_flush (BitWriter *b)
 {
-  unsigned int n = b->nacc, i;
+  unsigned int n = b->nacc;
 
   if (n)
     {
       lz9_u64 v = b->acc << (32U - n);
       unsigned char *q = b->p + ((b->bits - n) >> 3);
+      unsigned int i;
 
       for (i = 0; i < ((n + 7U) >> 3); ++i)
         {
