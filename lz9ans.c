@@ -5574,7 +5574,7 @@ main (int argc, char **argv)
       (void)fprintf (stderr,
               "Usage:\n"
               "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
-              " [--window=N]\n");
+              " [--window=<32k|64k>]\n");
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v]\n\n");
       (void)fprintf (stderr,
