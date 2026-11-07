@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑06) stream format
 
-> Document revision **`28`** (2026‑11‑06)
+> Document revision **`29`** (2026‑11‑07)
 
 <!-- toc -->
 
@@ -37,7 +37,7 @@
   * [10.5. 64K history window (`0x01`)](#105-64k-history-window-0x01)
   * [10.6. Aligned explicit distances (`0x08`)](#106-aligned-explicit-distances-0x08)
   * [10.7. Per-block aligned-distance selection (`0x18`)](#107-per-block-aligned-distance-selection-0x18)
-  * [10.8. v9 stream-size bounds](#108-v9-stream-size-bounds)
+  * [10.8. V9 stream-size bounds](#108-v9-stream-size-bounds)
   * [10.9. Phased entropy tables (`0x02`)](#109-phased-entropy-tables-0x02)
   * [10.10. Two-symbol matches (`0x04`)](#1010-two-symbol-matches-0x04)
 
@@ -87,7 +87,7 @@ can represent an arbitrary final bit count.
 | `MAX_PAYLOAD_OCTETS` | 81,920 | Maximum combined compressed substreams in a block    |
 | `FRAME_HEADER_MAX_N` | 4,096  | Maximum frame‑header length, including TLVs and CRC  |
 
-The block limit is 32,768 symbols in v9.  The default window is 32,768 symbols;
+The block limit is 32,768 symbols in V9.  The default window is 32,768 symbols;
 frame flag bit 0 enables a 65,536‑symbol window.  The reference encoder selects
 aligned‑distance coding automatically for each `LZ` block when the block
 contains at least one ninth‑bit symbol and the aligned representation reduces
@@ -134,7 +134,7 @@ constructed octet**, final XOR `0xFFFFFFFF`).  This equals the usual
 
 ## 3. Frame and block headers
 
-Every v9 frame begins with a frame header whose length is 17–4,096 octets.
+Every V9 frame begins with a frame header whose length is 17–4,096 octets.
 The header is followed by block records.  In the currently implemented
 known‑length form, the blocks produce exactly the symbol count in the frame
 header and there is no trailer.  A zero‑symbol known‑length frame has no
@@ -283,7 +283,7 @@ raw, forward‑oriented bitstream containing only the additional bits required
 by length and explicit‑distance codes.  Its meaningful bit length is carried
 in the same byte‑length/padding representation as the other streams.
 
-There is no `lc` field in v9.  The actual literal count is derivable from the
+There is no `lc` field in V9.  The actual literal count is derivable from the
 block output equation:
 
 ```text
@@ -314,7 +314,7 @@ to 4,096 octets and uses the TLV convention in section 10.2.  The precise
 terminal semantics and the reserved final‑symbol truncation extension are
 specified in section 10.4.
 
-The current v9 encoder does not emit `END` records and the current C and Python
+The current V9 encoder does not emit `END` records and the current C and Python
 decoders reject them.  For known‑length frames, the current implementation
 recognizes end‑of‑frame when exactly `N` symbols have been decoded and rejects
 any following octets.  The `END` syntax is reserved now so a future nonseekable
@@ -338,7 +338,7 @@ For each sequence in forward order:
 
 Once all `q` sequences are emitted, the decoder emits terminal literals until
 the block has produced exactly `n` symbols.  The total literal count is
-`n - sum(ML)`; it is not transmitted in the v9 header.  The output symbol count
+`n - sum(ML)`; it is not transmitted in the V9 header.  The output symbol count
 **MUST** be exactly `n`.  No separate end‑of‑block or
 literal‑vs‑match flag exists.  The sequence count supplies framing.
 
@@ -385,7 +385,7 @@ For example, `LL=0` maps to code 0, `ML=m` maps to code 0, and `LL=16` maps to
 code 16 with zero additional bits (`k=0`).  Codes permit larger values than
 can fit into one block; decoders **MUST** reject any decoded length that
 exceeds the remaining block capacity.  `ML` values larger than 32,768 cannot
-occur in a valid v9 encoder output.
+occur in a valid V9 encoder output.
 
 ### 4.2. Offset alphabet, repeat slots, and RUN
 
@@ -623,7 +623,7 @@ any part of the C implementation.
 
 ## 6. Decoder procedure and validation requirements
 
-A conforming v9 decoder **SHOULD** implement the following stages, enforcing
+A conforming V9 decoder **SHOULD** implement the following stages, enforcing
 **all** **checks** *before* trusting an offset, size, state, or output count:
 
 1.  Read the 13‑octet frame prefix, validate magic/version/representation, then
@@ -697,7 +697,7 @@ required.
 
 ## 7. Encoder reference choices (informative, not required for decoding)
 
-**LZ9ANS** v9 uses an **8,192‑entry hash table** keyed from three consecutive
+**LZ9ANS** V9 uses an **8,192‑entry hash table** keyed from three consecutive
 symbols and a hash‑chain ring sized to the selected history window to locate
 match candidates.  The parser maintains a 32K‑symbol block plus up to 64K
 history in 16‑bit C containers, records `(LL, ML, distance)` sequences, and
@@ -705,7 +705,7 @@ emits four entropy streams and the shared `EXTRA` bitstream.  The distance is
 stored in a 32‑bit C field so the encoder can carry a 17‑bit distance plus the
 repeat‑slot tag; this is an implementation detail, not a wire field.
 
-The levels from `-1` through `-9` all produce **the same v9 wire format**.
+The levels from `-1` through `-9` all produce **the same V9 wire format**.
 The default is **level 5** and the default window remains **32,768 symbols**.
 The search‑depth limit is the number of hash‑chain candidates examined; the
 three repeat‑distance slots are probed separately and therefore do not consume
@@ -759,7 +759,7 @@ the encoder's existing 512‑entry symbol‑count array and does not allocate
 additional block storage.  The compile‑time threshold defaults to 97; setting
 `LZ9ANS_EARLY_STORED_LITERAL_PERCENT=98` selects the 98‑percent variant, and
 setting it to zero disables the heuristic.  The threshold changes only encoder
-selection, not the v9 stream format or decoder requirements.
+selection, not the V9 stream format or decoder requirements.
 
 For each symbol stream the encoder chooses `EMPTY`, `RLE`, `RAW`, or `TANS`,
 or a cached `REUSE` model.  At levels 1–5, ordinary `REUSE` is emitted only
@@ -804,18 +804,17 @@ word representations are different and must be sized separately.
 
 ## 8. Golden vectors and interoperability
 
-The checked–in `.lz9a` vectors are byte–exact **v9** frames produced by the
+The checked–in `.lz9a` vectors are byte–exact **V9** frames produced by the
 reference encoder with automatic per–block aligned–distance selection.
 Fixtures encoded at levels 1–5 advertise feature mask `0x18`; fixtures encoded
 at levels 6–9 advertise `0x1e`.  Phased tables and two–symbol matches are
 selected automatically by compression level; there are no command–line
-suppression switches.
-`mixed9` also exercises an `LZ` block
-whose aligned‑distance selector is set.  `test_vectors.py` verifies their
-SHA‑256 digests, decodes them with both the C decoder and the independent
-Python decoder, and re‑encodes the original inputs to ensure byte‑for‑byte
+suppression switches.  `mixed9` also exercises an `LZ` block whose
+aligned‑distance selector is set.  `test_vectors.py` verifies their SHA‑256
+digests, decodes them with both the C decoder and the independent Python
+decoder, and re‑encodes the original inputs to ensure byte‑for‑byte
 reproducibility.  These vectors exercise the published wire representation;
-they are not intended as a general compression benchmark.  The v9 decoder
+they are not intended as a general compression benchmark.  The V9 decoder
 rejects every other frame version; no legacy decoding is implemented.
 
 | Fixture       | Input mode | Level | Raw octets | Frame octets  | SHA–256 of compressed frame                                        |
@@ -989,7 +988,8 @@ condition for pipes and other nonseekable streams; `EOF` alone is **not** a
 valid substitute for `END`.
 
 The current encoder does not emit `0x81`, and the current decoder rejects it.
-The present v9 CLI remains a known‑length, seekable‑file implementation.
+
+The present CLI is a known‑length, seekable‑file implementation.
 
 ### 10.4. END record and final-symbol truncation
 
@@ -1039,7 +1039,7 @@ complicating the symbol/block codec.  The current UNIX reference implementation
 always writes complete symbols and does not process `END` metadata or truncate
 its output.
 
-The current v9 implementation reserves this record but does not emit or accept
+The current V9 implementation reserves this record but does not emit or accept
 it.  Its C and Python decoders **MUST** reject an `END` block until `END`
 processing is implemented.
 
@@ -1119,7 +1119,7 @@ coding only when the exact raw‑`EXTRA` bit delta is negative.  Blocks
 containing only values below 256 therefore always use the ordinary distance
 representation.  The selection rule applies to the single raw `EXTRA` stream.
 
-### 10.8. v9 stream-size bounds
+### 10.8. V9 stream-size bounds
 
 The following conservative per‑stream bounds justify the 16‑bit byte‑length
 fields.  They include the initial ten‑bit tANS state where applicable.
