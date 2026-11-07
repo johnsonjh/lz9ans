@@ -1939,7 +1939,7 @@ decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
 
 /*****************************************************************************/
 
-static LZ9_INLINE unsigned int
+static HOT LZ9_INLINE unsigned int
 hash3 (const unsigned short *p)
 {
   unsigned int x = ((unsigned int)p[0] * 2654435761U)
