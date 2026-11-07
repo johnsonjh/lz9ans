@@ -199,7 +199,7 @@ lz9_crc32_pclmul (unsigned int crc, const unsigned char *buf, size_t len)
 
 /*****************************************************************************/
 
-#  endif /* if defined(__x86_64__ ) || defined( __amd64__) */
+#  endif /* if defined(__x86_64__) || defined(__amd64__) */
 #  if defined(__aarch64__) && !defined(__AARCH64EB__) \
     && (defined(__clang__) || __GNUC__ >= 7)
 #   define LZ9_CRC32_ARM 1
@@ -216,7 +216,7 @@ extern unsigned long getauxval (unsigned long);
 #    include <sys/param.h>
 #    if defined(OpenBSD) && (OpenBSD >= 202409)
 #     include <sys/auxv.h>
-#    endif /* if defined(OpenBSD ) && ( OpenBSD >= 202409) */
+#    endif /* if defined(OpenBSD) && (OpenBSD >= 202409) */
 #   elif defined(__APPLE__) && defined(__MACH__)
 #    include <sys/sysctl.h>
 #    include <sys/types.h>
@@ -263,7 +263,7 @@ lz9_arm_crc_capabilities (void)
   return caps;
 #   else
   return 0;
-#   endif /* if defined( __linux__) */
+#   endif /* if defined(__linux__) */
 }
 
 /*****************************************************************************/
