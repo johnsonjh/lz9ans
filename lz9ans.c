@@ -2787,7 +2787,7 @@ estimate_costs (Encoder *e)
   for (kind = 0; kind < 4; ++kind)
     {
       unsigned int alphabet = stream_alphabet (kind, e->of_alphabet), lone = 0;
-      unsigned int used, width, total;
+      unsigned int used, width, total, invariant_cost = 0;
       unsigned long raw, header = 0;
       int use_tans = 0;
 
@@ -2834,20 +2834,27 @@ estimate_costs (Encoder *e)
             }
         }
 
+      if (used == 1)
+        {
+          invariant_cost = (unsigned int)((24UL * COST_SCALE) / total);
+        }
+      else if (use_tans)
+        {
+          invariant_cost
+              = (unsigned int)((header * 8UL * COST_SCALE) / total);
+        }
+
       for (i = 0; i < alphabet; ++i)
         {
           unsigned int c = width * COST_SCALE;
 
           if (used == 1)
             {
-              c = (i == lone) ? (unsigned int)((24UL * COST_SCALE) / total)
-                              : (width + 2U) * COST_SCALE;
+              c = (i == lone) ? invariant_cost : (width + 2U) * COST_SCALE;
             }
           else if (use_tans)
             {
-              c = freq[i] ? entropy_cost (freq[i])
-                                + (unsigned int)((header * 8UL * COST_SCALE)
-                                                 / total)
+              c = freq[i] ? entropy_cost (freq[i]) + invariant_cost
                           : (width + 2U) * COST_SCALE;
             }
 
