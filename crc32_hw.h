@@ -297,7 +297,7 @@ lz9_crc32_arm (unsigned int crc, const unsigned char *p, size_t n)
       uint64_t v;
 
 #   if defined(USE_BI_CRC)
-      __builtin_memcpy (&v, p, 8U);
+      (void)__builtin_memcpy (&v, p, 8U);
 #   else
       (void)memcpy (&v, p, 8U);
 #   endif /* if defined(USE_BI_CRC) */
