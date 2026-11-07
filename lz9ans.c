@@ -278,8 +278,6 @@ typedef struct
   unsigned char *p;
   unsigned long capacity_bits;
   unsigned long bits;
-  lz9_u64 acc;
-  unsigned int nacc;
   int failed;
 } BitWriter;
 
@@ -793,8 +791,6 @@ bw_init (BitWriter *b, unsigned char *p, unsigned long bytes)
   b->p = p;
   b->capacity_bits = bytes * 8UL;
   b->bits = 0;
-  b->acc = 0;
-  b->nacc = 0;
   b->failed = 0;
 }
 
@@ -803,63 +799,62 @@ bw_init (BitWriter *b, unsigned char *p, unsigned long bytes)
 static HOT LZ9_INLINE void
 bw_add (BitWriter *b, unsigned int value, unsigned int bits)
 {
-  unsigned long total;
-  unsigned int n;
-  lz9_u64 acc;
+  unsigned long byte;
+  unsigned int occupied, space;
 
   if (!bits)
     {
       return;
     }
 
-  total = b->bits;
-
-  if ((unsigned long)bits > b->capacity_bits - total)
+  if (b->bits > b->capacity_bits
+      || (unsigned long)bits > b->capacity_bits - b->bits)
     {
       b->failed = 1;
 
       return;
     }
 
-  acc = (b->acc << bits) | ((lz9_u64)value & (((lz9_u64)1 << bits) - 1U));
-  total += bits;
-  n = b->nacc + bits;
-  b->bits = total;
+  byte = b->bits >> 3;
+  occupied = (unsigned int)(b->bits & 7UL);
+  space = 8U - occupied;
 
-  if (n >= 32U)
+  if (!occupied)
     {
-      unsigned char *q = b->p + ((total - n) >> 3);
-      unsigned long word;
-
-      n -= 32U;
-      word = (unsigned long)((acc >> n) & 0xFFFFFFFFUL);
-      q[0] = (unsigned char)(word >> 24);
-      q[1] = (unsigned char)(word >> 16);
-      q[2] = (unsigned char)(word >> 8);
-      q[3] = (unsigned char)word;
+      b->p[byte] = 0;
     }
 
-  b->acc = acc;
-  b->nacc = n;
-}
-
-/*****************************************************************************/
-
-static void
-bw_flush (BitWriter *b)
-{
-  unsigned int n = b->nacc, i;
-
-  if (n)
+  if (bits <= space)
     {
-      lz9_u64 v = b->acc << (32U - n);
-      unsigned char *q = b->p + ((b->bits - n) >> 3);
+      b->p[byte] |= (unsigned char)((value & ((1U << bits) - 1U))
+                                    << (space - bits));
+      b->bits += bits;
 
-      for (i = 0; i < ((n + 7U) >> 3); ++i)
-        {
-          q[i] = (unsigned char)((v >> (24U - 8U * i)) & 255U);
-        }
+      return;
     }
+
+  {
+    unsigned int remaining = bits;
+
+    remaining -= space;
+    b->p[byte] |= (unsigned char)((value >> remaining) & ((1U << space) - 1U));
+    b->bits += space;
+
+    if (remaining >= 8U)
+      {
+        remaining -= 8U;
+        ++byte;
+        b->p[byte] = (unsigned char)((value >> remaining) & 255U);
+        b->bits += 8U;
+      }
+
+    if (remaining)
+      {
+        ++byte;
+        b->p[byte] = (unsigned char)(value << (8U - remaining));
+        b->bits += remaining;
+      }
+  }
 }
 
 /*****************************************************************************/
@@ -1564,8 +1559,6 @@ put_tans_model (Encoder *e, unsigned int kind, unsigned int alphabet,
             }
         }
     }
-
-  bw_flush (&w);
 
   if (w.failed || used < 2U)
     {
@@ -2719,8 +2712,6 @@ encode_values (Encoder *e, unsigned int kind, BitWriter *w, AnsTable *t,
     {
       bw_add (w, state, TABLE_LOG);
     }
-
-  bw_flush (w);
 }
 
 /*****************************************************************************/
@@ -3285,7 +3276,6 @@ encode_phased (Encoder *e, unsigned int kind, BitWriter *w,
     }
 
   bw_add (w, state, TABLE_LOG);
-  bw_flush (w);
 
   return 1;
 }
@@ -3677,8 +3667,6 @@ write_extra_raw (Encoder *e, BitWriter *w)
           bw_add (w, values[part], widths[part]);
         }
     }
-
-  bw_flush (w);
 }
 
 /*****************************************************************************/
@@ -3765,8 +3753,6 @@ write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
     {
       bw_add (&bw, e->buffer[e->window_n + i], width);
     }
-
-  bw_flush (&bw);
 
   if (bw.failed)
     {
