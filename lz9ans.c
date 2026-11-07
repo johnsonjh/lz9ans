@@ -322,6 +322,8 @@ typedef struct
   AnsTable *table;
   unsigned int counts[512];
   unsigned int hlen;
+  unsigned int base;
+  int chain_state;
   unsigned int sn;
   unsigned int n;
   unsigned int lit_count;
@@ -2038,19 +2040,30 @@ ml_price (const Encoder *e, unsigned int ml)
 
 /*****************************************************************************/
 
-static void
-hash_insert (Encoder *e, unsigned int pos, unsigned int end)
+#define CHAIN_BASE_MAX 0x20000000U
+
+/*****************************************************************************/
+
+static LZ9_INLINE void
+chain_insert (Encoder *e, unsigned int pos, unsigned int h)
 {
-  unsigned int h;
+  const unsigned int a = pos + e->base;
 
-  if (pos + 2U >= end)
+  e->link[a & (e->window_n - 1U)] = e->head[h];
+  e->head[h] = (int)a;
+}
+
+/*****************************************************************************/
+
+static void
+chain_index_range (Encoder *e, unsigned int from, unsigned int to)
+{
+  unsigned int j;
+
+  for (j = from; j < to; ++j)
     {
-      return;
+      chain_insert (e, j, hash3 (e->buffer + j));
     }
-
-  h = hash3 (e->buffer + pos);
-  e->link[pos & (e->window_n - 1U)] = e->head[h];
-  e->head[h] = (int)pos;
 }
 
 /*****************************************************************************/
@@ -2179,7 +2192,8 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
             unsigned int pending, unsigned int pos_hash,
             unsigned int *length, unsigned int *distance, long *gain)
 {
-  int cand, checks = 0;
+  int checks = 0;
+  unsigned int cand_a, pos_a;
   unsigned int best = 0, d = 0;
   long best_gain = 0;
   unsigned int max;
@@ -2225,21 +2239,23 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
         }
     }
 
-  cand = e->head[pos_hash];
+  pos_a = pos + e->base;
+  cand_a = (unsigned int)e->head[pos_hash];
 
-  while (cand >= 0 && checks < (int)e->search_depth && (unsigned int)cand < pos
-         && pos <= (unsigned int)cand + e->window_n)
+  while (checks < (int)e->search_depth && cand_a < pos_a
+         && pos_a <= cand_a + e->window_n)
     {
-      if (best >= 3U && best < max
-          && buf[(unsigned int)cand + best] != buf[pos + best])
+      const unsigned int cand = cand_a - e->base;
+
+      if (best >= 3U && best < max && buf[cand + best] != buf[pos + best])
         {
-          cand = e->link[((unsigned int)cand) & (e->window_n - 1U)];
+          cand_a = (unsigned int)e->link[cand_a & (e->window_n - 1U)];
           ++checks;
 
           continue;
         }
 
-      consider_match (e, pos, max, base_ll_price, (unsigned int)cand,
+      consider_match (e, pos, max, base_ll_price, cand,
                       p0, p1, p2, &best, &d, &best_gain);
 
       if (!e->use_cost && best == max)
@@ -2247,7 +2263,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
           break;
         }
 
-      cand = e->link[((unsigned int)cand) & (e->window_n - 1U)];
+      cand_a = (unsigned int)e->link[cand_a & (e->window_n - 1U)];
       ++checks;
     }
 
@@ -2286,7 +2302,7 @@ parse_block (Encoder *e)
   const unsigned int max_lazy = e->level == 8 ? LZ9ANS_L8_LAZY_MAX_LENGTH
                                               : 64U;
   unsigned int pos = e->window_n, end = e->window_n + e->n;
-  unsigned int litstart = pos, k, length, distance, j;
+  unsigned int litstart = pos, k, length, distance;
   unsigned int pos_hash, next_hash = 0, cached_hash = 0;
   int have_cached_hash = 0;
   long gain = 0;
@@ -2295,15 +2311,33 @@ parse_block (Encoder *e)
   e->lit_count = 0;
   e->max_literal = 0;
 
-  for (j = 0; j < HASH_N; ++j)
-    {
-      e->head[j] = -1;
-    }
+  {
+    unsigned int index_end = end - 2U;
 
-  for (j = e->window_n - e->hlen; j < e->window_n; ++j)
-    {
-      hash_insert (e, j, end);
-    }
+    if (index_end > e->window_n)
+      {
+        index_end = e->window_n;
+      }
+
+    if (e->chain_state == 1)
+      {
+        chain_index_range (e, e->window_n - (e->hlen < 2U ? e->hlen : 2U),
+                           index_end);
+      }
+    else
+      {
+        unsigned int j;
+
+        for (j = 0; j < HASH_N; ++j)
+          {
+            e->head[j] = -1;
+          }
+
+        chain_index_range (e, e->window_n - e->hlen, index_end);
+      }
+
+    e->chain_state = 0;
+  }
 
   while (pos < end)
     {
@@ -2345,8 +2379,7 @@ parse_block (Encoder *e)
             {
               if (pos + 2U < end)
                 {
-                  e->link[pos & (e->window_n - 1U)] = e->head[pos_hash];
-                  e->head[pos_hash] = (int)pos;
+                  chain_insert (e, pos, pos_hash);
                 }
 
               ++pos;
@@ -2384,10 +2417,7 @@ parse_block (Encoder *e)
 
           if (pos + 2U < end)
             {
-              unsigned int h = pos_hash;
-
-              e->link[pos & (e->window_n - 1U)] = e->head[h];
-              e->head[h] = (int)pos;
+              chain_insert (e, pos, pos_hash);
             }
 
           if (pos + 3U < end)
@@ -2396,8 +2426,7 @@ parse_block (Encoder *e)
               unsigned int h = have_next_hash ? next_hash
                                               : hash3 (e->buffer + at);
 
-              e->link[at & (e->window_n - 1U)] = e->head[h];
-              e->head[h] = (int)at;
+              chain_insert (e, at, h);
             }
 
           for (k = 2U; k < length; ++k)
@@ -2410,10 +2439,7 @@ parse_block (Encoder *e)
                 }
 
               {
-                unsigned int h = hash3 (e->buffer + at);
-
-                e->link[at & (e->window_n - 1U)] = e->head[h];
-                e->head[h] = (int)at;
+                chain_insert (e, at, hash3 (e->buffer + at));
               }
             }
 
@@ -2424,8 +2450,7 @@ parse_block (Encoder *e)
         {
           if (pos + 2U < end)
             {
-              e->link[pos & (e->window_n - 1U)] = e->head[pos_hash];
-              e->head[pos_hash] = (int)pos;
+              chain_insert (e, pos, pos_hash);
             }
 
           ++pos;
@@ -2434,6 +2459,7 @@ parse_block (Encoder *e)
 
   e->last_lit = end - litstart;
   e->lit_count += e->last_lit;
+  e->chain_state = 2;
 
   return 1;
 }
@@ -5251,6 +5277,18 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                      e.buffer + e.window_n + n - hist_new,
                      hist_new * sizeof (unsigned short));
       e.hlen = hist_new;
+      e.base += n;
+
+      if (e.chain_state == 2 && e.base <= CHAIN_BASE_MAX)
+        {
+          e.chain_state = 1;
+        }
+      else
+        {
+          e.chain_state = 0;
+          e.base = e.base <= CHAIN_BASE_MAX ? e.base : 0U;
+        }
+
       done += n;
     }
 
