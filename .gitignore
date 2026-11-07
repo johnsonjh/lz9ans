@@ -9,6 +9,7 @@
 /corpus/*.csv
 /corpus/obj/
 /corpus/*.txt
+/*.diff
 *.gcda
 /log.pvs
 /lz9ans
