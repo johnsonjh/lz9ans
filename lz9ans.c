@@ -22,7 +22,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.4 (2026-11-07)"
+#define LZ9VER "v0.9.5 (2026-11-07)"
 
 /*****************************************************************************/
 
@@ -115,6 +115,8 @@
 #define OF_ALPHABET_64K 21U
 #define COST_SCALE 256U
 #define FRAME_EXT_UNKNOWN_COUNT 0x81U
+#define BLOCK_END_CONTROL 0x02U
+#define BLOCK_END_EXT_CONTROL 0x06U
 
 /*****************************************************************************/
 
@@ -128,6 +130,10 @@
 # define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f) /* //-V1059 */
 # undef fflush
 # define fflush(f) fflush_unlocked(f) /* //-V1059 */
+# undef feof
+# define feof(f) feof_unlocked(f) /* //-V1059 */
+# undef ferror
+# define ferror(f) ferror_unlocked(f) /* //-V1059 */
 #endif /* if defined(__linux) || defined(__linux__) || defined(linux) \
           || defined(__gnu_linux__) */
 
@@ -741,6 +747,40 @@ static int
 read_exact (FILE *f, void *p, size_t n)
 {
   return fread (p, 1, n, f) == n;
+}
+
+/*****************************************************************************/
+
+static int
+read_some (FILE *f, unsigned char *p, size_t n, size_t *used)
+{
+  size_t done = 0;
+
+  while (done < n)
+    {
+      size_t got = fread (p + done, 1, n - done, f);
+
+      done += got;
+
+      if (!got)
+        {
+          if (ferror (f))
+            {
+              return 0;
+            }
+
+          if (feof (f))
+            {
+              break;
+            }
+
+          return 0;
+        }
+    }
+
+  *used = done;
+
+  return 1;
 }
 
 /*****************************************************************************/
@@ -4716,7 +4756,8 @@ decode_phased_literals (Output *o, Stream *s, unsigned long count)
 
 static int
 decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
-              unsigned char *desc, DecTable *tables)
+              unsigned char *desc, DecTable *tables, int have_control,
+              unsigned char control)
 {
   unsigned char h[LZ_BLOCK_HEADER_N];
   unsigned long bitlen[STREAM_COUNT], lengths[STREAM_COUNT], total = 0;
@@ -4730,7 +4771,21 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   BitReader raw_extra;
   ExtraReader extra;
 
-  if (!read_exact (in, h, BLOCK_PREFIX_N))
+  if (have_control)
+    {
+      h[0] = control;
+
+      if ((h[0] & 3U) != BLOCK_STORED && (h[0] & 3U) != BLOCK_LZ)
+        {
+          return 0;
+        }
+
+      if (!read_exact (in, h + 1, BLOCK_PREFIX_N - 1U))
+        {
+          return 0;
+        }
+    }
+  else if (!read_exact (in, h, BLOCK_PREFIX_N))
     {
       return 0;
     }
@@ -4758,7 +4813,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       n = load16 (h + 1);
       expected = load32 (h + 3);
 
-      if (!n || n > max_n || n > BLOCK_N)
+      if (!n || n > max_n || n > BLOCK_N || o->produced > ULONG_MAX - n)
         {
           return 0;
         }
@@ -4814,7 +4869,8 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   if ((h[0] & 0xe0U)
       || ((h[0] & BLOCK_FLAG_ALIGNED_DISTANCES)
           && !OUTPUT_AUTO_ALIGNED_DISTANCES (o))
-      || width != 0U || !n || n > max_n || n > BLOCK_N || q > n / min_match
+      || width != 0U || !n || n > max_n || n > BLOCK_N
+      || o->produced > ULONG_MAX - n || q > n / min_match
       || desc_len > DESC_MAX || (padding & 0x8000U))
     {
       return 0;
@@ -5095,13 +5151,17 @@ free_encoder (Encoder *e)
 
 static int
 encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
-             int level, unsigned int window_n, unsigned int features)
+             int unknown_count, int level, unsigned int window_n,
+             unsigned int features)
 {
   static const unsigned short depth[9] = { 2, 4, 8, 12, 24, 48, 96, 192, 512 };
   Encoder e;
   unsigned long done = 0;
   unsigned int acc = 0, nbits = 0;
-  unsigned char hdr[FHEAD_N];
+  unsigned int input_eof = 0;
+  unsigned char hdr[FRAME_HEADER_PREFIX_N + 3U + 4U];
+  unsigned int header_len = unknown_count ? FRAME_HEADER_PREFIX_N + 7U
+                                          : FHEAD_N;
 
   if (!allocated_encoder (&e, window_n))
     {
@@ -5119,38 +5179,155 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   e.features = features;
   e.min_match = (features & FEATURE_MIN_MATCH_2) ? MIN_MATCH_SHORT
                                                  : MIN_MATCH_DEFAULT;
+  (void)memset (hdr, 0, sizeof (hdr));
   (void)memcpy (hdr, "LZ9A", 4);
   hdr[4] = FORMAT_V9;
   hdr[5] = (unsigned char)mode;
-  store16 (hdr + 6, FHEAD_N);
-  store32 (hdr + 8, elements);
+  store16 (hdr + 6, header_len);
+  store32 (hdr + 8, unknown_count ? 0UL : elements);
   hdr[12] = (unsigned char)((window_n == WINDOW_64K ? FEATURE_WINDOW_64K : 0U)
                             | (features & (FEATURE_PHASED_TABLES
                                            | FEATURE_MIN_MATCH_2))
                             | FEATURE_ALIGNED_DISTANCES
                             | FEATURE_AUTO_ALIGNED_DISTANCES);
-  store32 (hdr + 13, crc_bytes (hdr, 13));
+  if (unknown_count)
+    {
+      hdr[13] = FRAME_EXT_UNKNOWN_COUNT;
+      store16 (hdr + 14, 0U);
+      store32 (hdr + 16, crc_bytes (hdr, 16U));
+    }
+  else
+    {
+      store32 (hdr + 13, crc_bytes (hdr, 13U));
+    }
 
-  if (!write_exact (out, hdr, sizeof (hdr)))
+  if (!write_exact (out, hdr, header_len))
     {
       free_encoder (&e);
 
       return 0;
     }
 
-  while (done < elements)
+  for (;;)
     {
-      unsigned long remaining = elements - done;
-      unsigned int i,
-          n = (unsigned int)(remaining > BLOCK_N ? BLOCK_N : remaining);
+      unsigned long remaining = unknown_count ? BLOCK_N : elements - done;
+      unsigned int i, n = (unsigned int)(remaining > BLOCK_N ? BLOCK_N
+                                                             : remaining);
       unsigned int hist_new;
+      size_t input_bytes = 0;
+
+      if (unknown_count)
+        {
+          if (input_eof)
+            {
+              break;
+            }
+
+          if (mode == 8)
+            {
+              if (!read_some (in, e.stage, BLOCK_N, &input_bytes))
+                {
+                  free_encoder (&e);
+
+                  return 0;
+                }
+
+              if (feof (in))
+                {
+                  input_eof = 1;
+                }
+
+              if (!input_bytes)
+                {
+                  if (!input_eof)
+                    {
+                      free_encoder (&e);
+
+                      return 0;
+                    }
+
+                  break;
+                }
+
+              n = (unsigned int)input_bytes;
+            }
+          else
+            {
+              unsigned int target_bits = BLOCK_N * 9U;
+              unsigned int target_bytes
+                  = target_bits <= nbits ? 0U
+                    : (target_bits - nbits + 7U) / 8U;
+              unsigned long available_bits;
+
+              if (!read_some (in, e.stage, (size_t)target_bytes, &input_bytes))
+                {
+                  free_encoder (&e);
+
+                  return 0;
+                }
+
+              if (feof (in))
+                {
+                  input_eof = 1;
+                }
+
+              available_bits = (unsigned long)nbits
+                               + (unsigned long)input_bytes * 8UL;
+              n = (unsigned int)(available_bits / 9UL);
+
+              if (n > BLOCK_N)
+                {
+                  n = BLOCK_N;
+                }
+
+              if (input_eof)
+                {
+                  unsigned long tail_bits
+                      = available_bits - (unsigned long)n * 9UL;
+
+                  if (tail_bits > 7UL
+                      || (tail_bits
+                          && (!input_bytes
+                              || (e.stage[input_bytes - 1U]
+                                  & ((1U << tail_bits) - 1U)))))
+                    {
+                      free_encoder (&e);
+
+                      return 0;
+                    }
+                }
+
+              if (!n)
+                {
+                  if (input_eof && !input_bytes && !nbits)
+                    {
+                      break;
+                    }
+
+                  free_encoder (&e);
+
+                  return 0;
+                }
+            }
+        }
+      else if (done >= elements)
+        {
+          break;
+        }
+
+      if (done > ULONG_MAX - n)
+        {
+          free_encoder (&e);
+
+          return 0;
+        }
 
       e.n = n;
       e.frame_pos = done;
 
       if (mode == 8)
         {
-          if (!read_exact (in, e.stage, (size_t)n))
+          if (!unknown_count && !read_exact (in, e.stage, (size_t)n))
             {
               free_encoder (&e);
 
@@ -5177,7 +5354,17 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
               needed_bytes = (needed_bits - nbits + 7U) / 8U;
             }
 
-          if (needed_bytes && !read_exact (in, e.stage, (size_t)needed_bytes))
+          if (unknown_count)
+            {
+              if ((size_t)needed_bytes > input_bytes)
+                {
+                  free_encoder (&e);
+
+                  return 0;
+                }
+            }
+          else if (needed_bytes
+                   && !read_exact (in, e.stage, (size_t)needed_bytes))
             {
               free_encoder (&e);
 
@@ -5299,7 +5486,25 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
       return 0;
     }
 
-  if (fgetc (in) != EOF || ferror (in) || ferror (out))
+  if (unknown_count)
+    {
+      unsigned char end_control = BLOCK_END_CONTROL;
+
+      if (!write_exact (out, &end_control, 1U))
+        {
+          free_encoder (&e);
+
+          return 0;
+        }
+    }
+  else if (fgetc (in) != EOF)
+    {
+      free_encoder (&e);
+
+      return 0;
+    }
+
+  if (ferror (in) || ferror (out))
     {
       free_encoder (&e);
 
@@ -5374,6 +5579,88 @@ parse_frame_extensions (const unsigned char *hdr, unsigned int header_len,
 /*****************************************************************************/
 
 static int
+decode_end_record (FILE *in, unsigned char control, unsigned int mode,
+                   unsigned long total)
+{
+  unsigned char record[FRAME_HEADER_MAX_N + 3U];
+  unsigned char crcbuf[4];
+  unsigned char seen[128];
+  unsigned int length, pos, end;
+
+  if (control == BLOCK_END_CONTROL)
+    {
+      return 1;
+    }
+
+  if (control != BLOCK_END_EXT_CONTROL
+      || !read_exact (in, record + 1, 2U))
+    {
+      return 0;
+    }
+
+  record[0] = control;
+  length = load16 (record + 1);
+
+  if (!length || length > FRAME_HEADER_MAX_N
+      || !read_exact (in, record + 3, (size_t)length)
+      || !read_exact (in, crcbuf, sizeof (crcbuf))
+      || load32 (crcbuf) != crc_bytes (record, length + 3U))
+    {
+      return 0;
+    }
+
+  (void)memset (seen, 0, sizeof (seen));
+  pos = 3U;
+  end = length + 3U;
+
+  while (pos < end)
+    {
+      unsigned int id, n, index;
+
+      if (end - pos < 3U)
+        {
+          return 0;
+        }
+
+      id = record[pos++];
+      n = load16 (record + pos);
+      pos += 2U;
+
+      if (!(id & 0x7fU) || n > end - pos)
+        {
+          return 0;
+        }
+
+      index = id & 0x7fU;
+
+      if (seen[index])
+        {
+          return 0;
+        }
+
+      seen[index] = 1;
+
+      if (id == 0x82U)
+        {
+          if (n != 1U || mode != 9U || !total || record[pos] != 0U)
+            {
+              return 0;
+            }
+        }
+      else if (id & 0x80U)
+        {
+          return 0;
+        }
+
+      pos += n;
+    }
+
+  return pos == end;
+}
+
+/*****************************************************************************/
+
+static int
 decode_file (FILE *in, FILE *out)
 {
   unsigned char hdr[FRAME_HEADER_MAX_N];
@@ -5409,8 +5696,7 @@ decode_file (FILE *in, FILE *out)
   if ((feature_flags & ~FEATURE_KNOWN_MASK) != 0U
       || ((feature_flags & FEATURE_AUTO_ALIGNED_DISTANCES)
           && !(feature_flags & FEATURE_ALIGNED_DISTANCES))
-      || !parse_frame_extensions (hdr, header_len, total, &unknown_count)
-      || unknown_count)
+      || !parse_frame_extensions (hdr, header_len, total, &unknown_count))
     {
       return 0;
     }
@@ -5450,18 +5736,52 @@ decode_file (FILE *in, FILE *out)
       goto cleanup;
     }
 
-  while (done < total)
+  if (unknown_count)
     {
-      unsigned long left = total - done;
-      unsigned int remaining
-          = (unsigned int)(left > BLOCK_N ? BLOCK_N : left);
-
-      if (!decode_block (in, o, remaining, stage, desc, tables))
+      for (;;)
         {
-          goto cleanup;
-        }
+          int control = fgetc (in);
 
-      done += o->in_block;
+          if (control == EOF)
+            {
+              goto cleanup;
+            }
+
+          if (((unsigned int)control & 3U) == (BLOCK_END_CONTROL & 3U))
+            {
+              if (!decode_end_record (in, (unsigned char)control,
+                                      (unsigned int)o->out_mode, o->produced))
+                {
+                  goto cleanup;
+                }
+
+              break;
+            }
+
+          if (!decode_block (in, o, BLOCK_N, stage, desc, tables, 1,
+                             (unsigned char)control))
+            {
+              goto cleanup;
+            }
+
+          done += o->in_block;
+        }
+    }
+  else
+    {
+      while (done < total)
+        {
+          unsigned long left = total - done;
+          unsigned int remaining
+              = (unsigned int)(left > BLOCK_N ? BLOCK_N : left);
+
+          if (!decode_block (in, o, remaining, stage, desc, tables, 0, 0U))
+            {
+              goto cleanup;
+            }
+
+          done += o->in_block;
+        }
     }
 
   if (o->out_mode == 9 && o->out_bits)
@@ -5570,6 +5890,7 @@ main (int argc, char **argv)
   unsigned long count = 0, input_bytes = 0, output_bytes = 0;
   unsigned int mode = 0;
   int level = 5, verbose = 0, level_seen = 0, window_seen = 0, i, okay;
+  int input_is_stdio, output_is_stdio, unknown_count, size_reporting = 1;
   unsigned int window_n = WINDOW_DEFAULT;
   unsigned int features;
   clock_t start, finish;
@@ -5615,7 +5936,7 @@ main (int argc, char **argv)
           && strcmp (argv[1], "d") != 0))
     {
       (void)fprintf (stderr,
-              "LZ9ANS reference implementation " LZ9VER "\n\n");
+              "LZ9ANS reference compressor/decompressor " LZ9VER "\n\n");
       (void)fprintf (stderr,
               "Usage:\n"
               "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
@@ -5623,14 +5944,24 @@ main (int argc, char **argv)
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v]\n\n");
       (void)fprintf (stderr,
-              "  c8: 8-bit input;  c9: mxload packed 9-bit input; ");
+              "  Specify an input or output name of '-' for stdin");
       (void)fprintf (stderr,
-              " default level -5\n\n");
+              " or stdout.\n");
       (void)fprintf (stderr,
-              "  -v:       "
+              "  c8: 8-bit input;");
+      (void)fprintf (stderr,
+              " c9: mxload packed 9-bit input\n\n");
+      (void)fprintf (stderr,
+              "  -1..-9:              ");
+      (void)fprintf (stderr,
+              "1-4: fast; 5-8: tight; 9: maximum (default: -5)\n");
+      (void)fprintf (stderr,
+              "  -v:       ");
+      (void)fprintf (stderr,
               "           report file size and compression ratio details\n");
       (void)fprintf (stderr,
-              "  --window=<32k|64k>:"
+              "  --window=<32k|64k>:");
+      (void)fprintf (stderr,
               "  use 32k or 64k symbol history window (default: 32k)\n");
       return 2;
     }
@@ -5700,14 +6031,18 @@ main (int argc, char **argv)
       return 2;
     }
 
-  if (!strcmp (argv[2], argv[3]))
+  input_is_stdio = strcmp (argv[2], "-") == 0;
+  output_is_stdio = strcmp (argv[3], "-") == 0;
+  unknown_count = mode && input_is_stdio;
+
+  if (!input_is_stdio && !output_is_stdio && !strcmp (argv[2], argv[3]))
     {
       (void)fprintf (stderr, "Input and output paths must differ.\n");
 
       return 2;
     }
 
-  in = fopen (argv[2], "rb");
+  in = input_is_stdio ? stdin : fopen (argv[2], "rb");
 
   if (!in)
     {
@@ -5716,29 +6051,48 @@ main (int argc, char **argv)
       return 2;
     }
 
-  if (verbose && !file_size (in, &input_bytes))
+  if (verbose && (input_is_stdio || output_is_stdio))
+    {
+      size_reporting = 0;
+      (void)fprintf (stderr,
+              "warning: -v is unavailable when stdin/stdout is used.\n");
+    }
+  else if (verbose && !file_size (in, &input_bytes))
     {
       (void)fprintf (stderr,
               "Cannot determine input size for -v reporting.\n");
-      (void)fclose (in);
+
+      if (!input_is_stdio)
+        {
+          (void)fclose (in);
+        }
 
       return 2;
     }
 
-  if (mode && (!input_count (in, mode, &count) || count > 0xffffffffUL))
+  if (mode && !unknown_count
+      && (!input_count (in, mode, &count) || count > 0xffffffffUL))
     {
-      (void)fprintf (stderr, "Invalid input size or unseekable input.\n");
-      (void)fclose (in);
+      (void)fprintf (stderr, "Invalid input size.\n");
+
+      if (!input_is_stdio)
+        {
+          (void)fclose (in);
+        }
 
       return 2;
     }
 
-  out = fopen (argv[3], "wb");
+  out = output_is_stdio ? stdout : fopen (argv[3], "wb");
 
   if (!out)
     {
       perror (argv[3]);
-      (void)fclose (in);
+
+      if (!input_is_stdio)
+        {
+          (void)fclose (in);
+        }
 
       return 2;
     }
@@ -5750,7 +6104,8 @@ main (int argc, char **argv)
 
   if (mode)
     {
-      okay = encode_file (in, out, mode, count, level, window_n, features);
+      okay = encode_file (in, out, mode, count, unknown_count, level,
+                          window_n, features);
     }
   else
     {
@@ -5759,12 +6114,19 @@ main (int argc, char **argv)
 
   finish = clock ();
 
-  if (verbose)
+  if (output_is_stdio || verbose)
+    {
+      if (fflush (out) != 0)
+        {
+          okay = 0;
+        }
+    }
+
+  if (verbose && size_reporting)
     {
       long bytes;
 
-      if (fflush (out) != 0 || fseek (out, 0, SEEK_END) != 0
-          || (bytes = ftell (out)) < 0)
+      if (fseek (out, 0, SEEK_END) != 0 || (bytes = ftell (out)) < 0)
         {
           okay = 0;
         }
@@ -5774,12 +6136,12 @@ main (int argc, char **argv)
         }
     }
 
-  if (fclose (out) != 0)
+  if (!output_is_stdio && fclose (out) != 0)
     {
       okay = 0;
     }
 
-  if (fclose (in) != 0)
+  if (!input_is_stdio && fclose (in) != 0)
     {
       okay = 0;
     }
@@ -5796,7 +6158,7 @@ main (int argc, char **argv)
                  mode ? "compress" : "decompress",
                  (double)(finish - start) / (double)CLOCKS_PER_SEC);
 
-  if (verbose)
+  if (verbose && size_reporting)
     {
       if (mode)
         {
