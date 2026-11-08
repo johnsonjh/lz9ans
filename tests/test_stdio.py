@@ -173,6 +173,12 @@ def exercise_path_aliases(binary, directory):
         (directory / "path-alias-symlink.bin", os.symlink),
     )
 
+    # Exercise path canonicalization through dot-dot components without
+    # relying on symlink creation privileges (notably on Windows).
+    nested = directory / "path-alias-nested"
+    nested.mkdir()
+    path_aliases = (os.path.join(str(nested), "..", source_path.name),)
+
     for alias_path, create_alias in aliases:
         try:
             create_alias(source_path, alias_path)
@@ -194,6 +200,47 @@ def exercise_path_aliases(binary, directory):
             raise AssertionError("CLI truncated input through an output alias")
 
         alias_path.unlink()
+
+    for alias_path in path_aliases:
+        result = subprocess.run(
+            [binary, "c8", str(source_path), alias_path, "-1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode == 0:
+            raise AssertionError("CLI accepted a canonical-path input/output alias")
+        if source_path.read_bytes() != original:
+            raise AssertionError("CLI truncated input through a canonical path alias")
+
+    if os.name == "nt":
+        case_alias = str(source_path).upper()
+        result = subprocess.run(
+            [binary, "c8", str(source_path), case_alias, "-1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode == 0:
+            raise AssertionError("CLI accepted a case-insensitive Windows path alias")
+        if source_path.read_bytes() != original:
+            raise AssertionError("CLI truncated input through a case-insensitive alias")
+
+    if os.path.exists("/dev/null"):
+        result = subprocess.run(
+            [binary, "c8", str(source_path), "/dev/null", "-1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                "CLI should preserve support for non-regular output devices: "
+                + result.stderr.decode("utf-8", "replace")
+            )
 
 
 def main():
