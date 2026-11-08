@@ -17,12 +17,19 @@
 
 /*****************************************************************************/
 
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+# include <sys/stat.h>
+# include <unistd.h>
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+
+/*****************************************************************************/
+
 #include "crc32_hw.h"
 
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.7 (2026-11-07)"
+#define LZ9VER "v0.9.8 (2026-11-08)"
 
 /*****************************************************************************/
 
@@ -5784,6 +5791,25 @@ decode_file (FILE *in, FILE *out)
         }
     }
 
+  if (!unknown_count)
+    {
+      int control = fgetc (in);
+
+      if (control != EOF)
+        {
+          if (((unsigned int)control & 3U) != (BLOCK_END_CONTROL & 3U)
+              || !decode_end_record (in, (unsigned char)control,
+                                     (unsigned int)o->out_mode, o->produced))
+            {
+              goto cleanup;
+            }
+        }
+      else if (ferror (in))
+        {
+          goto cleanup;
+        }
+    }
+
   if (o->out_mode == 9 && o->out_bits)
     {
       if (!output_octet (o, o->out_acc << (8 - o->out_bits)))
@@ -5837,6 +5863,25 @@ file_size (FILE *in, unsigned long *size)
 
   return 1;
 }
+
+/*****************************************************************************/
+
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+static int
+same_file (FILE *input, const char *output_path)
+{
+  struct stat input_stat, output_stat;
+
+  if (fstat (fileno (input), &input_stat) != 0
+      || stat (output_path, &output_stat) != 0)
+    {
+      return 0;
+    }
+
+  return input_stat.st_dev == output_stat.st_dev
+         && input_stat.st_ino == output_stat.st_ino;
+}
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
 /*****************************************************************************/
 
@@ -6050,6 +6095,17 @@ main (int argc, char **argv)
 
       return 2;
     }
+
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+  if (!input_is_stdio && !output_is_stdio && same_file (in, argv[3]))
+    {
+      (void)fprintf (stderr,
+                     "Input and output paths refer to the same file.\n");
+      (void)fclose (in);
+
+      return 2;
+    }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
   if (verbose && (input_is_stdio || output_is_stdio))
     {
