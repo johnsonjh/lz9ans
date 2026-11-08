@@ -199,6 +199,15 @@
 
 /*****************************************************************************/
 
+/* The 64-bit lane comparison assumes little-endian x86-64 symbol storage. */
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__)) \
+    && !defined(__CPPCHECK__) && !defined(__LINT__) \
+    && !defined(LZ9ANS_DISABLE_X86_64_MATCH_FASTPATH)
+# define LZ9ANS_X86_64_MATCH_FASTPATH 1
+#endif /* if defined(__GNUC__) && x86-64 */
+
+/*****************************************************************************/
+
 #if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
 __extension__ typedef unsigned long long lz9_u64;
 typedef char lz9_u64_type_must_be_at_least_64_bits_compile_time_assertion[
@@ -2125,14 +2134,41 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
   const unsigned short *buf = e->buffer;
   unsigned int k;
 
-  if (buf[cand] != p0 || buf[cand + 1U] != p1 || buf[cand + 2U] != p2)
+#if defined(LZ9ANS_X86_64_MATCH_FASTPATH)
+  if (max >= 4U)
     {
-      return;
+      lz9_u64 a, b, diff;
+
+      (void)memcpy (&a, buf + cand, sizeof (a));
+      (void)memcpy (&b, buf + pos, sizeof (b));
+      diff = a ^ b;
+
+      if (diff)
+        {
+          k = (unsigned int)(__builtin_ctzll (diff) >> 4);
+
+          if (k < 3U)
+            {
+              return;
+            }
+
+          goto match_done;
+        }
+
+      k = 4U;
+    }
+  else
+#endif /* if defined(LZ9ANS_X86_64_MATCH_FASTPATH) */
+    {
+      if (buf[cand] != p0 || buf[cand + 1U] != p1 || buf[cand + 2U] != p2)
+        {
+          return;
+        }
+
+      k = 3U;
     }
 
-  k = 3;
-
-#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
+#if defined(LZ9ANS_X86_64_MATCH_FASTPATH)
   while (k + 4U <= max)
     {
       lz9_u64 a, b, diff;
@@ -2150,18 +2186,16 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
 
       k += 4U;
     }
-#endif /* if defined(__GNUC__) && (defined(__x86_64__) \
-          || defined(__amd64__)) */
+#endif /* if defined(LZ9ANS_X86_64_MATCH_FASTPATH) */
 
   while (k < max && buf[cand + k] == buf[pos + k])
     {
       ++k;
     }
 
-#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
+#if defined(LZ9ANS_X86_64_MATCH_FASTPATH)
 match_done:
-#endif /* if defined(__GNUC__) && (defined(__x86_64__) \
-          || defined(__amd64__)) */
+#endif /* if defined(LZ9ANS_X86_64_MATCH_FASTPATH) */
 
   if (e->use_cost)
     {
@@ -2251,9 +2285,34 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
 
   if (pos + 2U >= end)
     {
-      *length = 0;
-      *distance = 0;
-      *gain = 0;
+      if (pos + 1U < end && e->use_cost
+          && e->min_match == MIN_MATCH_SHORT)
+        {
+          unsigned int pos_rel = pos - e->window_n;
+
+          base_ll_price = ll_price (e, pending);
+
+          for (i = 0; i < 3U; ++i)
+            {
+              unsigned int rep = e->reps[i];
+
+              if (rep && rep <= pos - history_start)
+                {
+                  consider_short (e, pos, pos_rel, base_ll_price, rep,
+                                  &best, &d, &best_gain);
+                }
+            }
+
+          if (pos - history_start >= 1U)
+            {
+              consider_short (e, pos, pos_rel, base_ll_price, 1U,
+                              &best, &d, &best_gain);
+            }
+        }
+
+      *length = best;
+      *distance = d;
+      *gain = best_gain;
 
       return;
     }

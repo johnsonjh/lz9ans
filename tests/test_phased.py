@@ -162,6 +162,36 @@ def main():
         assert decoded.read_bytes() == pair_raw
         print("PASS two-symbol matches", stats["match_2"])
 
+        # The final two symbols of a full block can form a profitable
+        # two-symbol REP match even though only two symbols remain for the
+        # match finder.  The following one-symbol block ensures this is a
+        # block-tail case rather than only a frame-tail case.
+        # The periodic prefix retains distance 2008 in a repeat slot; the
+        # rare marker pair makes the final two-symbol match profitable.
+        tail_values = [(index * 73 + (index >> 3) * 19) % 251 for index in range(32768)]
+        tail_distance = 2008
+        tail_source = 32766 - tail_distance
+        tail_values[tail_source : tail_source + 2] = [511, 510]
+        tail_values[-3:] = [250, 511, 510]
+        tail_values.append(42)
+        tail_raw = pack9(tail_values)
+        source.write_bytes(tail_raw)
+        for level in (6, 9):
+            run("c9", source, archive, f"-{level}")
+            tail_archive = archive.read_bytes()
+            independent, stats = decode(tail_archive)
+            assert independent == tail_raw
+            assert stats["match_2"] == 1, (level, stats)
+            first_position = frame_header(tail_archive)["length"]
+            first_block = block_header(tail_archive, first_position)
+            assert first_block["type"] == 1 and first_block["n"] == 32768
+            second_block = block_header(tail_archive, first_block["next_position"])
+            assert second_block["type"] == 0 and second_block["n"] == 1
+            assert second_block["next_position"] == len(tail_archive)
+            run("d", archive, decoded)
+            assert decoded.read_bytes() == tail_raw
+        print("PASS two-symbol match at full-block tail")
+
         # Phase-dependent sequences: exercise all three phased stream kinds
         # and reuse of individual phase-group models.
         structured = pack9(sequence_data(5, 150000))
