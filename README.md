@@ -22,6 +22,10 @@ the same general approach used by **Finite State Entropy** (FSE), but its
 normalization, descriptor encoding, table conventions, and output bitstream
 representation are original and specific to **LZ9ANS**.
 
+On Multics (and OS2200) systems, an **11%** on‑disk savings can be realized by
+packing the 8‑bit **LZ9ANS** output stream to a more compact (but less
+portable) 9‑bit per character storage representation.
+
 The algorithm may be tuned to favor saving time or space, with the ANSI C89
 reference implementation offering nine different compression profiles: four
 *fast*, four *tight*, and one *maximum*.
@@ -57,10 +61,6 @@ reference implementation offering nine different compression profiles: four
 | **`‑7`** |  `136,834,096`  | `69.360%` | `3.264:1` |     `‑461,208` |
 | **`‑8`** |  `136,477,824`  | `69.440%` | `3.272:1` |     `‑356,272` |
 | **`‑9`** |  `136,155,360`  | `69.512%` | `3.280:1` |     `‑322,464` |
-
-On Multics (and OS2200) systems, an **11%** on‑disk savings can be realized by
-packing the 8‑bit **LZ9ANS** output stream to a more compact (but less
-portable) 9‑bit per character storage representation.
 
 ### Competition
 

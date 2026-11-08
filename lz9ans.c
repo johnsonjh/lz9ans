@@ -8,6 +8,17 @@
 
 /*****************************************************************************/
 
+#if !defined(_WIN32) && !defined(_WIN64) \
+    && (defined(__unix__) || defined(__APPLE__) || defined(__linux__)) \
+    && !defined(_FILE_OFFSET_BITS)
+# define _FILE_OFFSET_BITS 64
+#endif /* if !defined(_WIN32) && !defined(_WIN64) \
+          && (defined(__unix__) || defined(__APPLE__) || defined(__linux__)) \
+          && !defined(_FILE_OFFSET_BITS) */
+
+/*****************************************************************************/
+
+#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -17,10 +28,56 @@
 
 /*****************************************************************************/
 
-#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+#if defined(_WIN32) || defined(_WIN64)
+# if !defined(WIN32_LEAN_AND_MEAN)
+#  define WIN32_LEAN_AND_MEAN 1
+# endif /* if !defined(WIN32_LEAN_AND_MEAN) */
+# include <windows.h>
+# include <fcntl.h>
+# include <io.h>
+# include <stdint.h>
+#elif defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+# include <fcntl.h>
 # include <sys/stat.h>
+# include <sys/types.h>
 # include <unistd.h>
-#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+#endif /* if defined(_WIN32) || defined(_WIN64) */
+
+/*****************************************************************************/
+
+#if defined(_WIN32) || defined(_WIN64)
+# if defined(_MSC_VER)
+typedef unsigned __int64 LZ9FileSize;
+typedef __int64 LZ9FileOffset;
+# else
+__extension__ typedef unsigned long long LZ9FileSize;
+__extension__ typedef long long LZ9FileOffset;
+# endif /* if defined(_MSC_VER) */
+# define LZ9_HAS_64BIT_FILE_SIZE 1
+#elif defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+typedef off_t LZ9FileSize;
+typedef off_t LZ9FileOffset;
+# define LZ9_HAS_64BIT_FILE_SIZE 1
+#else
+typedef unsigned long LZ9FileSize;
+typedef long LZ9FileOffset;
+#endif /* if defined(_WIN32) || defined(_WIN64) */
+
+/*****************************************************************************/
+
+#if defined(LZ9_HAS_64BIT_FILE_SIZE)
+typedef char lz9_file_size_type_must_be_64_bits_compile_time_assertion[
+  sizeof (LZ9FileSize) >= 8U ? 1 : -1];
+#endif /* if defined(LZ9_HAS_64BIT_FILE_SIZE) */
+
+/*****************************************************************************/
+
+#if !defined(_WIN32) && !defined(_WIN64) \
+    && (defined(__unix__) || defined(__APPLE__) || defined(__linux__))
+typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
+  sizeof (off_t) >= 8U ? 1 : -1];
+#endif /* if !defined(_WIN32) && !defined(_WIN64) \
+          && (defined(__unix__) || defined(__APPLE__) || defined(__linux__)) */
 
 /*****************************************************************************/
 
@@ -133,8 +190,12 @@
 # define fgetc(s) fgetc_unlocked(s) /* //-V1059 */
 # undef fread
 # define fread(p, s, n, f) fread_unlocked(p, s, n, f) /* //-V1059 */
-# undef fwrite
-# define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f) /* //-V1059 */
+# if !defined(__clang__) || !defined(__GLIBC__) || \
+     !defined(_FORTIFY_SOURCE) || (_FORTIFY_SOURCE <= 0)
+#  undef fwrite
+#  define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f) /* //-V1059 */
+# endif /* if !defined(__clang__) || !defined(__GLIBC__)
+           || !defined(_FORTIFY_SOURCE) || (_FORTIFY_SOURCE <= 0) */
 # undef fflush
 # define fflush(f) fflush_unlocked(f) /* //-V1059 */
 # undef feof
@@ -5902,52 +5963,281 @@ cleanup:
 /*****************************************************************************/
 
 static int
-file_size (FILE *in, unsigned long *size)
+file_size (FILE *in, LZ9FileSize *size)
 {
+#if defined(_WIN32) || defined(_WIN64)
+  LZ9FileOffset bytes;
+
+  if (_fseeki64 (in, 0, SEEK_END) != 0)
+    {
+      return 0;
+    }
+
+  bytes = _ftelli64 (in);
+
+  if (bytes < 0 || _fseeki64 (in, 0, SEEK_SET) != 0)
+    {
+      return 0;
+    }
+
+  *size = (LZ9FileSize)bytes;
+
+  return 1;
+#elif defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+  off_t bytes;
+
+  if (fseeko (in, (off_t)0, SEEK_END) != 0)
+    {
+      return 0;
+    }
+
+  bytes = ftello (in);
+
+  if (bytes < (off_t)0 || fseeko (in, (off_t)0, SEEK_SET) != 0)
+    {
+      return 0;
+    }
+
+  *size = (LZ9FileSize)bytes;
+
+  return 1;
+#else
   long bytes;
 
-  if (fseek (in, 0, SEEK_END) != 0)
+  if (fseek (in, 0L, SEEK_END) != 0)
     {
       return 0;
     }
 
   bytes = ftell (in);
 
-  if (bytes < 0 || fseek (in, 0, SEEK_SET) != 0)
+  if (bytes < 0L || fseek (in, 0L, SEEK_SET) != 0)
     {
       return 0;
     }
 
-  *size = (unsigned long)bytes;
+  *size = (LZ9FileSize)bytes;
 
   return 1;
+#endif /* if defined(_WIN32) || defined(_WIN64) */
 }
 
 /*****************************************************************************/
 
-#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
-static int
-same_file (FILE *input, const char *output_path)
+static FILE *
+open_output_file (FILE *input, const char *path, int check_input,
+                  int *same_file)
 {
-  struct stat input_stat, output_stat;
+  *same_file = 0;
 
-  if (fstat (fileno (input), &input_stat) != 0
-      || stat (output_path, &output_stat) != 0)
+#if defined(_WIN32) || defined(_WIN64)
+  {
+    HANDLE output_handle;
+    DWORD output_type;
+    int fd;
+    FILE *out;
+
+    output_handle = CreateFileA (path, GENERIC_WRITE,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                 (LPSECURITY_ATTRIBUTES)0, OPEN_ALWAYS,
+                                 FILE_ATTRIBUTE_NORMAL, (HANDLE)0);
+
+    if (output_handle == INVALID_HANDLE_VALUE)
+      {
+        errno = EIO;
+
+        return (FILE *)0;
+      }
+
+    SetLastError (NO_ERROR);
+    output_type = GetFileType (output_handle);
+
+    if (output_type == FILE_TYPE_UNKNOWN && GetLastError () != NO_ERROR)
+      {
+        (void)CloseHandle (output_handle);
+        errno = EIO;
+
+        return (FILE *)0;
+      }
+
+    if (output_type == FILE_TYPE_DISK)
+      {
+        if (check_input)
+          {
+            HANDLE input_handle
+                = (HANDLE)_get_osfhandle (_fileno (input));
+            DWORD input_type;
+
+            if (input_handle == INVALID_HANDLE_VALUE)
+              {
+                (void)CloseHandle (output_handle);
+                errno = EIO;
+
+                return (FILE *)0;
+              }
+
+            SetLastError (NO_ERROR);
+            input_type = GetFileType (input_handle);
+
+            if (input_type == FILE_TYPE_UNKNOWN
+                && GetLastError () != NO_ERROR)
+              {
+                (void)CloseHandle (output_handle);
+                errno = EIO;
+
+                return (FILE *)0;
+              }
+
+            if (input_type == FILE_TYPE_DISK)
+              {
+                BY_HANDLE_FILE_INFORMATION input_info, output_info;
+
+                if (!GetFileInformationByHandle (input_handle, &input_info)
+                    || !GetFileInformationByHandle (output_handle,
+                                                    &output_info))
+                  {
+                    (void)CloseHandle (output_handle);
+                    errno = EIO;
+
+                    return (FILE *)0;
+                  }
+
+                if (input_info.dwVolumeSerialNumber
+                        == output_info.dwVolumeSerialNumber
+                    && input_info.nFileIndexHigh == output_info.nFileIndexHigh
+                    && input_info.nFileIndexLow == output_info.nFileIndexLow)
+                  {
+                    (void)CloseHandle (output_handle);
+                    *same_file = 1;
+                    errno = EINVAL;
+
+                    return (FILE *)0;
+                  }
+              }
+          }
+
+        {
+          if (SetFilePointer (output_handle, 0L, (PLONG)0, FILE_BEGIN)
+                  == INVALID_SET_FILE_POINTER
+              || !SetEndOfFile (output_handle))
+            {
+              (void)CloseHandle (output_handle);
+              errno = EIO;
+
+              return (FILE *)0;
+            }
+        }
+      }
+
+    fd = _open_osfhandle ((intptr_t)output_handle, _O_WRONLY | _O_BINARY);
+
+    if (fd < 0)
+      {
+        (void)CloseHandle (output_handle);
+
+        return (FILE *)0;
+      }
+
+    out = _fdopen (fd, "wb");
+
+    if (!out)
+      {
+        (void)_close (fd);
+
+        return (FILE *)0;
+      }
+
+    return out;
+  }
+#elif defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+  {
+    int fd;
+    FILE *out;
+
+    fd = open (path, O_WRONLY | O_CREAT, (mode_t)0666);
+
+    if (fd < 0)
+      {
+        return (FILE *)0;
+      }
+
     {
-      return 0;
+      struct stat output_stat;
+
+      if (fstat (fd, &output_stat) != 0)
+        {
+          int saved_errno = errno;
+
+          (void)close (fd);
+          errno = saved_errno;
+
+          return (FILE *)0;
+        }
+
+      if (check_input)
+        {
+          struct stat input_stat;
+
+          if (fstat (fileno (input), &input_stat) != 0)
+            {
+              int saved_errno = errno;
+
+              (void)close (fd);
+              errno = saved_errno;
+
+              return (FILE *)0;
+            }
+
+          if (input_stat.st_dev == output_stat.st_dev
+              && input_stat.st_ino == output_stat.st_ino)
+            {
+              (void)close (fd);
+              *same_file = 1;
+              errno = EINVAL;
+
+              return (FILE *)0;
+            }
+        }
+
+      if (S_ISREG (output_stat.st_mode) && ftruncate (fd, (off_t)0) != 0)
+        {
+          int saved_errno = errno;
+
+          (void)close (fd);
+          errno = saved_errno;
+
+          return (FILE *)0;
+        }
     }
 
-  return input_stat.st_dev == output_stat.st_dev
-         && input_stat.st_ino == output_stat.st_ino;
+    out = fdopen (fd, "wb");
+
+    if (!out)
+      {
+        int saved_errno = errno;
+
+        (void)close (fd);
+        errno = saved_errno;
+
+        return (FILE *)0;
+      }
+
+    return out;
+  }
+#else
+  (void)input;
+  (void)check_input;
+
+  return fopen (path, "wb");
+#endif /* if defined(_WIN32) || defined(_WIN64) */
 }
-#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
 /*****************************************************************************/
 
 static int
 input_count (FILE *in, unsigned int mode, unsigned long *count)
 {
-  unsigned long bytes, check;
+  LZ9FileSize bytes, symbols;
 
   if (!file_size (in, &bytes))
     {
@@ -5956,25 +6246,67 @@ input_count (FILE *in, unsigned int mode, unsigned long *count)
 
   if (mode == 8)
     {
-      *count = bytes;
+      symbols = bytes;
+    }
+  else
+    {
+      LZ9FileSize check;
 
-      return 1;
+      /*
+       * ceil(9*N/8) == bytes.
+       * All byte positions aren't valid for N.
+       * NOTE: Keep this arithmetic 64-bit because a valid 32-bit symbol
+       * count can occupy more than 4 GiB!
+       */
+
+      symbols = (bytes / 9U) * 8U
+                + ((bytes % 9U) * 8U) / 9U;
+      check = (symbols / 8U) * 9U
+              + (((symbols % 8U) * 9U + 7U) / 8U);
+
+      if (check != bytes)
+        {
+          return 0;
+        }
     }
 
-  /*
-   * ceil(9*N/8) == bytes.
-   * All byte positions aren't valid for N.
-   */
-
-  *count = (bytes / 9UL) * 8UL + ((bytes % 9UL) * 8UL) / 9UL;
-  check = (*count / 8UL) * 9UL + (((*count % 8UL) * 9UL + 7UL) / 8UL);
-
-  if (check != bytes)
+  /* v9 frame header stores the symbol count in an unsigned 32-bit field */
+  if (symbols > (LZ9FileSize)0xffffffffUL)
     {
       return 0;
     }
 
+  *count = (unsigned long)symbols;
+
   return 1;
+}
+
+/*****************************************************************************/
+
+static void
+print_file_size (FILE *stream, const char *label, LZ9FileSize size)
+{
+  char digits[32];
+  unsigned int length = 0, i;
+
+  do
+    {
+      digits[length++] = (char)('0' + (unsigned int)(size % 10U));
+      size /= 10U;
+    }
+  while (size && length < sizeof (digits) - 1U);
+
+  digits[length] = '\0';
+
+  for (i = 0; i < length / 2U; ++i)
+    {
+      char tmp = digits[i];
+
+      digits[i] = digits[length - i - 1U];
+      digits[length - i - 1U] = tmp;
+    }
+
+  (void)fprintf (stream, "%s%s bytes\n", label, digits);
 }
 
 /*****************************************************************************/
@@ -5991,10 +6323,12 @@ int
 main (int argc, char **argv)
 {
   FILE *in, *out;
-  unsigned long count = 0, input_bytes = 0, output_bytes = 0;
+  unsigned long count = 0;
+  LZ9FileSize input_bytes = 0, output_bytes = 0;
   unsigned int mode = 0;
   int level = 5, verbose = 0, level_seen = 0, window_seen = 0, i, okay;
   int input_is_stdio, output_is_stdio, unknown_count, size_reporting = 1;
+  int output_is_same_file = 0;
   unsigned int window_n = WINDOW_DEFAULT;
   unsigned int features;
   clock_t start, finish;
@@ -6155,17 +6489,6 @@ main (int argc, char **argv)
       return 2;
     }
 
-#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
-  if (!input_is_stdio && !output_is_stdio && same_file (in, argv[3]))
-    {
-      (void)fprintf (stderr,
-                     "Input and output paths refer to the same file.\n");
-      (void)fclose (in);
-
-      return 2;
-    }
-#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
-
   if (verbose && (input_is_stdio || output_is_stdio))
     {
       size_reporting = 0;
@@ -6185,8 +6508,7 @@ main (int argc, char **argv)
       return 2;
     }
 
-  if (mode && !unknown_count
-      && (!input_count (in, mode, &count) || count > 0xffffffffUL))
+  if (mode && !unknown_count && !input_count (in, mode, &count))
     {
       (void)fprintf (stderr, "Invalid input size.\n");
 
@@ -6198,11 +6520,22 @@ main (int argc, char **argv)
       return 2;
     }
 
-  out = output_is_stdio ? stdout : fopen (argv[3], "wb");
+  out = output_is_stdio
+            ? stdout
+            : open_output_file (in, argv[3], !input_is_stdio,
+                                &output_is_same_file);
 
   if (!out)
     {
-      perror (argv[3]);
+      if (output_is_same_file)
+        {
+          (void)fprintf (stderr,
+                         "Input and output paths refer to the same file.\n");
+        }
+      else
+        {
+          perror (argv[3]);
+        }
 
       if (!input_is_stdio)
         {
@@ -6237,18 +6570,9 @@ main (int argc, char **argv)
         }
     }
 
-  if (verbose && size_reporting)
+  if (verbose && size_reporting && !file_size (out, &output_bytes))
     {
-      long bytes;
-
-      if (fseek (out, 0, SEEK_END) != 0 || (bytes = ftell (out)) < 0)
-        {
-          okay = 0;
-        }
-      else
-        {
-          output_bytes = (unsigned long)bytes;
-        }
+      okay = 0;
     }
 
   if (!output_is_stdio && fclose (out) != 0)
@@ -6277,8 +6601,8 @@ main (int argc, char **argv)
     {
       if (mode)
         {
-          (void)fprintf (stderr, "Input size: %lu bytes\n", input_bytes);
-          (void)fprintf (stderr, "Output size: %lu bytes\n", output_bytes);
+          print_file_size (stderr, "Input size: ", input_bytes);
+          print_file_size (stderr, "Output size: ", output_bytes);
 
           if (input_bytes)
             {
@@ -6297,8 +6621,8 @@ main (int argc, char **argv)
         }
       else
         {
-          (void)fprintf (stderr, "Input size: %lu bytes\n", input_bytes);
-          (void)fprintf (stderr, "Output size: %lu bytes\n", output_bytes);
+          print_file_size (stderr, "Input size: ", input_bytes);
+          print_file_size (stderr, "Output size: ", output_bytes);
 
           if (input_bytes)
             {
