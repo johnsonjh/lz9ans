@@ -65,6 +65,25 @@ def add_header_extensions(frame, extensions):
     return bytes(header) + frame[old_length:]
 
 
+def make_unknown_count_frame(frame):
+    old_length = struct.unpack_from("<H", frame, 6)[0]
+    prefix = bytearray(frame[:13])
+    struct.pack_into("<I", prefix, 8, 0)
+    extensions = tlv(0x81)
+    new_length = 13 + len(extensions) + 4
+    struct.pack_into("<H", prefix, 6, new_length)
+    header = prefix + extensions
+    header += struct.pack("<I", zlib.crc32(header))
+    return bytes(header) + frame[old_length:]
+
+
+def make_end_record(extension=b""):
+    if not extension:
+        return b"\x02"
+    prefix = b"\x06" + struct.pack("<H", len(extension)) + extension
+    return prefix + struct.pack("<I", zlib.crc32(prefix))
+
+
 def tlv(identifier, value=b""):
     return bytes((identifier,)) + struct.pack("<H", len(value)) + value
 
@@ -153,41 +172,70 @@ def main():
             "oversized-extension-length",
         )
 
-        # The defined unknown-count extension is recognized but streaming is
-        # deliberately not implemented in this release.
+        # Unknown-count frames are emitted for stdin input.  The decoder
+        # requires END, accepts it only once, and rejects data after it.
         empty = make_frame_header(8, 0)
-        unknown_count = add_header_extensions(empty, tlv(0x81))
-        must_reject(unknown_count, temp, "reserved-unknown-count-frame")
+        unknown_empty = make_unknown_count_frame(empty) + make_end_record()
+        result, output = run_decode(unknown_empty, temp, "unknown-empty-frame")
+        assert result.returncode == 0, result.stderr.decode()
+        assert output.read_bytes() == b""
+
+        unknown_sample = make_unknown_count_frame(sample) + make_end_record()
+        result, output = run_decode(unknown_sample, temp, "unknown-count-frame")
+        assert result.returncode == 0, result.stderr.decode()
+        assert output.read_bytes() == bytes((1, 2, 3, 4))
+
+        unknown_without_end = make_unknown_count_frame(sample)
+        must_reject(unknown_without_end, temp, "unknown-count-missing-end")
+        must_reject(unknown_sample + b"\x02", temp, "unknown-count-duplicate-end")
+        must_reject(unknown_sample + b"\x00", temp, "unknown-count-data-after-end")
         bad_unknown_count = add_header_extensions(sample, tlv(0x81))
         must_reject(bad_unknown_count, temp, "unknown-count-with-nonzero-count")
         bad_unknown_count_length = add_header_extensions(empty, tlv(0x81, b"x"))
         must_reject(bad_unknown_count_length, temp, "unknown-count-bad-length")
 
-        # END is reserved for the future streaming/terminal-metadata feature.
-        # The current known-length decoder must reject both its minimal and
-        # extended encodings rather than treating them as data or ignoring them.
-        must_reject(sample + b"\x02", temp, "reserved-minimal-end-record")
+        # The current extended-END parser accepts the zero-truncation form.
+        # Nonzero partial-symbol truncation values remain unsupported.
         final_truncation_sample = make_literal_frame([0b101101000], 9, mode=9)
-        end_tlv = tlv(0x82, b"\x03")  # truncate three zero low bits of final symbol
-        end_prefix = b"\x06" + struct.pack("<H", len(end_tlv)) + end_tlv
-        extended_end = end_prefix + struct.pack("<I", zlib.crc32(end_prefix))
-        assert len(extended_end) == 1 + 2 + len(end_tlv) + 4
+        zero_truncation_end = make_end_record(tlv(0x82, b"\x00"))
+        unknown_final = (
+            make_unknown_count_frame(final_truncation_sample) + zero_truncation_end
+        )
+        result, output = run_decode(unknown_final, temp, "extended-end-zero")
+        assert result.returncode == 0, result.stderr.decode()
+        assert output.read_bytes() == pack9([0b101101000])
+
+        nonzero_truncation_end = make_end_record(tlv(0x82, b"\x03"))
         must_reject(
-            final_truncation_sample + extended_end,
+            make_unknown_count_frame(final_truncation_sample) + nonzero_truncation_end,
             temp,
-            "reserved-extended-end-record",
+            "unsupported-nonzero-truncation-end",
         )
-        invalid_end_tlv = tlv(0x82, b"\x09")
-        invalid_end_prefix = (
-            b"\x06" + struct.pack("<H", len(invalid_end_tlv)) + invalid_end_tlv
-        )
-        invalid_extended_end = invalid_end_prefix + struct.pack(
-            "<I", zlib.crc32(invalid_end_prefix)
-        )
+        invalid_end_tlv = make_end_record(tlv(0x82, b"\x09"))
         must_reject(
-            final_truncation_sample + invalid_extended_end,
+            make_unknown_count_frame(final_truncation_sample) + invalid_end_tlv,
             temp,
-            "reserved-invalid-truncation-end",
+            "invalid-truncation-end",
+        )
+        # The C decoder also accepts an optional END after a known symbol
+        # count, including the supported zero-truncation extended form.
+        result, output = run_decode(
+            sample + make_end_record(), temp, "known-count-minimal-end"
+        )
+        assert result.returncode == 0, result.stderr.decode()
+        assert output.read_bytes() == bytes((1, 2, 3, 4))
+
+        result, output = run_decode(
+            final_truncation_sample + zero_truncation_end,
+            temp,
+            "known-count-extended-end-zero",
+        )
+        assert result.returncode == 0, result.stderr.decode()
+        assert output.read_bytes() == pack9([0b101101000])
+        must_reject(
+            sample + make_end_record() + b"\x00",
+            temp,
+            "known-count-data-after-end",
         )
 
         # The maximum permitted frame header is accepted when its TLV area
@@ -207,7 +255,7 @@ def main():
         must_reject(bytes(oversized_header), temp, "oversized-frame-header")
 
     print(
-        "PASS v9 compact headers, all LIT padding counts, TLV validation, and reserved streaming/END rejection"
+        "PASS v9 compact headers, TLV validation, unknown-count streams, and END handling"
     )
 
 

@@ -1,9 +1,9 @@
 <!-- Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com> -->
 <!-- Copyright (c) 2025-2026 The DPS8M Development Team -->
 <!-- SPDX-License-Identifier: MIT -->
-# LZ9ANS version 9 (2026‑11‑06) stream format
+# LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`29`** (2026‑11‑07)
+> Document revision **`30`** (2026‑11‑08)
 
 <!-- toc -->
 
@@ -15,7 +15,7 @@
   * [3.2. Block prefix and type-specific headers](#32-block-prefix-and-type-specific-headers)
   * [3.3. STORED blocks](#33-stored-blocks)
   * [3.4. LZ blocks](#34-lz-blocks)
-  * [3.5. Reserved END block](#35-reserved-end-block)
+  * [3.5. END block](#35-end-block)
 - [4. Decoded sequence semantics](#4-decoded-sequence-semantics)
   * [4.1. Literal-run and match-length codes](#41-literal-run-and-match-length-codes)
   * [4.2. Offset alphabet, repeat slots, and RUN](#42-offset-alphabet-repeat-slots-and-run)
@@ -29,7 +29,7 @@
   * [7.1. Reference implementation memory usage](#71-reference-implementation-memory-usage)
 - [8. Golden vectors and interoperability](#8-golden-vectors-and-interoperability)
 - [9. Format gaps and future design choices](#9-format-gaps-and-future-design-choices)
-- [10. Version 9 features, extensions, and reserved control records](#10-version-9-features-extensions-and-reserved-control-records)
+- [10. Version 9 features, extensions, and control records](#10-version-9-features-extensions-and-control-records)
   * [10.1. Frame feature flags](#101-frame-feature-flags)
   * [10.2. TLV extension convention](#102-tlv-extension-convention)
   * [10.3. Unknown-length frame extension](#103-unknown-length-frame-extension)
@@ -55,9 +55,10 @@ is represented in the compressor's working RAM.
     values 0–255.
   - **Mode 9:** A packed MSB‑first stream of consecutive 9‑bit symbols.  Eight
     complete symbols occupy nine octets.  A final incomplete group is
-    zero‑padded to an octet boundary.  The reserved `END` truncation extension
-    can later shorten the meaningful bit count in the final symbol; the current
-    UNIX implementation does not implement it.
+    zero‑padded to an octet boundary.  The `END` truncation extension defines
+    how a consumer may later shorten the meaningful bit count in the final
+    symbol; the current C implementation accepts only the zero‑truncation value
+    and does not emit partial‑symbol metadata.
 
 **Bit position 0** of any packed stream denotes the most significant bit of
 its first octet.  *Within the compressed format*, headers and descriptors are
@@ -68,8 +69,8 @@ The format intentionally **does** **not** attach file names, timestamps,
 source‑system types, record boundaries, or word attributes.
 
 The current UNIX reference implementation preserves complete 9‑bit symbols
-only; the reserved `END` metadata defines how a future Multics implementation
-can represent an arbitrary final bit count.
+only; the defined `END` metadata specifies how an implementation that supports
+partial symbols can represent an arbitrary final bit count.
 
 ### 1.1. Constants
 
@@ -78,7 +79,8 @@ can represent an arbitrary final bit count.
 | `BLOCK_N`            | 32,768 | Maximum logical output symbols in a block            |
 | `WINDOW_DEFAULT`     | 32,768 | Default maximum backward match distance, in symbols  |
 | `WINDOW_64K`         | 65,536 | Optional maximum backward match distance, in symbols |
-| `MIN_MATCH`          | 3      | Minimum matched symbols                              |
+| `MIN_MATCH_DEFAULT`  | 3      | Default minimum matched symbols                      |
+| `MIN_MATCH_SHORT`    | 2      | Minimum when frame flag `0x04` is set                |
 | `MAX_MATCH`          | 32,768 | Maximum matched symbols in one sequence              |
 | `TABLE_LOG`          | 10     | Base‑two log of tANS state count                     |
 | `TABLE_N`            | 1,024  | tANS states, numbered 0–1023                         |
@@ -112,10 +114,10 @@ packed hex:  00 1f df f0 0f f8 06 80 11
 
 The reverse process reads nine MSB‑first bits at a time.  For the current
 complete‑symbol mode‑9 representation, a final partly used octet **MUST** have
-zero unused bits.  If `N` is the symbol count and no future `END` truncation
-metadata is present, packed mode‑9 output occupies `ceil(9*N/8)` octets;
-mode‑8 output occupies `N` octets.  The reserved final‑symbol truncation
-extension is defined in section 10.4.
+zero unused bits.  If `N` is the symbol count and no `END` truncation
+metadata is applied, packed mode‑9 output occupies `ceil(9*N/8)` octets;
+mode‑8 output occupies `N` octets.  The final‑symbol truncation extension is
+defined in section 10.4.
 
 The frame‑header CRC covers **all header octets preceding its final four‑octet
 CRC field** (the first 13 octets when there are no extensions).  Each block CRC
@@ -135,13 +137,13 @@ constructed octet**, final XOR `0xFFFFFFFF`).  This equals the usual
 ## 3. Frame and block headers
 
 Every V9 frame begins with a frame header whose length is 17–4,096 octets.
-The header is followed by block records.  In the currently implemented
-known‑length form, the blocks produce exactly the symbol count in the frame
-header and there is no trailer.  A zero‑symbol known‑length frame has no
-blocks.  A future unknown‑length form and its terminal record are reserved in
-section 10; the current reference encoder does not emit that form and the
-current decoders reject it.  All integer fields are unsigned and little‑endian
-except the ASCII magics and single‑byte control/feature fields.
+The header is followed by block records.  A known‑length frame's blocks produce
+exactly the symbol count in the frame header and are followed by EOF or one
+optional terminal `END` record.  A zero‑symbol known‑length frame has no data
+blocks.  The reference encoder emits the unknown‑length form for stdin input,
+and the C decoder accepts it from either files or stdin, as specified in
+section 10.  All integer fields are unsigned and little‑endian except the ASCII
+magic bytes and single‑byte control/feature fields.
 
 ### 3.1. Frame header (17 to 4096 octets)
 
@@ -169,33 +171,43 @@ noncritical TLVs are skipped; unknown critical TLVs are rejected.  Duplicate
 extension identifiers and identifier zero are invalid.
 
 For known‑length frames, block decoding stops when the sum of decoded block
-symbols equals `N`; any trailing octets are invalid.  The `0x81` unknown‑count
-extension reserves a future streaming form in which `N` is zero and an `END`
-record is mandatory.  The current implementation recognizes but rejects that
-extension because unknown‑length streaming is not yet implemented.
+symbols equals `N`; the decoder then accepts EOF or one optional, valid `END`
+record.  Any other trailing octets are invalid.  The `0x81` unknown‑count
+extension identifies a streaming frame in which `N` is zero and an `END` record
+is mandatory.  The C decoder supports both forms and rejects a missing `END`,
+a duplicate `END`, or any octets after `END`.
 
-The UNIX CLI currently counts its input before encoding and uses a known‑length
-frame.  It uses seekable input for that count; this is a host implementation
-limitation, not a requirement of the reserved future streaming representation.
+For compression, the UNIX CLI uses a known‑length frame when the input is a
+named file: it counts the input before encoding, which requires a seekable
+input.  When the input name is `-`, it reads stdin incrementally and emits an
+unknown‑length frame without seeking.  Input is consumed in block‑sized batches;
+this is a streaming file format, not a low‑latency interactive record protocol.
+The output name may independently be `-` for stdout.  Decompression accepts
+either frame form from a file or stdin and can write to a file or stdout.
+Size/ratio reporting with `-v` is disabled when either standard stream is used.
 
 ### 3.2. Block prefix and type-specific headers
 
 Every data block (`STORED` or `LZ`) begins directly with its one–octet control
 field.  There is no per–block ASCII signature or common magic prefix.  The
 containing frame is identified by its `LZ9A` frame header, and the frame's
-version byte determines the block layout.  The reserved `END` control record
-is also a one–octet control value before any optional extension length.
+version byte determines the block layout.  The `END` control record is also a
+one–octet control value before any optional extension length.
 
-| Offset | Octets | Interpretation                                       |
-|-------:|:-------|:-----------------------------------------------------|
-| `0`    | `1`    | Block type and type–specific flags/width             |
-| `1`    | `2`    | `n`: decoded logical symbols in this block, 1–32,768 |
+| Offset | Octets | Interpretation                                            |
+|-------:|:-------|:----------------------------------------------------------|
+| `0`    | `1`    | Block type and type–specific flags/width                  |
+| `1`    | `2`    | `n`: decoded logical symbols in this data block, 1–32,768 |
 
-The low two bits of octet 0 identify the block type: `0=STORED`, `1=LZ`, and
-`2=END` (reserved); type 3 is reserved and invalid.  The current reader reads
-the three–octet data–block prefix first, then reads the remainder of the
-seven–octet `STORED` header or 23–octet `LZ` header.  There is no per–block
-version or header–length field.
+The two–octet `n` field applies only to `STORED` and `LZ` data blocks; an `END`
+record consists of its control octet and, when extended, the extension‑length,
+TLV, and CRC fields described in section 3.5.  The low two bits of octet 0
+identify the block type: `0=STORED`, `1=LZ`, and `2=END`; type 3 is reserved
+and invalid.  For data blocks, the current reader reads the three–octet prefix
+first, then reads the remainder of the seven–octet `STORED` header or 23–octet
+`LZ` header.  After the data blocks, it checks for the required `END` record in
+an unknown‑length frame or an optional `END` record in a known‑length frame.
+There is no per–block version or header–length field.
 
 A `STORED` block has a **7–octet** header:
 
@@ -303,23 +315,25 @@ all `n` symbols.  When the derived literal count is zero, the `LIT` descriptor
 **MUST** be `EMPTY`; otherwise it **MUST** be non‑`EMPTY`.  These conditions
 are checked against the decoded block, not a header literal‑count field.
 
-### 3.5. Reserved END block
+### 3.5. END block
 
-Block type `2` is reserved for a future explicit end‑of‑frame record.  The
-minimal record is the single control octet `0x02`.  An extended `END` record
-uses type/control octet `0x06`, followed by a two–octet extension–area length,
-TLV extensions, and a four–octet CRC–32 covering the control octet and all
-following `END`–record fields preceding the CRC.  The extension area is bounded
-to 4,096 octets and uses the TLV convention in section 10.2.  The precise
-terminal semantics and the reserved final‑symbol truncation extension are
-specified in section 10.4.
+Block type `2` is the explicit end‑of‑frame record used by unknown‑length
+frames.  The minimal record is the single control octet `0x02`.  An extended
+`END` record uses type/control octet `0x06`, followed by a two–octet
+extension–area length, TLV extensions, and a four–octet CRC–32 covering the
+control octet and all following `END`–record fields preceding the CRC.  The
+extension area is bounded to 4,096 octets and uses the TLV convention in
+section 10.2.  Terminal semantics and final‑symbol truncation are specified in
+section 10.4.
 
-The current V9 encoder does not emit `END` records and the current C and Python
-decoders reject them.  For known‑length frames, the current implementation
-recognizes end‑of‑frame when exactly `N` symbols have been decoded and rejects
-any following octets.  The `END` syntax is reserved now so a future nonseekable
-streaming implementation can add explicit termination without changing the
-`LZ` or `STORED` block layouts.
+The reference encoder emits the minimal `0x02` record after every
+unknown‑length frame.  The C decoder requires that record for an unknown‑length
+frame, validates its terminal position, and also accepts an optional `END`
+after the symbol count of a known‑length frame.  It parses the extended form
+and its CRC.  Its `0x82` handling currently accepts only value zero; nonzero
+partial‑symbol truncation is not implemented.  The Python inspection decoder
+remains a known‑length‑only test tool and does not decode streaming frames or
+`END` records.
 
 ## 4. Decoded sequence semantics
 
@@ -330,7 +344,8 @@ synchronous, even though their codes occupy separate entropy streams.
 For each sequence in forward order:
 
 1. Decode `LL` and emit exactly `LL` symbols from `LIT`.
-2. Decode `ML`; it **MUST** be at least three.
+2. Decode `ML`; it **MUST** be at least `m`, the frame's minimum match length
+   (3 by default, or 2 when flag `0x04` is set).
 3. Decode `OF` to a backward **distance** `d` between 1 and the selected
    window limit (32,768 or 65,536 symbols).
 4. Copy `ML` symbols from `d` logical positions behind the current output
@@ -630,17 +645,18 @@ A conforming V9 decoder **SHOULD** implement the following stages, enforcing
     validate the declared header length (17–4,096 octets), read the remainder,
     validate the final header CRC, and parse all TLVs.  Unknown noncritical
     TLVs are skipped; unknown critical TLVs, duplicate identifiers, malformed
-    lengths, and identifier zero are rejected.  The defined unknown‑count TLV
-    is recognized but is not supported by the current reference decoder.
+    lengths, and identifier zero are rejected.  The `0x81` unknown‑count TLV is
+    supported when its length is zero and the frame symbol count is zero.
 2.  Initialize an empty 32,768‑ or 65,536‑symbol history as selected by the
     frame flags (zero‑initializing memory as defense‑in‑depth against memory
     disclosure) and three `INVALID` repeat slots.
-3.  For each block, read and validate the seven‑octet common prefix.  For
-    `STORED`, read the remaining four header octets; for `LZ`, read the
-    remaining 20 header octets.  Type 2 (`END`) and type 3 are reserved and
-    rejected by the current implementation.  Validate the type‑specific fields
-    and ensure the block's `n` does not exceed the symbols remaining in the
-    known‑length frame.
+3.  Read the first control octet.  Type 2 is `END`: validate its control value
+    and terminal record as specified in section 10.4; it is mandatory for an
+    unknown‑length frame and optional after exactly `N` symbols in a
+    known‑length frame.  Reject type 3.  For type 0 (`STORED`) or type 1 (`LZ`),
+    read the remaining two octets of the data‑block prefix, then the remaining
+    four or 20 octets of the corresponding block header.  For known‑length
+    data blocks, ensure `n` does not exceed the symbols remaining in the frame.
 4.  For `STORED`, derive the payload bit length as `n * width`, derive its byte
     length by rounding up, validate the final zero padding bits, and read
     exactly that payload.
@@ -664,8 +680,9 @@ A conforming V9 decoder **SHOULD** implement the following stages, enforcing
 8.  For every copy, validate `1 <= distance <= window_limit`, and ensure the
     distance does not exceed the already reconstructed frame prefix
     (`distance <= produced`), rejecting all pre‑history references.  Validate
-    `ML >= 3`, and verify the copy does not exceed this block's remaining
-    output capacity.  Preserve forward‑copy semantics for overlapping matches;
+    `ML >= m`, where `m` is 3 by default or 2 when flag `0x04` is set, and
+    verify the copy does not exceed this block's remaining output capacity.
+    Preserve forward‑copy semantics for overlapping matches;
     use chunked copies only when the source and destination ranges are
     disjoint.
 9.  Verify each entropy stream consumes exactly its meaningful bits and its
@@ -676,9 +693,12 @@ A conforming V9 decoder **SHOULD** implement the following stages, enforcing
     block's symbols to the destination stream.  Mode‑9 output packing carries
     its partial‑byte state across block boundaries, independently of the
     per‑block CRC packing boundary.
-11. At the known frame symbol count, flush the mode‑9 terminal partial octet
-    with zero fill; reject trailing compressed octets.  Unknown‑length frames
-    and `END` records are reserved but not supported by the current decoder.
+11. For a known‑length frame, after exactly `N` symbols accept either EOF or
+    one optional `END` record; validate the record if present.  For an
+    unknown‑length frame, continue decoding data blocks until the required
+    `END` record and validate it.  In either form, flush the mode‑9 terminal
+    partial octet with zero fill and reject any octets after the terminal
+    position.
 
 Never allocate memory directly from any unchecked on‑disk length.  The current
 frame‑header and payload bounds are checked before any corresponding read or
@@ -777,12 +797,12 @@ to know which parser or level was used.
 ### 7.1. Reference implementation memory usage
 
 The UNIX reference implementation's explicitly allocated state on a standard
-Linux x86_64 system for the default 32K window size reports **678,670 octets
+Linux x86_64 system for the default 32K window size reports **678,678 octets
 of encoder state** and **213,596 octets of decoder state**, which can be
 verified with `./lz9ans --memory`.  The 32K encoder remains below
 **664&nbsp;KiB**.
 
-For the 64K window size, `./lz9ans --memory-64k` reports **875,278 octets of
+For the 64K window size, `./lz9ans --memory-64k` reports **875,286 octets of
 encoder state** and **279,132 octets of decoder state**.  The 64K encoder
 remains below **856&nbsp;KiB**.
 
@@ -793,10 +813,11 @@ static storage.  (On LP64 this is approximately 6 KiB more static storage than
 the previous implementation which used a 256‑entry `unsigned long` table.)
 This table is shared by both the encoder and decoder and is reported separately
 by `--memory`; it is not included in either allocated‑state figure.  No
-block‑sized decoder allocation is added.  The decoder's eleven transition
-tables (four persistent per‑stream tables, six phased group tables, and one
-poison table) use 4,100 octets each; the phased‑table feature therefore grows
-the decoder by only 2,220 octets compared with the previous four‑table layout.
+block‑sized decoder allocation is added.  The decoder allocates eleven
+transition tables (four persistent per‑stream tables, six phased group tables,
+and one poison table) at 4,100 octets each.  These tables are included in the
+reported decoder state; the array is allocated regardless of whether a
+particular frame uses phased descriptors.
 
 The reported values are **not** intended as a proof of native Multics segment
 occupancy: ANSI C89 type widths (8‑bit‑octet size assumed) and Multics PL/I
@@ -853,17 +874,23 @@ to match exactly.
   one raw `EXTRA` stream.  Earlier frame versions are rejected; there is no
   legacy decoding path.
 
-- **Streaming:** The frame TLV and `END`‑record conventions reserve an explicit
-  unknown‑symbol‑count representation and an unambiguous terminal record.
-  The current UNIX CLI still counts input before encoding and the current
-  decoder supports only known‑length frames.  Reading from stdin and writing to
-  stdout, unknown‑length decoding, and `END`‑record processing are future work.
+- **Streaming:** The CLI reads stdin and writes stdout using `-` as the
+  corresponding path.  Compression from stdin reads input in block‑sized
+  batches, writes the `0x81` unknown‑count frame TLV, and terminates with a
+  minimal `END` record.  This supports pipes and nonseekable streams but is not
+  a low‑latency interactive record protocol.  Compression from a named input
+  file counts the file first and emits a known‑length frame.  The C decoder
+  accepts either frame form from a file or stdin and writes to a file or
+  stdout.  The Python inspection decoder remains limited to known‑length
+  frames.  The CLI's `-v` size/ratio reporting need not be available when stdin
+  or stdout is used.
 
-- **Final partial Multics symbol:** An `END` TLV reserves the number of
-  low‑order bits to truncate from the last 9‑bit symbol.  The current UNIX
-  reference implementation does not emit `END` metadata or produce
-  partial‑symbol output.  Its ordinary mode‑9 output continues to contain
-  complete symbols with zero‑padding to the final octet.
+- **Final partial Multics symbol:** The `END` TLV defines the number of
+  low‑order bits to truncate from the last 9‑bit symbol.  The C decoder parses
+  extended `END` records and accepts an explicit `0x82` value of zero, but
+  rejects nonzero truncation values.  The encoder emits only minimal `END`
+  records and never emits `0x82`.  Consequently the current CLI continues to
+  preserve complete 9‑bit symbols and zero‑pads the final output octet.
 
 - **Container semantics:** ZIP / archive method numbers, independent blocks,
   indexing, and concatenated frames are outside this experimental format.
@@ -898,13 +925,18 @@ to match exactly.
      can ever be accessed or disclosed.
 
 - **Portability:** This specific UNIX reference implementation expects 8‑bit
-  C `char`, 16‑bit `short`, 32‑bit `int`, and seekable files for its current
-  known‑length CLI.  A future streaming implementation **need not seek**.  Any
-  Multics (PL/I) port should carry the *wire equations* and **use**
-  **36‑bit‑native** representations, **not** emulate these C types
-  unnecessarily.
+  C `char`, 16‑bit `short`, and 32‑bit `int`.  Compression from a named input
+  file requires seeking to count the input; the stdin path does not seek and
+  uses the unknown‑length representation.  Decompression does not require
+  seeking, and stdout is a nonseekable destination supported by both encoder
+  and decoder.  A named input file still must be seekable when it is
+  compressed, even when the output is stdout.  On POSIX hosts, the CLI rejects
+  an existing output path that resolves to the same file as the opened input,
+  including hard‑link and symbolic‑link aliases.  Any Multics (PL/I) port
+  should carry the *wire equations* and **use** **36‑bit‑native**
+  representations, **not** emulate these C types unnecessarily.
 
-## 10. Version 9 features, extensions, and reserved control records
+## 10. Version 9 features, extensions, and control records
 
 Version 9 is the only format emitted or accepted by this implementation.  The
 fixed frame‑header prefix has version 9 at offset 4, header length at offset 6,
@@ -967,17 +999,19 @@ The following identifiers are reserved:
 
 Both identifiers are critical.  A decoder that does not implement their
 semantics **MUST** reject them rather than silently ignoring them.  The current
-reference decoder recognizes `0x81` and rejects the unknown‑length form as not
-yet implemented.  The current implementation does not parse `END` records, so
-it rejects type 2 regardless of its extension contents.
+C decoder implements `0x81` and requires an `END` record for such frames.  It
+parses minimal and extended `END` records, including their CRC, but currently
+accepts `0x82` only when its value is zero.  The Python inspection decoder does
+not implement unknown‑length frames or `END` records.
 
 ### 10.3. Unknown-length frame extension
 
-A future streaming encoder that cannot know the total symbol count before
-writing the frame header **MUST** set the frame `N` field at offset 8 to zero
-and include exactly one frame TLV with identifier `0x81`, length zero, and no
-value octets.  A zero count without this extension continues to mean an
-ordinary empty known‑length frame.
+An encoder that cannot know the total symbol count before writing the frame
+header **MUST** set the frame `N` field at offset 8 to zero and include exactly
+one frame TLV with identifier `0x81`, length zero, and no value octets.  A zero
+count without this extension continues to mean an ordinary empty known‑length
+frame.  The reference encoder uses this representation when its input is
+stdin.
 
 An unknown‑length frame **MUST** end with exactly one `END` record (section
 10.4).  The total decoded symbol count is the sum of the decoded `n` values of
@@ -987,13 +1021,14 @@ data after `END` **MUST** be rejected.  These rules provide an explicit end
 condition for pipes and other nonseekable streams; `EOF` alone is **not** a
 valid substitute for `END`.
 
-The current encoder does not emit `0x81`, and the current decoder rejects it.
-
-The present CLI is a known‑length, seekable‑file implementation.
+The reference encoder emits `0x81` for stdin input.  The C decoder accepts
+this frame form and decodes data blocks until the required `END` record.  File
+input compression remains known‑length and seek‑counted; stdout output does not
+change the frame‑length representation.
 
 ### 10.4. END record and final-symbol truncation
 
-Block type 2 is reserved for the `END` record.  Its type/control octet uses
+Block type 2 is assigned to the `END` record.  Its type/control octet uses
 bits 0–1 equal to `2`; bits 3–7 **MUST** be zero.  Bit 2 indicates whether an
 extension area is present:
 
@@ -1005,12 +1040,13 @@ extension area is present:
   **MUST** be nonempty and no larger than 4,096 octets.
 
 An `END` record **MUST** occur exactly once and at the end of an unknown‑length
-frame.  For a known‑length frame it **MAY** be used after exactly `N` decoded
-symbols when terminal metadata is required; otherwise the current form ends
-immediately after the last data block.  `END` **MUST NOT** occur before the
-known symbol count has been produced.  No data may follow `END`.
+frame.  For a known‑length frame it **MAY** appear after exactly `N` decoded
+symbols, either as an explicit terminal marker or to carry terminal metadata;
+otherwise the frame ends immediately after the last data block.  `END`
+**MUST NOT** occur before the known symbol count has been produced.  No data
+may follow `END`.
 
-The reserved `END` TLV `0x82` has length one.  Its value is the number of
+The `END` TLV `0x82` has length one.  Its value is the number of
 least‑significant bits to truncate from the final 9‑bit symbol:
 
 | Value          | Meaning                                                  |
@@ -1035,13 +1071,13 @@ number of meaningful output bits for a consumer that implements this metadata
 is `9*N - t`.  The final symbol still decodes as a complete 9‑bit value; only
 its final `t` zero bits are outside the logical source bitstream.  This makes
 the metadata useful for arbitrary‑bit‑length Multics segments without
-complicating the symbol/block codec.  The current UNIX reference implementation
-always writes complete symbols and does not process `END` metadata or truncate
-its output.
+complicating the symbol/block codec.
 
-The current V9 implementation reserves this record but does not emit or accept
-it.  Its C and Python decoders **MUST** reject an `END` block until `END`
-processing is implemented.
+The current C implementation does not implement nonzero truncation: its
+extended‑`END` parser accepts `0x82` only when the value is zero, and it writes
+all complete decoded symbols.  It emits only the minimal `END` form, not an
+extended record.  The Python inspection decoder remains known‑length‑only and
+rejects `END` records.
 
 ### 10.5. 64K history window (`0x01`)
 
