@@ -114,7 +114,7 @@ cppcheck: lz9ans.c crc32_hw.h
 		--enable=warning,style,performance,portability,unusedFunction \
 		--force --check-level=exhaustive --std=c89 --inline-suppr \
 		--inconclusive --error-exitcode=99 -D__CPPCHECK__ -D__LINT__ \
-		-D_ALL_SOURCE -D_GNU_SOURCE -j 1 --platform=unix64 lz9ans.c
+		-D_ALL_SOURCE -D_GNU_SOURCE -j $(nproc) --platform=unix64 lz9ans.c
 
 ##############################################################################
 
@@ -147,11 +147,11 @@ lint: lz9ans.c crc32_hw.h
 pvs pvs-studio:
 	$(MAKE) clean
 	scan-build bear -- $(MAKE) lz9ans
-	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
+	pvs-studio-analyzer analyze --intermodular -j $(nproc) -o log.pvs
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
 	$(MAKE) clean
 	scan-build bear -- $(MAKE) lz9ans THREADS=pthreads
-	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
+	pvs-studio-analyzer analyze --intermodular -j $(nproc) -o log.pvs
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
 
 ##############################################################################
