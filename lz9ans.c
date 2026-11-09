@@ -6497,7 +6497,7 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
   jobs = (ThreadBlockJob *)calloc (participants, sizeof (ThreadBlockJob));
   tasks = (ThreadTask *)calloc (participants, sizeof (ThreadTask));
   history = (unsigned short *)malloc (window_n * sizeof (unsigned short));
-  raw = (unsigned char *)malloc (STAGE_MAX);
+  raw = (unsigned char *)calloc (1U, STAGE_MAX);
 
   if (!jobs || !tasks || !history || !raw)
     {
@@ -7434,7 +7434,8 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
         }
     }
 
-  if (!output_flush (o) || fgetc (in) != EOF || ferror (in) || ferror (out))
+  if (!output_flush (o) || (!feof (in) && fgetc (in) != EOF)
+      || ferror (in) || ferror (out))
     {
       goto cleanup;
     }
