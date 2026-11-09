@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`30`** (2026‑11‑08)
+> Document revision **`31`** (2026‑11‑09)
 
 <!-- toc -->
 
@@ -823,6 +823,55 @@ The reported values are **not** intended as a proof of native Multics segment
 occupancy: ANSI C89 type widths (8‑bit‑octet size assumed) and Multics PL/I
 word representations are different and must be sized separately.
 
+**Optional pthread details**: The `--threads=N` limit (includes the main)
+thread: `0` (zero) means automatic sizing, `1` (one) selects the original
+sequential encoder, and larger positive values cap the number of concurrent
+threads.  The encoder uses independent‑block encoding automatically when more
+than one logical processor is available and the effective limit exceeds one;
+otherwise it uses the original sequential encoder.  Participants are bounded
+by the available logical processors and, for known‑length input, the number of
+input blocks.  The default serial build accepts and validates this option but
+ignores it; only the pthread‑enabled build advertises it in command help.
+
+Threading is an *implementation detail* and does not alter any V9 frame, block,
+descriptor, checksum, or entropy‑coding rule.  With more than one effective
+compression participant, the coordinator partitions the input into existing
+V9 blocks and dispatches complete block jobs.  Each block is parsed against a
+private snapshot of preceding uncompressed frame history (up to the selected
+32K or 64K window), including symbols from `STORED` blocks.  A worker uses
+fresh match‑finder, repeat‑distance, and ANS model‑cache state.  Explicit
+distances establish repeat slots in the same order within the current block,
+so only within‑block repeat‑slot references are emitted.  ANS model reuse
+within the block remains available; cross‑block model reuse is not used.  This
+removes cross‑block coding‑state dependencies while preserving cross‑block
+`LZ` matches.  Workers return complete block records in private memory; the
+coordinator is the only code that accesses input/output streams and emits
+records in original order.  Consequently, thread scheduling does not affect
+the compressed bytes.  The independent‑block strategy can produce different
+bytes and ratios from the original sequential encoder, but the result is an
+ordinary V9 frame readable by the existing decoder.
+
+`LL`, `ML`, and `OF` symbols can be decoded concurrently for ordinary
+descriptors, followed by sequential `EXTRA` processing and history
+reconstruction.  If either `LL` or `ML` uses a phased descriptor, the decoder
+uses its sequential path.  A phased `LIT` descriptor alone does not require
+that fallback.
+
+The serial memory figures above remain the figures reported by the default
+build; it allocates no pthread worker workspaces or worker stacks.  In a
+pthread build, `--memory`, `--memory-32k`, and `--memory-64k` accept an
+optional `--threads=N` and report the effective compression/decompression
+participant limits, the per‑block encoder contexts and output buffers when
+block encoding is selected, the maximum 49,155‑octet decoder symbol arrays
+(allocated lazily only for ordinary `LL`/`ML` blocks), and separately budgeted
+worker stacks.  Each additional pthread is given a 262,144‑octet stack; this
+operating‑system‑managed stack reservation is reported separately from
+LZ9ANS‑managed heap allocations.  The independent‑block encoder contexts are
+allocated only when the pthread build selects more than one compression
+participant.  A pthread build using `--threads=1`, or running where only one
+logical processor is available, uses the original encoder path and does not
+allocate block‑worker contexts.
+
 ## 8. Golden vectors and interoperability
 
 The checked–in `.lz9a` vectors are byte–exact **V9** frames produced by the
@@ -1292,3 +1341,44 @@ reference encoder (informative) only emits them when the offset is nearly free:
 a repeat slot (`OF` codes 0–2) or `RUN` (code 3), and only in the cost‑guided
 levels 6 to 9, where the price of the two literals they replace is known and
 the frame advertises feature flag `0x04`.
+
+**Independent–block encoding in the reference implementation**: In a pthread
+build, compression *automatically* uses independent–block encoding when the
+effective participant limit exceeds one.  `--threads=0` selects the available
+logical–processor count; a positive value caps participants, including the
+coordinator.  `--threads=1`, or a system with only one available logical
+processor, uses the original sequential encoder.  The default non–threaded
+build never selects independent–block encoding and retains the original
+serial behavior.  There is no separate command–line switch for this strategy.
+
+Independent–block encoding does not add a V9 feature bit or alter any
+block/header/descriptor syntax.  The coordinator partitions input into the
+existing block sizes and can encode multiple complete blocks concurrently.
+Each block receives a private snapshot of immediately preceding uncompressed
+frame history (up to the advertised 32K or 64K window), including input from
+preceding blocks selected as `STORED`.  The worker uses a fresh match finder,
+repeat–distance state, and ANS model cache for each block.  Repeat–slot and
+model–reuse decisions therefore do not depend on the scheduling or completion
+order of other blocks.  Explicit distances establish recent repeat slots in
+the same order; workers only emit repeat–slot references to distances
+established within the current block.  ANS model reuse within the current
+block remains available, while cross–block model reuse is not used.
+
+Workers return complete block records in private memory.  The coordinator
+emits those records in original input order and is the only code that accesses
+the input/output streams.  The serial build and a pthread build with
+`--threads=1` use the original encoder path, not the independent–block path.
+A pthread build with more than one effective participant uses the same
+block–independent coding algorithm regardless of participant count, so
+thread scheduling does not change the output.  This mode can produce different
+compressed bytes and ratios than the original sequential encoder, but its
+output remains an ordinary V9 frame readable by the existing decoder.  Decoding
+remains sequential or uses the existing Phase 1 stream parallelism; no
+block–parallel decoder is introduced here.
+
+In a pthread build, the memory report estimates the per–participant encoder
+contexts, private block–output buffers, shared history snapshot and raw–input
+scratch buffer, plus the pthread worker–stack budget, when independent–block
+encoding is selected automatically.  These allocations are absent from the
+default serial build and from the pthread build when `--threads=1` or only one
+logical processor is available.
