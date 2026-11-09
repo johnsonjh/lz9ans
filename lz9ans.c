@@ -126,7 +126,11 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 #define DESC_MAX 8192U
 #define BLOCK_PREFIX_N 3U
 #define LZ_BLOCK_HEADER_N 23U
-#define BLOCK_OUTPUT_MAX (LZ_BLOCK_HEADER_N + DESC_MAX + STAGE_DATA_MAX)
+
+#if defined(LZ9ANS_PTHREADS)
+# define BLOCK_OUTPUT_MAX (LZ_BLOCK_HEADER_N + DESC_MAX + STAGE_DATA_MAX)
+#endif
+
 #define STORED_BLOCK_HEADER_N 7U
 #define FRAME_HEADER_PREFIX_N 13U
 #define FRAME_HEADER_MIN_N 17U
@@ -786,7 +790,7 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
         ++pool->worker_count;
       }
 
-    if (attr_ready)
+    if (attr_ready) /* //-V547 */
       {
         (void)pthread_attr_destroy (&attr);
       }
@@ -812,9 +816,12 @@ init_failed:
         (void)pthread_mutex_unlock (&pool->mutex);
       }
 
-    for (i = 0; i < pool->worker_count; ++i)
+    if (pool->threads)
       {
-        (void)pthread_join (pool->threads[i], (void **)0);
+        for (i = 0; i < pool->worker_count; ++i)
+          {
+            (void)pthread_join (pool->threads[i], (void **)0);
+          }
       }
 
     if (pool->work_done_ready)
@@ -857,7 +864,7 @@ thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
 {
   unsigned int i;
 
-  if (!pool || (!tasks && task_count)
+  if (!pool || !tasks
       || task_count > pool->task_capacity)
     {
       return 0;
@@ -865,8 +872,6 @@ thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
 
   if (pool->worker_count && task_count)
     {
-      unsigned int index;
-
       (void)pthread_mutex_lock (&pool->mutex);
 
       for (i = 0; i < task_count; ++i)
@@ -882,10 +887,8 @@ thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
 
       while (pool->next_task < pool->task_count)
         {
-          ThreadTask task;
-
-          index = pool->next_task++;
-          task = pool->tasks[index];
+          unsigned int index = pool->next_task++;
+          ThreadTask task = pool->tasks[index];
           (void)pthread_mutex_unlock (&pool->mutex);
           task.function (task.context);
           (void)pthread_mutex_lock (&pool->mutex);
@@ -922,11 +925,12 @@ static int
 thread_pool_destroy (ThreadPool *pool)
 {
 #if defined(LZ9ANS_PTHREADS)
-  unsigned int i;
   int okay = 1;
 
   if (pool->worker_count)
     {
+      unsigned int i;
+
       (void)pthread_mutex_lock (&pool->mutex);
       pool->stopping = 1;
       (void)pthread_cond_broadcast (&pool->work_ready);
@@ -4402,7 +4406,10 @@ encode_streams_parallel (Encoder *e, ThreadPool *pool,
       ThreadEncoderWorkspace *workspace = &workspaces[kind];
       Encoder *worker = &workspace->encoder;
 
-      if (!workspace->okay || worker->desc_len > DESC_MAX - e->desc_len
+      if (!workspace->okay
+          || e->desc_len > DESC_MAX
+          || worker->desc_len > DESC_MAX - e->desc_len
+          || e->stage_len > STAGE_DATA_MAX
           || worker->stage_len > STAGE_DATA_MAX - e->stage_len)
         {
           return 0;
@@ -5993,7 +6000,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       {
         unsigned int j, lr, ml, d, code;
 
-        code = parallel_codes ? decoder_buffers->symbols[0][i]
+        code = parallel_codes ? decoder_buffers->symbols[0][i] /* //-V547 */
                               : stream_get_ph (&s[STREAM_LL],
                                                (unsigned int)o->produced & 3U);
         lr = decode_len (code, 0, &extra);
@@ -6037,11 +6044,11 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
         produced += lr;
         literals += lr;
-        code = parallel_codes ? decoder_buffers->symbols[STREAM_ML - STREAM_LL][i]
+        code = parallel_codes ? decoder_buffers->symbols[STREAM_ML - STREAM_LL][i] /* //-V547 */
                               : stream_get_ph (&s[STREAM_ML],
                                                (unsigned int)o->produced & 3U);
         ml = decode_len (code, min_match, &extra);
-        code = parallel_codes ? decoder_buffers->symbols[STREAM_OF - STREAM_LL][i]
+        code = parallel_codes ? decoder_buffers->symbols[STREAM_OF - STREAM_LL][i] /* //-V547 */
                               : stream_get (&s[STREAM_OF]);
         d = decode_dist (code, &extra, o->reps, o->window_n,
                          o->of_alphabet, aligned_distances);
@@ -6253,7 +6260,7 @@ read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
     }
   else
     {
-      unsigned int needed_bits, needed_bytes, byte_pos = 0U;
+      unsigned int byte_pos = 0U;
 
       if (unknown_count)
         {
@@ -6315,9 +6322,10 @@ read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
         }
       else
         {
-          needed_bits = n * 9U;
-          needed_bytes = needed_bits <= *nbits
-                             ? 0U : (needed_bits - *nbits + 7U) / 8U;
+          unsigned int needed_bits = n * 9U;
+          unsigned int needed_bytes
+              = needed_bits <= *nbits ? 0U
+                : (needed_bits - *nbits + 7U) / 8U;
 
           if (needed_bytes
               && !read_exact (in, raw, (size_t)needed_bytes))
