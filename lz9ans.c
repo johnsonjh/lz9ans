@@ -4023,11 +4023,6 @@ put_phased_descriptor (Encoder *e, unsigned int kind, unsigned int alphabet,
 
 /*****************************************************************************/
 
-/*
- * The cached REUSE model can code the block only when every symbol in the
- * current stream has a non-zero cached frequency.
- */
-
 static int
 table_cache_covers (const Encoder *e, unsigned int kind,
                     unsigned int alphabet)
@@ -6044,12 +6039,16 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
         produced += lr;
         literals += lr;
-        code = parallel_codes ? decoder_buffers->symbols[STREAM_ML - STREAM_LL][i] /* //-V547 */
-                              : stream_get_ph (&s[STREAM_ML],
-                                               (unsigned int)o->produced & 3U);
+        code =
+          parallel_codes ?
+               decoder_buffers->symbols[STREAM_ML - STREAM_LL][i] /* //-V547 */
+                         : stream_get_ph (&s[STREAM_ML],
+                                          (unsigned int)o->produced & 3U);
         ml = decode_len (code, min_match, &extra);
-        code = parallel_codes ? decoder_buffers->symbols[STREAM_OF - STREAM_LL][i] /* //-V547 */
-                              : stream_get (&s[STREAM_OF]);
+        code =
+          parallel_codes ?
+               decoder_buffers->symbols[STREAM_OF - STREAM_LL][i] /* //-V547 */
+                         : stream_get (&s[STREAM_OF]);
         d = decode_dist (code, &extra, o->reps, o->window_n,
                          o->of_alphabet, aligned_distances);
 
@@ -6715,8 +6714,6 @@ cleanup:
   return okay;
 }
 #endif /* if defined(LZ9ANS_PTHREADS) */
-
-/*****************************************************************************/
 
 /*****************************************************************************/
 
@@ -8045,14 +8042,14 @@ main (int argc, char **argv)
       (void)fprintf (stderr,
               "Usage:\n"
               "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
-              " [--window=<32k|64k>] [--threads=N]\n");
+              " [--window=W] [--threads=N]\n");
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v] [--threads=N]\n\n");
 #else
       (void)fprintf (stderr,
               "Usage:\n"
               "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
-              " [--window=<32k|64k>]\n");
+              " [--window=W]\n");
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v]\n\n");
 #endif /* if defined(LZ9ANS_PTHREADS) */
@@ -8063,7 +8060,7 @@ main (int argc, char **argv)
       (void)fprintf (stderr,
               "  c8: 8-bit input;");
       (void)fprintf (stderr,
-              " c9: mxload packed 9-bit input\n\n");
+              " c9: mxload-style packed 9-bit input\n\n");
       (void)fprintf (stderr,
               "  -1..-9:              ");
       (void)fprintf (stderr,
@@ -8073,13 +8070,13 @@ main (int argc, char **argv)
       (void)fprintf (stderr,
               "           report file size and compression ratio details\n");
       (void)fprintf (stderr,
-              "  --window=<32k|64k>:");
+              "  --window=W:");
       (void)fprintf (stderr,
-              "  use 32k or 64k symbol history window (default: 32k)\n");
+              "          use W (32k or 64k) history window (default: 32k)\n");
 #if defined(LZ9ANS_PTHREADS)
       (void)fprintf (stderr,
-              "  --threads=N:          0=automatic; positive N limits"
-              " concurrent participants (default: automatic)\n");
+              "  --threads=N:         limit to N"
+              " concurrent threads (default: automatic)\n");
 #endif /* if defined(LZ9ANS_PTHREADS) */
       return 2;
     }
@@ -8095,8 +8092,8 @@ main (int argc, char **argv)
         {
           if (threads_seen || !parse_thread_limit (argv[i], &thread_limit))
             {
-              (void)fprintf (stderr, "Invalid or duplicate --threads option: %s\n",
-                             argv[i]);
+              (void)fprintf (stderr,
+                  "Invalid or duplicate --threads option: %s\n", argv[i]);
 
               return 2;
             }
