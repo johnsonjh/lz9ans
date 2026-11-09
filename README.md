@@ -33,7 +33,7 @@ reference implementation offering nine different compression profiles: four
 ## Performance
 
 **LZ9ANS‑32K** (corpus of `446,584,168` input bits)<br>
-[**663** **KiB** encoder state; **209** **KiB** decoder state]:
+[**663** **KiB** encoder state; **209** **KiB** decoder state, **1** thread]:
 
 |    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
 |---------:|:---------------:|:---------:|:---------:|---------------:|
@@ -48,7 +48,7 @@ reference implementation offering nine different compression profiles: four
 | **`‑9`** |  `139,847,432`  | `68.685%` | `3.193:1` |     `‑294,656` |
 
 **LZ9ANS‑64K** (corpus of `446,584,168` input bits)<br>
-[**855** **KiB** encoder state; **273** **KiB** decoder state]:
+[**855** **KiB** encoder state; **273** **KiB** decoder state, **1** thread]:
 
 |    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
 |---------:|:---------------:|:---------:|:---------:|---------------:|
@@ -70,7 +70,7 @@ settings), as well as **LZ9ANS** operating in 8‑bit mode:
 
 |      Utility | Algorithm              | Compressed bits | Memory           | Performance      |
 |-------------:|:-----------------------|:---------------:|-----------------:|-----------------:|
-| `lzfx`       | LZF&nbsp;(LZSS)        |  `281,115,248`  |      70&nbsp;KiB | 106%&nbsp;larger |
+| `lzfx`       | LZF&nbsp;(LZSS)        |  `281,115,248`  |      70&nbsp;KiB | 107%&nbsp;larger |
 | `compress`   | LZW                    |  `279,608,608`  |     400&nbsp;KiB | 106%&nbsp;larger |
 | `lz4`        | LZ77+VLE               |  `221,797,064`  |     512&nbsp;KiB |  63%&nbsp;larger |
 | `lzop`       | LZO1X&nbsp;(LZ77+BC)   |  `212,130,184`  |      70&nbsp;KiB |  56%&nbsp;larger |
