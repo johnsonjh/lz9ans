@@ -129,7 +129,7 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 
 #if defined(LZ9ANS_PTHREADS)
 # define BLOCK_OUTPUT_MAX (LZ_BLOCK_HEADER_N + DESC_MAX + STAGE_DATA_MAX)
-#endif
+#endif /* if defined(LZ9ANS_PTHREADS) */
 
 #define STORED_BLOCK_HEADER_N 7U
 #define FRAME_HEADER_PREFIX_N 13U
