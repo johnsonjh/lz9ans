@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.9 (2026-11-08)"
+#define LZ9VER "v0.9.10 (2026-11-09)"
 
 /*****************************************************************************/
 
@@ -30,6 +30,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS)
+# include <pthread.h>
+#endif /* if defined(LZ9ANS_PTHREADS) */
 
 /*****************************************************************************/
 
@@ -120,6 +126,11 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 #define DESC_MAX 8192U
 #define BLOCK_PREFIX_N 3U
 #define LZ_BLOCK_HEADER_N 23U
+
+#if defined(LZ9ANS_PTHREADS)
+# define BLOCK_OUTPUT_MAX (LZ_BLOCK_HEADER_N + DESC_MAX + STAGE_DATA_MAX)
+#endif
+
 #define STORED_BLOCK_HEADER_N 7U
 #define FRAME_HEADER_PREFIX_N 13U
 #define FRAME_HEADER_MIN_N 17U
@@ -184,8 +195,8 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 
 /*****************************************************************************/
 
-#if defined(__linux) || defined(__linux__) || defined(linux) || \
-    defined(__gnu_linux__) /* Manually disable if using threads! */
+#if !defined(LZ9ANS_PTHREADS) && (defined(__linux) || defined(__linux__) \
+    || defined(linux) || defined(__gnu_linux__))
 # undef fgetc
 # define fgetc(s) fgetc_unlocked(s) /* //-V1059 */
 # undef fread
@@ -202,12 +213,12 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 # define feof(f) feof_unlocked(f) /* //-V1059 */
 # undef ferror
 # define ferror(f) ferror_unlocked(f) /* //-V1059 */
-#endif /* if defined(__linux) || defined(__linux__) || defined(linux) \
-          || defined(__gnu_linux__) */
+#endif /* if !defined(LZ9ANS_PTHREADS) && (defined(__linux) \
+          || defined(__linux__) || defined(linux) || defined(__gnu_linux__)) */
 
 /*****************************************************************************/
 
-#if defined(_WIN32) || defined(_WIN64) /* Manually disable if using threads! */
+#if !defined(LZ9ANS_PTHREADS) && (defined(_WIN32) || defined(_WIN64))
 # undef fgetc
 # define fgetc(s) _fgetc_nolock(s) /* //-V1059 */
 # undef fread
@@ -222,7 +233,8 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 # define fflush(f) _fflush_nolock(f) /* //-V1059 */
 # undef fclose
 # define fclose(f) _fclose_nolock(f) /* //-V1059 */
-#endif /* if defined(_WIN32) || defined(_WIN64) */
+#endif /* if !defined(LZ9ANS_PTHREADS) && (defined(_WIN32)
+          || defined(_WIN64)) */
 
 /*****************************************************************************/
 
@@ -432,18 +444,137 @@ typedef struct
   unsigned int reps[3];
   unsigned short costs[4][512];
   unsigned int pcounts[4][512];
+#if defined(LZ9ANS_PTHREADS)
+  unsigned int *prefix;
+#else
   unsigned int prefix[BLOCK_N + 1U];
+#endif /* if defined(LZ9ANS_PTHREADS) */
 } Encoder;
 
 /*****************************************************************************/
 
+#if !defined(LZ9ANS_PTHREADS)
 typedef char encoder_prefix_must_hold_table_cache_compile_time_assertion[
   sizeof (((Encoder *)0)->prefix) >= TABLE_CACHE_BYTES ? 1 : -1];
+#endif /* if !defined(LZ9ANS_PTHREADS) */
 
 /*****************************************************************************/
 
 typedef char stage_must_hold_maximum_stored_block_compile_time_assertion[
   STAGE_DATA_MAX >= (BLOCK_N * 9U + 7U) / 8U ? 1 : -1];
+
+/*****************************************************************************/
+
+typedef void (*ThreadTaskFunction) (void *);
+
+/*****************************************************************************/
+
+typedef struct
+{
+  ThreadTaskFunction function; /*cppcheck-suppress unusedStructMember*/
+  void *context;               /*cppcheck-suppress unusedStructMember*/
+} ThreadTask;
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS)
+# define THREAD_STACK_BYTES (256UL * 1024UL)
+
+/*****************************************************************************/
+
+typedef struct ThreadPool ThreadPool;
+
+/*****************************************************************************/
+
+typedef struct
+{
+  ThreadPool *pool;
+  unsigned long generation;
+} ThreadWorker;
+
+/*****************************************************************************/
+
+struct ThreadPool
+{
+  pthread_mutex_t mutex;
+  pthread_cond_t work_ready;
+  pthread_cond_t work_done;
+  pthread_t *threads;
+  ThreadWorker *workers;
+  ThreadTask *tasks;
+  unsigned long generation;
+  unsigned int task_count;
+  unsigned int next_task;
+  unsigned int pending;
+  unsigned int participants;
+  unsigned int worker_count;
+  unsigned int task_capacity;
+  int stopping;
+  int mutex_ready;
+  int work_ready_ready;
+  int work_done_ready;
+};
+
+/*****************************************************************************/
+
+#else
+typedef struct
+{
+  unsigned int participants;
+  unsigned int task_capacity;
+} ThreadPool;
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
+typedef struct
+{
+  Encoder encoder;      /*cppcheck-suppress unusedStructMember*/
+  unsigned char *stage; /*cppcheck-suppress unusedStructMember*/
+  unsigned char *desc;  /*cppcheck-suppress unusedStructMember*/
+  AnsTable *table;      /*cppcheck-suppress unusedStructMember*/
+  AnsTable *gtable;     /*cppcheck-suppress unusedStructMember*/
+  unsigned int kind;    /*cppcheck-suppress unusedStructMember*/
+  int okay;             /*cppcheck-suppress unusedStructMember*/
+} ThreadEncoderWorkspace;
+
+/*****************************************************************************/
+
+typedef struct
+{
+  Stream stream;          /*cppcheck-suppress unusedStructMember*/
+  unsigned char *symbols; /*cppcheck-suppress unusedStructMember*/
+  unsigned int count;     /*cppcheck-suppress unusedStructMember*/
+  int okay;               /*cppcheck-suppress unusedStructMember*/
+} ThreadDecodeWorkspace;
+
+/*****************************************************************************/
+
+typedef struct
+{
+  unsigned char *symbols[ENTROPY_STREAM_COUNT - 1U];
+} ThreadDecoderBuffers;
+
+/*****************************************************************************/
+
+typedef struct
+{
+  Encoder encoder;        /*cppcheck-suppress unusedStructMember*/
+  unsigned char *output;  /*cppcheck-suppress unusedStructMember*/
+  size_t output_capacity; /*cppcheck-suppress unusedStructMember*/
+  size_t output_size;     /*cppcheck-suppress unusedStructMember*/
+  int okay;               /*cppcheck-suppress unusedStructMember*/
+} ThreadBlockJob;
+
+/*****************************************************************************/
+
+typedef struct
+{
+  FILE *file;
+  unsigned char *buffer;
+  size_t capacity;
+  size_t size;
+} BlockOutput;
 
 /*****************************************************************************/
 
@@ -465,6 +596,384 @@ typedef struct
   FILE *out;
   unsigned int reps[3];
 } Output;
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS)
+static unsigned int
+available_processors (void)
+{
+# if defined(_WIN32) || defined(_WIN64)
+  SYSTEM_INFO info;
+
+  (void)memset (&info, 0, sizeof (info));
+  GetSystemInfo (&info);
+
+  return info.dwNumberOfProcessors ? (unsigned int)info.dwNumberOfProcessors
+                                   : 1U;
+# else
+  long count = sysconf (_SC_NPROCESSORS_ONLN);
+
+  return count > 0L ? (unsigned int)count : 1U;
+# endif /* if defined(_WIN32) || defined(_WIN64) */
+}
+
+/*****************************************************************************/
+
+static unsigned int
+compression_participants (unsigned int limit)
+{
+  unsigned int cpus = available_processors ();
+  unsigned int participants = limit ? limit : cpus;
+
+  if (participants > cpus)
+    {
+      participants = cpus;
+    }
+
+  return participants ? participants : 1U;
+}
+
+/*****************************************************************************/
+
+static void *
+thread_worker_main (void *arg)
+{
+  ThreadWorker *worker = (ThreadWorker *)arg;
+  ThreadPool *pool = worker->pool;
+
+  (void)pthread_mutex_lock (&pool->mutex);
+
+  for (;;)
+    {
+      while (!pool->stopping && worker->generation == pool->generation)
+        {
+          (void)pthread_cond_wait (&pool->work_ready, &pool->mutex);
+        }
+
+      if (pool->stopping)
+        {
+          break;
+        }
+
+      worker->generation = pool->generation;
+
+      while (pool->next_task < pool->task_count)
+        {
+          unsigned int index = pool->next_task++;
+          ThreadTask task = pool->tasks[index];
+
+          (void)pthread_mutex_unlock (&pool->mutex);
+          task.function (task.context);
+          (void)pthread_mutex_lock (&pool->mutex);
+
+          if (pool->pending)
+            {
+              --pool->pending;
+            }
+
+          if (!pool->pending)
+            {
+              (void)pthread_cond_broadcast (&pool->work_done);
+            }
+        }
+    }
+
+  (void)pthread_mutex_unlock (&pool->mutex);
+
+  return (void *)0;
+}
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
+static int
+thread_pool_init (ThreadPool *pool, unsigned int limit,
+                  unsigned int max_participants)
+{
+  (void)memset (pool, 0, sizeof (*pool));
+
+  if (!max_participants)
+    {
+      max_participants = 1U;
+    }
+
+#if defined(LZ9ANS_PTHREADS)
+  {
+    unsigned int desired, cpus, i;
+    pthread_attr_t attr;
+    int attr_ready = 0;
+
+    cpus = available_processors ();
+    desired = limit ? limit : cpus;
+
+    if (desired > cpus)
+      {
+        desired = cpus;
+      }
+
+    if (desired > max_participants)
+      {
+        desired = max_participants;
+      }
+
+    if (!desired)
+      {
+        desired = 1U;
+      }
+
+    pool->participants = desired;
+    pool->task_capacity = max_participants;
+
+    if (desired == 1U)
+      {
+        return 1;
+      }
+
+    pool->threads = (pthread_t *)calloc (desired - 1U, sizeof (pthread_t));
+    pool->workers = (ThreadWorker *)calloc (desired - 1U,
+                                             sizeof (ThreadWorker));
+    pool->tasks = (ThreadTask *)calloc (max_participants,
+                                        sizeof (ThreadTask));
+
+    if (!pool->threads || !pool->workers || !pool->tasks)
+      {
+        goto init_failed;
+      }
+
+    if (pthread_mutex_init (&pool->mutex, (const pthread_mutexattr_t *)0) != 0)
+      {
+        goto init_failed;
+      }
+
+    pool->mutex_ready = 1;
+
+    if (pthread_cond_init (&pool->work_ready, (const pthread_condattr_t *)0)
+        != 0)
+      {
+        goto init_failed;
+      }
+
+    pool->work_ready_ready = 1;
+
+    if (pthread_cond_init (&pool->work_done, (const pthread_condattr_t *)0)
+        != 0)
+      {
+        goto init_failed;
+      }
+
+    pool->work_done_ready = 1;
+
+    if (pthread_attr_init (&attr) != 0)
+      {
+        goto init_failed;
+      }
+
+    attr_ready = 1;
+
+    if (pthread_attr_setstacksize (&attr, (size_t)THREAD_STACK_BYTES) != 0)
+      {
+        goto init_failed;
+      }
+
+    for (i = 0; i < desired - 1U; ++i)
+      {
+        pool->workers[i].pool = pool;
+        pool->workers[i].generation = 0UL;
+
+        if (pthread_create (&pool->threads[i], &attr, thread_worker_main,
+                            &pool->workers[i]) != 0)
+          {
+            goto init_failed;
+          }
+
+        ++pool->worker_count;
+      }
+
+    if (attr_ready) /* //-V547 */
+      {
+        (void)pthread_attr_destroy (&attr);
+      }
+
+    return 1;
+
+init_failed:
+    if (attr_ready)
+      {
+        (void)pthread_attr_destroy (&attr);
+      }
+
+    if (pool->mutex_ready)
+      {
+        (void)pthread_mutex_lock (&pool->mutex);
+        pool->stopping = 1;
+
+        if (pool->work_ready_ready)
+          {
+            (void)pthread_cond_broadcast (&pool->work_ready);
+          }
+
+        (void)pthread_mutex_unlock (&pool->mutex);
+      }
+
+    if (pool->threads)
+      {
+        for (i = 0; i < pool->worker_count; ++i)
+          {
+            (void)pthread_join (pool->threads[i], (void **)0);
+          }
+      }
+
+    if (pool->work_done_ready)
+      {
+        (void)pthread_cond_destroy (&pool->work_done);
+      }
+
+    if (pool->work_ready_ready)
+      {
+        (void)pthread_cond_destroy (&pool->work_ready);
+      }
+
+    if (pool->mutex_ready)
+      {
+        (void)pthread_mutex_destroy (&pool->mutex);
+      }
+
+    free (pool->threads);
+    free (pool->workers);
+    free (pool->tasks);
+    (void)memset (pool, 0, sizeof (*pool));
+
+    return 0;
+  }
+#else
+  (void)limit;
+  pool->participants = 1U;
+  pool->task_capacity = max_participants;
+
+  return 1;
+#endif /* if defined(LZ9ANS_PTHREADS) */
+}
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS)
+static int
+thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
+                 unsigned int task_count)
+{
+  unsigned int i;
+
+  if (!pool || !tasks
+      || task_count > pool->task_capacity)
+    {
+      return 0;
+    }
+
+  if (pool->worker_count && task_count)
+    {
+      (void)pthread_mutex_lock (&pool->mutex);
+
+      for (i = 0; i < task_count; ++i)
+        {
+          pool->tasks[i] = tasks[i];
+        }
+
+      pool->task_count = task_count;
+      pool->next_task = 0U;
+      pool->pending = task_count;
+      ++pool->generation;
+      (void)pthread_cond_broadcast (&pool->work_ready);
+
+      while (pool->next_task < pool->task_count)
+        {
+          unsigned int index = pool->next_task++;
+          ThreadTask task = pool->tasks[index];
+          (void)pthread_mutex_unlock (&pool->mutex);
+          task.function (task.context);
+          (void)pthread_mutex_lock (&pool->mutex);
+          --pool->pending;
+
+          if (!pool->pending)
+            {
+              (void)pthread_cond_broadcast (&pool->work_done);
+            }
+        }
+
+      while (pool->pending)
+        {
+          (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+        }
+
+      (void)pthread_mutex_unlock (&pool->mutex);
+
+      return 1;
+    }
+
+  for (i = 0; i < task_count; ++i)
+    {
+      tasks[i].function (tasks[i].context);
+    }
+
+  return 1;
+}
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
+static int
+thread_pool_destroy (ThreadPool *pool)
+{
+#if defined(LZ9ANS_PTHREADS)
+  int okay = 1;
+
+  if (pool->worker_count)
+    {
+      unsigned int i;
+
+      (void)pthread_mutex_lock (&pool->mutex);
+      pool->stopping = 1;
+      (void)pthread_cond_broadcast (&pool->work_ready);
+      (void)pthread_mutex_unlock (&pool->mutex);
+
+      for (i = 0; i < pool->worker_count; ++i)
+        {
+          if (pthread_join (pool->threads[i], (void **)0) != 0)
+            {
+              okay = 0;
+            }
+        }
+    }
+
+  if (pool->work_done_ready
+      && pthread_cond_destroy (&pool->work_done) != 0)
+    {
+      okay = 0;
+    }
+
+  if (pool->work_ready_ready
+      && pthread_cond_destroy (&pool->work_ready) != 0)
+    {
+      okay = 0;
+    }
+
+  if (pool->mutex_ready && pthread_mutex_destroy (&pool->mutex) != 0)
+    {
+      okay = 0;
+    }
+
+  free (pool->threads);
+  free (pool->workers);
+  free (pool->tasks);
+  (void)memset (pool, 0, sizeof (*pool));
+
+  return okay;
+#else
+  (void)pool;
+
+  return 1;
+#endif /* if defined(LZ9ANS_PTHREADS) */
+}
 
 /*****************************************************************************/
 
@@ -2972,97 +3481,150 @@ early_stored_block (Encoder *e, unsigned int stored_width)
 /*****************************************************************************/
 
 static void
-estimate_costs (Encoder *e)
+estimate_one_stream (Encoder *e, unsigned int kind)
 {
-  unsigned int kind, i;
+  unsigned int i;
   unsigned short freq[512];
+  unsigned int alphabet = stream_alphabet (kind, e->of_alphabet), lone = 0;
+  unsigned int used, width, total, invariant_cost = 0;
+  unsigned long raw, header = 0;
+  int use_tans = 0;
 
-  for (kind = 0; kind < 4; ++kind)
+  total = count_stream (e, kind);
+  used = 0;
+  width = raw_width (kind, e->max_literal);
+
+  for (i = 0; i < alphabet; ++i)
     {
-      unsigned int alphabet = stream_alphabet (kind, e->of_alphabet), lone = 0;
-      unsigned int used, width, total, invariant_cost = 0;
-      unsigned long raw, header = 0;
-      int use_tans = 0;
+      if (e->counts[i])
+        {
+          ++used;
+          lone = i;
+        }
+    }
 
-      total = count_stream (e, kind);
-      used = 0;
-      width = raw_width (kind, e->max_literal);
+  raw = (unsigned long)total * width * COST_SCALE;
+
+  if (used >= 2 && norm_counts (e->counts, alphabet, total, freq))
+    {
+      unsigned int prev = 0;
+      unsigned long predicted = 0;
+      header = 2;
 
       for (i = 0; i < alphabet; ++i)
         {
-          if (e->counts[i])
+          if (freq[i])
             {
-              ++used;
-              lone = i;
+              unsigned int gap = i - prev;
+
+              header += (gap >= 128 ? 2UL : 1UL)
+                        + (freq[i] >= 128 ? 2UL : 1UL);
+              prev = i + 1U;
+              predicted
+                  += (unsigned long)e->counts[i] * entropy_cost (freq[i]);
             }
         }
 
-      raw = (unsigned long)total * width * COST_SCALE;
+      predicted += (header * 8UL + TABLE_LOG) * COST_SCALE;
 
-      if (used >= 2 && norm_counts (e->counts, alphabet, total, freq))
+      if (predicted < raw)
         {
-          unsigned int prev = 0;
-          unsigned long predicted = 0;
-          header = 2;
-
-          for (i = 0; i < alphabet; ++i)
-            {
-              if (freq[i])
-                {
-                  unsigned int gap = i - prev;
-
-                  header += (gap >= 128 ? 2UL : 1UL)
-                            + (freq[i] >= 128 ? 2UL : 1UL);
-                  prev = i + 1U;
-                  predicted
-                      += (unsigned long)e->counts[i] * entropy_cost (freq[i]);
-                }
-            }
-
-          predicted += (header * 8UL + TABLE_LOG) * COST_SCALE;
-
-          if (predicted < raw)
-            {
-              use_tans = 1;
-            }
+          use_tans = 1;
         }
+    }
+
+  if (used == 1)
+    {
+      invariant_cost = (unsigned int)((24UL * COST_SCALE) / total);
+    }
+  else if (use_tans)
+    {
+      invariant_cost
+          = (unsigned int)((header * 8UL * COST_SCALE) / total);
+    }
+
+  for (i = 0; i < alphabet; ++i)
+    {
+      unsigned int c = width * COST_SCALE;
 
       if (used == 1)
         {
-          invariant_cost = (unsigned int)((24UL * COST_SCALE) / total);
+          c = (i == lone) ? invariant_cost : (width + 2U) * COST_SCALE;
         }
       else if (use_tans)
         {
-          invariant_cost
-              = (unsigned int)((header * 8UL * COST_SCALE) / total);
+          c = freq[i] ? entropy_cost (freq[i]) + invariant_cost
+                      : (width + 2U) * COST_SCALE;
         }
 
-      for (i = 0; i < alphabet; ++i)
+      if (c > 65535U)
         {
-          unsigned int c = width * COST_SCALE;
+          c = 65535U;
+        }
 
-          if (used == 1)
-            {
-              c = (i == lone) ? invariant_cost : (width + 2U) * COST_SCALE;
-            }
-          else if (use_tans)
-            {
-              c = freq[i] ? entropy_cost (freq[i]) + invariant_cost
-                          : (width + 2U) * COST_SCALE;
-            }
+      e->costs[kind][i] = (unsigned short)c;
+    }
+}
 
-          if (c > 65535U)
-            {
-              c = 65535U;
-            }
+/*****************************************************************************/
 
-          e->costs[kind][i] = (unsigned short)c;
+#if defined(LZ9ANS_PTHREADS)
+static void
+estimate_stream_task (void *arg)
+{
+  ThreadEncoderWorkspace *workspace = (ThreadEncoderWorkspace *)arg;
+
+  estimate_one_stream (&workspace->encoder, workspace->kind);
+}
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
+static void
+estimate_costs (Encoder *e, ThreadPool *pool,
+                ThreadEncoderWorkspace *workspaces)
+{
+  unsigned int kind;
+
+#if defined(LZ9ANS_PTHREADS)
+  if (pool && pool->participants > 1U && workspaces)
+    {
+      ThreadTask tasks[ENTROPY_STREAM_COUNT];
+
+      for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
+        {
+          workspaces[kind].encoder = *e;
+          workspaces[kind].kind = kind;
+          tasks[kind].function = estimate_stream_task;
+          tasks[kind].context = &workspaces[kind];
+        }
+
+      (void)thread_pool_run (pool, tasks, ENTROPY_STREAM_COUNT);
+
+      e->max_literal = workspaces[STREAM_LIT].encoder.max_literal;
+
+      for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
+        {
+          (void)memcpy (e->costs[kind],
+                        workspaces[kind].encoder.costs[kind],
+                        sizeof (e->costs[kind]));
+        }
+    }
+  else
+#endif /* if defined(LZ9ANS_PTHREADS) */
+    {
+#if !defined(LZ9ANS_PTHREADS)
+      (void)pool;
+      (void)workspaces;
+#endif /* if !defined(LZ9ANS_PTHREADS) */
+      for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
+        {
+          estimate_one_stream (e, kind);
         }
     }
 
   build_cost_prefix (e);
 }
-
 /*****************************************************************************/
 
 #define CHOICE_FRESH 0U
@@ -3739,6 +4301,164 @@ encode_one_stream (Encoder *e, unsigned int kind)
 
 /*****************************************************************************/
 
+#if defined(LZ9ANS_PTHREADS)
+static void
+free_thread_encoder_workspaces (ThreadEncoderWorkspace *workspaces)
+{
+  unsigned int i;
+
+  if (!workspaces)
+    {
+      return;
+    }
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      free (workspaces[i].stage);
+      free (workspaces[i].desc);
+      free (workspaces[i].table);
+      free (workspaces[i].gtable);
+    }
+
+  free (workspaces);
+}
+
+/*****************************************************************************/
+
+static ThreadEncoderWorkspace *
+allocate_thread_encoder_workspaces (void)
+{
+  unsigned int i;
+  ThreadEncoderWorkspace *workspaces
+      = (ThreadEncoderWorkspace *)calloc (ENTROPY_STREAM_COUNT,
+                                           sizeof (ThreadEncoderWorkspace));
+
+  if (!workspaces)
+    {
+      return (ThreadEncoderWorkspace *)0;
+    }
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      workspaces[i].stage = (unsigned char *)malloc (STAGE_MAX);
+      workspaces[i].desc = (unsigned char *)malloc (DESC_MAX);
+      workspaces[i].table = (AnsTable *)malloc (sizeof (AnsTable));
+      workspaces[i].gtable
+          = (AnsTable *)malloc (PHASE_GROUPS_MAX * sizeof (AnsTable));
+
+      if (!workspaces[i].stage || !workspaces[i].desc
+          || !workspaces[i].table || !workspaces[i].gtable)
+        {
+          free_thread_encoder_workspaces (workspaces);
+
+          return (ThreadEncoderWorkspace *)0;
+        }
+    }
+
+  return workspaces;
+}
+
+/*****************************************************************************/
+
+static void
+encode_stream_task (void *arg)
+{
+  ThreadEncoderWorkspace *workspace = (ThreadEncoderWorkspace *)arg;
+
+  workspace->okay = encode_one_stream (&workspace->encoder, workspace->kind);
+}
+
+/*****************************************************************************/
+
+static int
+encode_streams_parallel (Encoder *e, ThreadPool *pool,
+                         ThreadEncoderWorkspace *workspaces)
+{
+  unsigned int kind;
+  ThreadTask tasks[ENTROPY_STREAM_COUNT];
+
+  for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
+    {
+      ThreadEncoderWorkspace *workspace = &workspaces[kind];
+
+      workspace->encoder = *e;
+      workspace->encoder.stage = workspace->stage;
+      workspace->encoder.desc = workspace->desc;
+      workspace->encoder.table = workspace->table;
+      workspace->encoder.gtable = workspace->gtable;
+      workspace->encoder.desc_len = 0UL;
+      workspace->encoder.stage_len = 0UL;
+      workspace->kind = kind;
+      workspace->okay = 0;
+      (void)memcpy (workspace->stage + STAGE_DATA_MAX,
+                    e->stage + STAGE_DATA_MAX, TABLE_CACHE_BYTES);
+      tasks[kind].function = encode_stream_task;
+      tasks[kind].context = workspace;
+    }
+
+  (void)thread_pool_run (pool, tasks, ENTROPY_STREAM_COUNT);
+
+  e->desc_len = 0UL;
+  e->stage_len = 0UL;
+
+  for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
+    {
+      ThreadEncoderWorkspace *workspace = &workspaces[kind];
+      Encoder *worker = &workspace->encoder;
+
+      if (!workspace->okay
+          || e->desc_len > DESC_MAX
+          || worker->desc_len > DESC_MAX - e->desc_len
+          || e->stage_len > STAGE_DATA_MAX
+          || worker->stage_len > STAGE_DATA_MAX - e->stage_len)
+        {
+          return 0;
+        }
+
+      (void)memcpy (e->desc + e->desc_len, worker->desc,
+                    (size_t)worker->desc_len);
+      e->desc_len += worker->desc_len;
+      (void)memcpy (e->stage + e->stage_len, worker->stage,
+                    (size_t)worker->stage_len);
+      e->stage_len += worker->stage_len;
+      e->stream_bits[kind] = worker->stream_bits[kind];
+      e->stream_bytes[kind] = worker->stream_bytes[kind];
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static void
+commit_thread_stream_caches (const Encoder *e,
+                             ThreadEncoderWorkspace *workspaces)
+{
+  unsigned int kind;
+
+  for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
+    {
+      unsigned int first = kind;
+      const unsigned char *source = workspaces[kind].stage + STAGE_DATA_MAX;
+      unsigned char *target = e->stage + STAGE_DATA_MAX;
+
+      (void)memcpy (target + first * 512U * sizeof (unsigned short),
+                    source + first * 512U * sizeof (unsigned short),
+                    512U * sizeof (unsigned short));
+
+      if (kind <= STREAM_ML)
+        {
+          first = phase_table_base[kind];
+          (void)memcpy (target + first * 512U * sizeof (unsigned short),
+                        source + first * 512U * sizeof (unsigned short),
+                        2U * 512U * sizeof (unsigned short));
+        }
+    }
+}
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
 static void
 extra_parts (const Encoder *e, const Sequence *q, unsigned int values[4],
              unsigned int widths[4])
@@ -3860,7 +4580,33 @@ make_block_header (unsigned char *hdr, unsigned int type,
 /*****************************************************************************/
 
 static int
-write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
+block_output_write (BlockOutput *output, const void *source, size_t size)
+{
+  if (output->file)
+    {
+      return write_exact (output->file, source, size);
+    }
+
+  if (output->size > output->capacity
+      || size > output->capacity - output->size)
+    {
+      return 0;
+    }
+
+  if (size)
+    {
+      (void)memcpy (output->buffer + output->size, source, size);
+      output->size += size;
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+build_stored_block (Encoder *e, unsigned long crc, unsigned int width,
+                    BlockOutput *output)
 {
   unsigned int i;
   unsigned long nbytes;
@@ -3891,14 +4637,15 @@ write_stored (FILE *out, Encoder *e, unsigned long crc, unsigned int width)
   store16 (h + 1, e->n);
   store32 (h + 3, crc);
 
-  return write_exact (out, h, sizeof (h))
-         && write_exact (out, e->stage, (size_t)nbytes);
+  return block_output_write (output, h, sizeof (h))
+         && block_output_write (output, e->stage, (size_t)nbytes);
 }
 
 /*****************************************************************************/
 
 static int
-encode_block (FILE *out, Encoder *e)
+encode_block (Encoder *e, ThreadPool *pool,
+              ThreadEncoderWorkspace *workspaces, BlockOutput *output)
 {
   unsigned long crc = input_crc (e->buffer + e->window_n, e->n, e->stage);
   unsigned int i, width = 7;
@@ -3953,10 +4700,10 @@ encode_block (FILE *out, Encoder *e)
         {
           (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
 
-          return write_stored (out, e, crc, width);
+          return build_stored_block (e, crc, width, output);
         }
 
-      estimate_costs (e);
+      estimate_costs (e, pool, workspaces);
       (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
       e->use_cost = 1;
 
@@ -3967,7 +4714,7 @@ encode_block (FILE *out, Encoder *e)
 
       if (e->level == 9)
         {
-          estimate_costs (e);
+          estimate_costs (e, pool, workspaces);
           (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
 
           if (!parse_block (e))
@@ -3992,12 +4739,21 @@ encode_block (FILE *out, Encoder *e)
   e->desc_len = 0;
   e->stage_len = 0;
 
-  if (!encode_one_stream (e, STREAM_LIT)
-      || !encode_one_stream (e, STREAM_LL)
-      || !encode_one_stream (e, STREAM_ML)
-      || !encode_one_stream (e, STREAM_OF))
+#if defined(LZ9ANS_PTHREADS)
+  if (pool && pool->participants > 1U && workspaces)
     {
-      compressed_ok = 0;
+      compressed_ok = encode_streams_parallel (e, pool, workspaces);
+    }
+  else
+#endif /* if defined(LZ9ANS_PTHREADS) */
+    {
+      if (!encode_one_stream (e, STREAM_LIT)
+          || !encode_one_stream (e, STREAM_LL)
+          || !encode_one_stream (e, STREAM_ML)
+          || !encode_one_stream (e, STREAM_OF))
+        {
+          compressed_ok = 0;
+        }
     }
 
   if (compressed_ok && !encode_extras (e))
@@ -4025,15 +4781,22 @@ encode_block (FILE *out, Encoder *e)
       (void)memcpy (e->stage + STAGE_DATA_MAX, e->prefix, /* //-V1086 */
                     TABLE_CACHE_BYTES);
 
-      return write_stored (out, e, crc, width);
+      return build_stored_block (e, crc, width, output);
     }
+
+#if defined(LZ9ANS_PTHREADS)
+  if (pool && pool->participants > 1U && workspaces)
+    {
+      commit_thread_stream_caches (e, workspaces);
+    }
+#endif /* if defined(LZ9ANS_PTHREADS) */
 
   make_block_header (h, BLOCK_LZ, e->n, e->sn, e->desc_len,
                      e->stream_bits, crc, block_aligned);
 
-  return write_exact (out, h, sizeof (h))
-         && write_exact (out, e->desc, (size_t)e->desc_len)
-         && write_exact (out, e->stage, (size_t)e->stage_len);
+  return block_output_write (output, h, sizeof (h))
+         && block_output_write (output, e->desc, (size_t)e->desc_len)
+         && block_output_write (output, e->stage, (size_t)e->stage_len);
 }
 
 /*****************************************************************************/
@@ -4881,10 +5644,126 @@ decode_phased_literals (Output *o, Stream *s, unsigned long count)
 
 /*****************************************************************************/
 
+#if defined(LZ9ANS_PTHREADS)
+static void
+free_thread_decoder_buffers (ThreadDecoderBuffers *buffers)
+{
+  unsigned int i;
+
+  if (!buffers)
+    {
+      return;
+    }
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT - 1U; ++i)
+    {
+      free (buffers->symbols[i]);
+      buffers->symbols[i] = (unsigned char *)0;
+    }
+}
+
+/*****************************************************************************/
+
+static int
+allocate_thread_decoder_buffers (ThreadDecoderBuffers *buffers)
+{
+  unsigned int i;
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT - 1U; ++i)
+    {
+      if (!buffers->symbols[i])
+        {
+          buffers->symbols[i] = (unsigned char *)malloc (SEQ_MAX);
+
+          if (!buffers->symbols[i])
+            {
+              free_thread_decoder_buffers (buffers);
+
+              return 0;
+            }
+        }
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static void
+decode_stream_task (void *arg)
+{
+  ThreadDecodeWorkspace *workspace = (ThreadDecodeWorkspace *)arg;
+  unsigned int i;
+
+  workspace->okay = 1;
+
+  for (i = 0; i < workspace->count; ++i)
+    {
+      unsigned int symbol = stream_get (&workspace->stream);
+
+      if (workspace->stream.br.failed || symbol > 255U)
+        {
+          workspace->okay = 0;
+          return;
+        }
+
+      workspace->symbols[i] = (unsigned char)symbol;
+    }
+}
+
+/*****************************************************************************/
+
+static int
+decode_streams_parallel (Stream streams[ENTROPY_STREAM_COUNT],
+                         unsigned int count, ThreadPool *pool,
+                         ThreadDecoderBuffers *buffers)
+{
+  unsigned int kind;
+  ThreadDecodeWorkspace workspaces[ENTROPY_STREAM_COUNT - 1U];
+  ThreadTask tasks[ENTROPY_STREAM_COUNT - 1U];
+
+  if (!allocate_thread_decoder_buffers (buffers))
+    {
+      return 0;
+    }
+
+  for (kind = STREAM_LL; kind <= STREAM_OF; ++kind)
+    {
+      ThreadDecodeWorkspace *workspace = &workspaces[kind - STREAM_LL];
+
+      workspace->stream = streams[kind];
+      workspace->symbols = buffers->symbols[kind - STREAM_LL];
+      workspace->count = count;
+      workspace->okay = 0;
+      tasks[kind - STREAM_LL].function = decode_stream_task;
+      tasks[kind - STREAM_LL].context = workspace;
+    }
+
+  (void)thread_pool_run (pool, tasks, ENTROPY_STREAM_COUNT - 1U);
+
+  for (kind = STREAM_LL; kind <= STREAM_OF; ++kind)
+    {
+      const ThreadDecodeWorkspace *workspace = &workspaces[kind - STREAM_LL];
+
+      streams[kind] = workspace->stream;
+
+      if (!workspace->okay)
+        {
+          return 0;
+        }
+    }
+
+  return 1;
+}
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
 static int
 decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
               unsigned char *desc, DecTable *tables, int have_control,
-              unsigned char control)
+              unsigned char control, ThreadPool *pool,
+              ThreadDecoderBuffers *decoder_buffers)
 {
   unsigned char h[LZ_BLOCK_HEADER_N];
   unsigned long bitlen[STREAM_COUNT], lengths[STREAM_COUNT], total = 0;
@@ -4895,6 +5774,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   unsigned int min_match = o->min_match;
   unsigned long off = 0, pos = 0;
   Stream s[ENTROPY_STREAM_COUNT];
+  int parallel_codes = 0;
   BitReader raw_extra;
   ExtraReader extra;
 
@@ -5096,6 +5976,23 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   extra.raw = &raw_extra;
   extra.failed = 0;
 
+#if defined(LZ9ANS_PTHREADS)
+  if (pool && pool->participants > 1U && q
+      && s[STREAM_LL].mode != MODE_PHASED
+      && s[STREAM_ML].mode != MODE_PHASED)
+    {
+      if (!decode_streams_parallel (s, q, pool, decoder_buffers))
+        {
+          return 0;
+        }
+
+      parallel_codes = 1;
+    }
+#else
+  (void)pool;
+  (void)decoder_buffers;
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
   {
     unsigned int produced = 0, literals = 0;
 
@@ -5103,7 +6000,9 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       {
         unsigned int j, lr, ml, d, code;
 
-        code = stream_get_ph (&s[STREAM_LL], (unsigned int)o->produced & 3U);
+        code = parallel_codes ? decoder_buffers->symbols[0][i] /* //-V547 */
+                              : stream_get_ph (&s[STREAM_LL],
+                                               (unsigned int)o->produced & 3U);
         lr = decode_len (code, 0, &extra);
 
         if (extra.failed || lr > n - produced)
@@ -5145,9 +6044,12 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
         produced += lr;
         literals += lr;
-        code = stream_get_ph (&s[STREAM_ML], (unsigned int)o->produced & 3U);
+        code = parallel_codes ? decoder_buffers->symbols[STREAM_ML - STREAM_LL][i] /* //-V547 */
+                              : stream_get_ph (&s[STREAM_ML],
+                                               (unsigned int)o->produced & 3U);
         ml = decode_len (code, min_match, &extra);
-        code = stream_get (&s[STREAM_OF]);
+        code = parallel_codes ? decoder_buffers->symbols[STREAM_OF - STREAM_LL][i] /* //-V547 */
+                              : stream_get (&s[STREAM_OF]);
         d = decode_dist (code, &extra, o->reps, o->window_n,
                          o->of_alphabet, aligned_distances);
 
@@ -5244,6 +6146,9 @@ allocated_encoder (Encoder *e, unsigned int window_n)
   e->desc = (unsigned char *)malloc (DESC_MAX);
   e->table = (AnsTable *)malloc (sizeof (AnsTable));
   e->gtable = (AnsTable *)malloc (PHASE_GROUPS_MAX * sizeof (AnsTable));
+#if defined(LZ9ANS_PTHREADS)
+  e->prefix = (unsigned int *)malloc ((BLOCK_N + 1U) * sizeof (unsigned int));
+#endif /* if defined(LZ9ANS_PTHREADS) */
 
   if (e->stage)
     {
@@ -5256,7 +6161,11 @@ allocated_encoder (Encoder *e, unsigned int window_n)
     }
 
   return e->buffer && e->seq && e->head && e->link && e->stage && e->desc
-         && e->table && e->gtable;
+         && e->table && e->gtable
+#if defined(LZ9ANS_PTHREADS)
+         && e->prefix
+#endif /* if defined(LZ9ANS_PTHREADS) */
+         ;
 }
 
 /*****************************************************************************/
@@ -5272,17 +6181,554 @@ free_encoder (Encoder *e)
   free (e->desc);
   free (e->table);
   free (e->gtable);
+#if defined(LZ9ANS_PTHREADS)
+  free (e->prefix);
+#endif /* if defined(LZ9ANS_PTHREADS) */
 }
+
+/*****************************************************************************/
+
+static int
+cleanup_encode_run (Encoder *e, ThreadPool *pool,
+                    ThreadEncoderWorkspace *workspaces)
+{
+  int okay = thread_pool_destroy (pool);
+
+#if defined(LZ9ANS_PTHREADS)
+  free_thread_encoder_workspaces (workspaces);
+#else
+  (void)workspaces;
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+  free_encoder (e);
+
+  return okay;
+}
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS)
+static int
+read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
+                       int unknown_count, unsigned long done,
+                       unsigned int *acc, unsigned int *nbits,
+                       unsigned int *input_eof, unsigned char *raw,
+                       unsigned short *symbols, unsigned int *n_out)
+{
+  unsigned int n, i;
+  size_t input_bytes = 0U;
+
+  if (!unknown_count && done >= elements)
+    {
+      return 0;
+    }
+
+  n = unknown_count ? BLOCK_N
+                    : (unsigned int)((elements - done) > BLOCK_N
+                                         ? BLOCK_N : (elements - done));
+
+  if (mode == 8U)
+    {
+      if (unknown_count)
+        {
+          if (!read_some (in, raw, BLOCK_N, &input_bytes))
+            {
+              return -1;
+            }
+
+          if (feof (in))
+            {
+              *input_eof = 1U;
+            }
+
+          if (!input_bytes)
+            {
+              return *input_eof ? 0 : -1;
+            }
+
+          n = (unsigned int)input_bytes;
+        }
+      else if (!read_exact (in, raw, (size_t)n))
+        {
+          return -1;
+        }
+
+      for (i = 0; i < n; ++i)
+        {
+          symbols[i] = raw[i];
+        }
+    }
+  else
+    {
+      unsigned int byte_pos = 0U;
+
+      if (unknown_count)
+        {
+          unsigned int target_bits = BLOCK_N * 9U;
+          unsigned int target_bytes
+              = target_bits <= *nbits ? 0U
+                : (target_bits - *nbits + 7U) / 8U;
+          unsigned long available_bits;
+
+          if (!read_some (in, raw, (size_t)target_bytes, &input_bytes))
+            {
+              return -1;
+            }
+
+          if (feof (in))
+            {
+              *input_eof = 1U;
+            }
+
+          available_bits = (unsigned long)*nbits
+                           + (unsigned long)input_bytes * 8UL;
+          n = (unsigned int)(available_bits / 9UL);
+
+          if (n > BLOCK_N)
+            {
+              n = BLOCK_N;
+            }
+
+          if (*input_eof && input_bytes)
+            {
+              unsigned long tail_bits
+                  = available_bits - (unsigned long)n * 9UL;
+
+              if (tail_bits > 7UL
+                  || (tail_bits
+                      && (raw[input_bytes - 1U]
+                          & ((1U << tail_bits) - 1U))))
+                {
+                  return -1;
+                }
+            }
+
+          if (!n)
+            {
+              if (*input_eof && !input_bytes)
+                {
+                  if (*acc != 0U)
+                    {
+                      return -1;
+                    }
+
+                  *nbits = 0U;
+
+                  return 0;
+                }
+
+              return -1;
+            }
+        }
+      else
+        {
+          unsigned int needed_bits = n * 9U;
+          unsigned int needed_bytes
+              = needed_bits <= *nbits ? 0U
+                : (needed_bits - *nbits + 7U) / 8U;
+
+          if (needed_bytes
+              && !read_exact (in, raw, (size_t)needed_bytes))
+            {
+              return -1;
+            }
+
+          input_bytes = (size_t)needed_bytes;
+        }
+
+      i = 0U;
+
+      if (*nbits == 0U)
+        {
+# if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
+          while (i + 8U <= n)
+            {
+              const unsigned char *p = raw + byte_pos;
+              unsigned short *dst = symbols + i;
+              lz9_u64 hi_be, hi, w0, w1;
+
+              (void)memcpy (&hi_be, p, 8U);
+              hi = __builtin_bswap64 (hi_be);
+              w0 = hi >> 28;
+              w1 = ((hi & (lz9_u64)0x0fffffffUL) << 8)
+                   | (unsigned int)p[8];
+
+              dst[0] = (unsigned short)((w0 >> 27) & 511U);
+              dst[1] = (unsigned short)((w0 >> 18) & 511U);
+              dst[2] = (unsigned short)((w0 >> 9) & 511U);
+              dst[3] = (unsigned short)(w0 & 511U);
+              dst[4] = (unsigned short)((w1 >> 27) & 511U);
+              dst[5] = (unsigned short)((w1 >> 18) & 511U);
+              dst[6] = (unsigned short)((w1 >> 9) & 511U);
+              dst[7] = (unsigned short)(w1 & 511U);
+
+              byte_pos += 9U;
+              i += 8U;
+            }
+# else
+          while (i + 8U <= n)
+            {
+              const unsigned char *p = raw + byte_pos;
+              unsigned short *dst = symbols + i;
+
+              dst[0] = (unsigned short)(((unsigned int)p[0] << 1)
+                                        | ((unsigned int)p[1] >> 7));
+              dst[1] = (unsigned short)((((unsigned int)p[1] & 0x7fU) << 2)
+                                        | ((unsigned int)p[2] >> 6));
+              dst[2] = (unsigned short)((((unsigned int)p[2] & 0x3fU) << 3)
+                                        | ((unsigned int)p[3] >> 5));
+              dst[3] = (unsigned short)((((unsigned int)p[3] & 0x1fU) << 4)
+                                        | ((unsigned int)p[4] >> 4));
+              dst[4] = (unsigned short)((((unsigned int)p[4] & 0x0fU) << 5)
+                                        | ((unsigned int)p[5] >> 3));
+              dst[5] = (unsigned short)((((unsigned int)p[5] & 0x07U) << 6)
+                                        | ((unsigned int)p[6] >> 2));
+              dst[6] = (unsigned short)((((unsigned int)p[6] & 0x03U) << 7)
+                                        | ((unsigned int)p[7] >> 1));
+              dst[7] = (unsigned short)((((unsigned int)p[7] & 0x01U) << 8)
+                                        | (unsigned int)p[8]);
+
+              byte_pos += 9U;
+              i += 8U;
+            }
+# endif /* if defined(__GNUC__) && (defined(__x86_64__) \
+           || defined(__amd64__)) */
+        }
+
+      while (i < n)
+        {
+          while (*nbits < 9U)
+            {
+              if (byte_pos >= input_bytes)
+                {
+                  return -1;
+                }
+
+              *acc = (*acc << 8) | (unsigned int)raw[byte_pos++];
+              *nbits += 8U;
+            }
+
+          *nbits -= 9U;
+          symbols[i] = (unsigned short)((*acc >> *nbits) & 511U);
+          *acc &= (1U << *nbits) - 1U;
+          ++i;
+        }
+    }
+
+  *n_out = n;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static void
+parallel_block_encode_task (void *arg)
+{
+  ThreadBlockJob *job = (ThreadBlockJob *)arg;
+
+  BlockOutput output;
+
+  output.file = (FILE *)0;
+  output.buffer = job->output;
+  output.capacity = job->output_capacity;
+  output.size = 0U;
+  job->okay = encode_block (&job->encoder, (ThreadPool *)0,
+                            (ThreadEncoderWorkspace *)0, &output);
+  job->output_size = output.size;
+}
+
+/*****************************************************************************/
+
+static unsigned int
+block_thread_capacity (unsigned long elements, int unknown_count,
+                       unsigned int thread_limit)
+{
+  unsigned int capacity = compression_participants (thread_limit);
+
+  /* A known short input cannot use more workers than it has blocks. */
+  if (!unknown_count)
+    {
+      unsigned long blocks = elements / BLOCK_N
+                             + (elements % BLOCK_N != 0UL ? 1UL : 0UL);
+
+      if (blocks < (unsigned long)capacity)
+        {
+          capacity = (unsigned int)blocks;
+        }
+    }
+
+  return capacity ? capacity : 1U;
+}
+
+/*****************************************************************************/
+
+static int
+encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
+                             unsigned long elements, int unknown_count,
+                             int level, unsigned int window_n,
+                             unsigned int features, unsigned int thread_limit)
+{
+  static const unsigned short depth[9]
+      = { 2, 4, 8, 12, 24, 48, 96, 192, 512 };
+  ThreadPool pool;
+  ThreadBlockJob *jobs = (ThreadBlockJob *)0;
+  ThreadTask *tasks = (ThreadTask *)0;
+  unsigned short *history = (unsigned short *)0;
+  unsigned char *raw = (unsigned char *)0;
+  unsigned int history_n = 0U;
+  unsigned long done = 0UL;
+  unsigned int acc = 0U, nbits = 0U, input_eof = 0U;
+  unsigned char hdr[FRAME_HEADER_PREFIX_N + 3U + 4U];
+  unsigned int header_len = unknown_count ? FRAME_HEADER_PREFIX_N + 7U
+                                          : FHEAD_N;
+  unsigned int participants, i;
+  int okay = 0, pool_ready = 0;
+
+  if (!thread_pool_init (&pool, thread_limit,
+                         block_thread_capacity (elements, unknown_count,
+                                                thread_limit)))
+    {
+      return 0;
+    }
+
+  pool_ready = 1;
+  participants = pool.participants;
+  jobs = (ThreadBlockJob *)calloc (participants, sizeof (ThreadBlockJob));
+  tasks = (ThreadTask *)calloc (participants, sizeof (ThreadTask));
+  history = (unsigned short *)malloc (window_n * sizeof (unsigned short));
+  raw = (unsigned char *)calloc (1U, STAGE_MAX);
+
+  if (!jobs || !tasks || !history || !raw)
+    {
+      goto cleanup;
+    }
+
+  for (i = 0; i < participants; ++i)
+    {
+      Encoder *e = &jobs[i].encoder;
+
+      if (!allocated_encoder (e, window_n))
+        {
+          goto cleanup;
+        }
+
+      jobs[i].output = (unsigned char *)malloc ((size_t)BLOCK_OUTPUT_MAX);
+      jobs[i].output_capacity = (size_t)BLOCK_OUTPUT_MAX;
+
+      if (!jobs[i].output)
+        {
+          goto cleanup;
+        }
+
+      e->search_depth = depth[level - 1];
+      e->lazy = level >= 5;
+      e->level = level;
+      e->of_alphabet = window_n == WINDOW_64K ? OF_ALPHABET_64K
+                                              : OF_ALPHABET_32K;
+      e->input_mode = mode;
+      e->features = features;
+      e->min_match = (features & FEATURE_MIN_MATCH_2) ? MIN_MATCH_SHORT
+                                                     : MIN_MATCH_DEFAULT;
+      tasks[i].function = parallel_block_encode_task;
+      tasks[i].context = &jobs[i];
+    }
+
+  (void)memset (hdr, 0, sizeof (hdr));
+  (void)memcpy (hdr, "LZ9A", 4U);
+  hdr[4] = FORMAT_V9;
+  hdr[5] = (unsigned char)mode;
+  store16 (hdr + 6, header_len);
+  store32 (hdr + 8, unknown_count ? 0UL : elements);
+  hdr[12] = (unsigned char)((window_n == WINDOW_64K ? FEATURE_WINDOW_64K : 0U)
+                            | (features & (FEATURE_PHASED_TABLES
+                                           | FEATURE_MIN_MATCH_2))
+                            | FEATURE_ALIGNED_DISTANCES
+                            | FEATURE_AUTO_ALIGNED_DISTANCES);
+
+  if (unknown_count)
+    {
+      hdr[13] = FRAME_EXT_UNKNOWN_COUNT;
+      store16 (hdr + 14, 0U);
+      store32 (hdr + 16, crc_bytes (hdr, 16U));
+    }
+  else
+    {
+      store32 (hdr + 13, crc_bytes (hdr, 13U));
+    }
+
+  if (!write_exact (out, hdr, header_len))
+    {
+      goto cleanup;
+    }
+
+  for (;;)
+    {
+      unsigned int batch_count = 0U;
+      int read_status = 1;
+
+      while (batch_count < participants && read_status > 0)
+        {
+          ThreadBlockJob *job = &jobs[batch_count];
+          Encoder *e = &job->encoder;
+          unsigned int n = 0U;
+
+          read_status = read_next_input_block (in, mode, elements,
+                                               unknown_count, done, &acc,
+                                               &nbits, &input_eof, raw,
+                                               e->buffer + window_n, &n);
+
+          if (read_status < 0)
+            {
+              goto cleanup;
+            }
+
+          if (read_status == 0)
+            {
+              break;
+            }
+
+          if (done > ULONG_MAX - n)
+            {
+              goto cleanup;
+            }
+
+          if (history_n)
+            {
+              (void)memcpy (e->buffer + window_n - history_n, history,
+                            history_n * sizeof (unsigned short));
+            }
+
+          e->n = n;
+          e->hlen = history_n;
+          e->base = 0U;
+          e->chain_state = 0;
+          e->frame_pos = done;
+          e->distance_flags = 0U;
+          e->use_cost = 0;
+          e->sn = 0U;
+          e->lit_count = 0U;
+          e->last_lit = 0U;
+          e->max_literal = 0U;
+          e->desc_len = 0UL;
+          e->stage_len = 0UL;
+          (void)memset (e->reps, 0, sizeof (e->reps));
+          (void)memset (e->stream_bits, 0, sizeof (e->stream_bits));
+          (void)memset (e->stream_bytes, 0, sizeof (e->stream_bytes));
+          (void)memset (e->stage + STAGE_DATA_MAX, 0, TABLE_CACHE_BYTES);
+
+          if (n >= window_n)
+            {
+              (void)memcpy (history, e->buffer + window_n + n - window_n,
+                            window_n * sizeof (unsigned short));
+              history_n = window_n;
+            }
+          else
+            {
+              unsigned int keep = history_n;
+
+              if (keep + n > window_n)
+                {
+                  unsigned int drop = keep + n - window_n;
+
+                  (void)memmove (history, history + drop,
+                                 (keep - drop) * sizeof (unsigned short));
+                  keep -= drop;
+                }
+
+              (void)memcpy (history + keep, e->buffer + window_n,
+                            n * sizeof (unsigned short));
+              history_n = keep + n;
+            }
+
+          done += n;
+          ++batch_count;
+        }
+
+      if (!batch_count)
+        {
+          break;
+        }
+
+      if (read_status < 0
+          || !thread_pool_run (&pool, tasks, batch_count))
+        {
+          goto cleanup;
+        }
+
+      for (i = 0; i < batch_count; ++i)
+        {
+          if (!jobs[i].okay
+              || !write_exact (out, jobs[i].output, jobs[i].output_size))
+            {
+              goto cleanup;
+            }
+        }
+    }
+
+  if (mode == 9U && acc != 0U)
+    {
+      goto cleanup;
+    }
+
+  if (unknown_count)
+    {
+      unsigned char end_control = BLOCK_END_CONTROL;
+
+      if (!write_exact (out, &end_control, 1U))
+        {
+          goto cleanup;
+        }
+    }
+  else if (fgetc (in) != EOF)
+    {
+      goto cleanup;
+    }
+
+  if (ferror (in) || ferror (out))
+    {
+      goto cleanup;
+    }
+
+  okay = 1;
+
+cleanup:
+  if (jobs)
+    {
+      for (i = 0; i < participants; ++i)
+        {
+          free (jobs[i].output);
+          free_encoder (&jobs[i].encoder);
+        }
+    }
+
+  free (jobs);
+  free (tasks);
+  free (history);
+  free (raw);
+
+  if (pool_ready && !thread_pool_destroy (&pool))
+    {
+      okay = 0;
+    }
+
+  return okay;
+}
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
 
 /*****************************************************************************/
 
 static int
 encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
              int unknown_count, int level, unsigned int window_n,
-             unsigned int features)
+             unsigned int features, unsigned int thread_limit)
 {
   static const unsigned short depth[9] = { 2, 4, 8, 12, 24, 48, 96, 192, 512 };
   Encoder e;
+  ThreadPool pool;
+  ThreadEncoderWorkspace *workspaces = (ThreadEncoderWorkspace *)0;
   unsigned long done = 0;
   unsigned int acc = 0, nbits = 0;
   unsigned int input_eof = 0;
@@ -5290,12 +6736,43 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   unsigned int header_len = unknown_count ? FRAME_HEADER_PREFIX_N + 7U
                                           : FHEAD_N;
 
+#if defined(LZ9ANS_PTHREADS)
+  if (compression_participants (thread_limit) > 1U)
+    {
+      return encode_file_parallel_blocks (in, out, mode, elements,
+                                          unknown_count, level, window_n,
+                                          features, thread_limit);
+    }
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
   if (!allocated_encoder (&e, window_n))
     {
       free_encoder (&e);
 
       return 0;
     }
+
+  if (!thread_pool_init (&pool, thread_limit, ENTROPY_STREAM_COUNT))
+    {
+      free_encoder (&e);
+
+      return 0;
+    }
+
+#if defined(LZ9ANS_PTHREADS)
+  if (pool.participants > 1U)
+    {
+      workspaces = allocate_thread_encoder_workspaces ();
+
+      if (!workspaces)
+        {
+          (void)thread_pool_destroy (&pool);
+          free_encoder (&e);
+
+          return 0;
+        }
+    }
+#endif /* if defined(LZ9ANS_PTHREADS) */
 
   e.search_depth = depth[level - 1];
   e.lazy = level >= 5;
@@ -5330,7 +6807,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
   if (!write_exact (out, hdr, header_len))
     {
-      free_encoder (&e);
+      (void)cleanup_encode_run (&e, &pool, workspaces);
 
       return 0;
     }
@@ -5354,7 +6831,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
             {
               if (!read_some (in, e.stage, BLOCK_N, &input_bytes))
                 {
-                  free_encoder (&e);
+                  (void)cleanup_encode_run (&e, &pool, workspaces);
 
                   return 0;
                 }
@@ -5368,7 +6845,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                 {
                   if (!input_eof)
                     {
-                      free_encoder (&e);
+                      (void)cleanup_encode_run (&e, &pool, workspaces);
 
                       return 0;
                     }
@@ -5388,7 +6865,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
               if (!read_some (in, e.stage, (size_t)target_bytes, &input_bytes))
                 {
-                  free_encoder (&e);
+                  (void)cleanup_encode_run (&e, &pool, workspaces);
 
                   return 0;
                 }
@@ -5418,7 +6895,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                               || (e.stage[input_bytes - 1U]
                                   & ((1U << tail_bits) - 1U)))))
                     {
-                      free_encoder (&e);
+                      (void)cleanup_encode_run (&e, &pool, workspaces);
 
                       return 0;
                     }
@@ -5431,7 +6908,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                       break;
                     }
 
-                  free_encoder (&e);
+                  (void)cleanup_encode_run (&e, &pool, workspaces);
 
                   return 0;
                 }
@@ -5444,7 +6921,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
       if (done > ULONG_MAX - n)
         {
-          free_encoder (&e);
+          (void)cleanup_encode_run (&e, &pool, workspaces);
 
           return 0;
         }
@@ -5456,7 +6933,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
         {
           if (!unknown_count && !read_exact (in, e.stage, (size_t)n))
             {
-              free_encoder (&e);
+              (void)cleanup_encode_run (&e, &pool, workspaces);
 
               return 0;
             }
@@ -5485,7 +6962,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
             {
               if ((size_t)needed_bytes > input_bytes)
                 {
-                  free_encoder (&e);
+                  (void)cleanup_encode_run (&e, &pool, workspaces);
 
                   return 0;
                 }
@@ -5493,7 +6970,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
           else if (needed_bytes
                    && !read_exact (in, e.stage, (size_t)needed_bytes))
             {
-              free_encoder (&e);
+              (void)cleanup_encode_run (&e, &pool, workspaces);
 
               return 0;
             }
@@ -5573,12 +7050,21 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
             }
         }
 
-      if (!encode_block (out, &e))
-        {
-          free_encoder (&e);
+      {
+        BlockOutput block_output;
 
-          return 0;
-        }
+        block_output.file = out;
+        block_output.buffer = (unsigned char *)0;
+        block_output.capacity = 0U;
+        block_output.size = 0U;
+
+        if (!encode_block (&e, &pool, workspaces, &block_output))
+          {
+            (void)cleanup_encode_run (&e, &pool, workspaces);
+
+            return 0;
+          }
+      }
 
       hist_new = e.hlen + n;
 
@@ -5608,7 +7094,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
   if (mode == 9 && acc != 0)
     {
-      free_encoder (&e);
+      (void)cleanup_encode_run (&e, &pool, workspaces);
 
       return 0;
     }
@@ -5619,28 +7105,26 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
       if (!write_exact (out, &end_control, 1U))
         {
-          free_encoder (&e);
+          (void)cleanup_encode_run (&e, &pool, workspaces);
 
           return 0;
         }
     }
   else if (fgetc (in) != EOF)
     {
-      free_encoder (&e);
+      (void)cleanup_encode_run (&e, &pool, workspaces);
 
       return 0;
     }
 
   if (ferror (in) || ferror (out))
     {
-      free_encoder (&e);
+      (void)cleanup_encode_run (&e, &pool, workspaces);
 
       return 0;
     }
 
-  free_encoder (&e);
-
-  return 1;
+  return cleanup_encode_run (&e, &pool, workspaces);
 }
 
 /*****************************************************************************/
@@ -5788,9 +7272,11 @@ decode_end_record (FILE *in, unsigned char control, unsigned int mode,
 /*****************************************************************************/
 
 static int
-decode_file (FILE *in, FILE *out)
+decode_file (FILE *in, FILE *out, unsigned int thread_limit)
 {
   unsigned char hdr[FRAME_HEADER_MAX_N];
+  ThreadPool pool;
+  ThreadDecoderBuffers decoder_buffers;
   unsigned long total, done = 0;
   unsigned int feature_flags, window_n, header_len;
   unsigned char *stage = (unsigned char *)0, *desc = (unsigned char *)0;
@@ -5827,6 +7313,14 @@ decode_file (FILE *in, FILE *out)
     {
       return 0;
     }
+
+  /*cppcheck-suppress knownConditionTrueFalse*/
+  if (!thread_pool_init (&pool, thread_limit, 3U))
+    {
+      return 0;
+    }
+
+  (void)memset (&decoder_buffers, 0, sizeof (decoder_buffers));
 
   window_n
       = (feature_flags & FEATURE_WINDOW_64K) ? WINDOW_64K : WINDOW_DEFAULT;
@@ -5886,7 +7380,8 @@ decode_file (FILE *in, FILE *out)
             }
 
           if (!decode_block (in, o, BLOCK_N, stage, desc, tables, 1,
-                             (unsigned char)control))
+                             (unsigned char)control, &pool,
+                             &decoder_buffers))
             {
               goto cleanup;
             }
@@ -5902,7 +7397,8 @@ decode_file (FILE *in, FILE *out)
           unsigned int remaining
               = (unsigned int)(left > BLOCK_N ? BLOCK_N : left);
 
-          if (!decode_block (in, o, remaining, stage, desc, tables, 0, 0U))
+          if (!decode_block (in, o, remaining, stage, desc, tables, 0, 0U,
+                             &pool, &decoder_buffers))
             {
               goto cleanup;
             }
@@ -5938,7 +7434,8 @@ decode_file (FILE *in, FILE *out)
         }
     }
 
-  if (!output_flush (o) || fgetc (in) != EOF || ferror (in) || ferror (out))
+  if (!output_flush (o) || (!feof (in) && fgetc (in) != EOF)
+      || ferror (in) || ferror (out))
     {
       goto cleanup;
     }
@@ -5946,6 +7443,15 @@ decode_file (FILE *in, FILE *out)
   okay = 1;
 
 cleanup:
+  /*cppcheck-suppress knownConditionTrueFalse*/
+  if (!thread_pool_destroy (&pool))
+    {
+      okay = 0;
+    }
+
+#if defined(LZ9ANS_PTHREADS)
+  free_thread_decoder_buffers (&decoder_buffers);
+#endif /* if defined(LZ9ANS_PTHREADS) */
   free (stage);
   free (desc);
   free (tables);
@@ -6319,6 +7825,158 @@ default_features (int level)
 
 /*****************************************************************************/
 
+static int
+parse_thread_limit (const char *option, unsigned int *limit)
+{
+  const char *p = option;
+  unsigned int value = 0U;
+
+  if (strncmp (p, "--threads=", 10U) != 0)
+    {
+      return 0;
+    }
+
+  p += 10;
+
+  if (!*p)
+    {
+      return 0;
+    }
+
+  while (*p)
+    {
+      unsigned int digit;
+
+      if (*p < '0' || *p > '9')
+        {
+          return 0;
+        }
+
+      digit = (unsigned int)(*p - '0');
+
+      if (value > (UINT_MAX - digit) / 10U)
+        {
+          return 0;
+        }
+
+      value = value * 10U + digit;
+      ++p;
+    }
+
+  *limit = value;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS)
+static unsigned int
+memory_thread_participants (unsigned int limit, unsigned int max_participants)
+{
+  unsigned int participants = compression_participants (limit);
+
+  if (participants > max_participants)
+    {
+      participants = max_participants;
+    }
+
+  return participants ? participants : 1U;
+}
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
+static void
+print_memory_usage (unsigned int window_n, unsigned int thread_limit)
+{
+  unsigned long enc, dec;
+
+  enc = (unsigned long)sizeof (Encoder)
+#if defined(LZ9ANS_PTHREADS)
+        + (unsigned long)(BLOCK_N + 1U) * sizeof (unsigned int)
+#endif /* if defined(LZ9ANS_PTHREADS) */
+        + (unsigned long)(window_n + BLOCK_N) * sizeof (unsigned short)
+        + (unsigned long)SEQ_MAX * sizeof (Sequence)
+        + (unsigned long)HASH_N * sizeof (int)
+        + (unsigned long)window_n * sizeof (int) + STAGE_MAX + DESC_MAX
+        + (unsigned long)sizeof (AnsTable)
+        + (unsigned long)PHASE_GROUPS_MAX * sizeof (AnsTable);
+  dec = (unsigned long)sizeof (Output)
+        + (unsigned long)window_n * sizeof (unsigned short)
+        + STAGE_MAX + DESC_MAX
+        + (unsigned long)DEC_TABLE_COUNT * sizeof (DecTable)
+        + (unsigned long)ENTROPY_STREAM_COUNT * sizeof (Stream);
+
+  (void)printf ("window: %u symbols\n", window_n);
+  (void)printf ("static CRC lookup table: %lu bytes\n",
+                (unsigned long)sizeof (crc_table));
+  (void)printf ("encoder allocated state: %lu bytes"
+                " (excludes helper stack temporaries)\n", enc);
+  (void)printf ("decoder allocated state: %lu bytes"
+                " (plus small stack temporaries)\n", dec);
+
+#if defined(LZ9ANS_PTHREADS)
+  {
+    unsigned int cpus = available_processors ();
+    unsigned int cp = compression_participants (thread_limit);
+    unsigned int dp = memory_thread_participants (thread_limit, 3U);
+    unsigned long block_state = 0UL;
+    unsigned long block_stack = (unsigned long)(cp - 1U)
+                                * THREAD_STACK_BYTES;
+    unsigned long decoder_symbols = 0UL;
+    unsigned long decoder_stack = (unsigned long)(dp - 1U)
+                                  * THREAD_STACK_BYTES;
+
+    if (cp > 1U)
+      {
+        block_state
+            = (unsigned long)cp
+                  * ((enc + (unsigned long)sizeof (ThreadBlockJob)
+                            - (unsigned long)sizeof (Encoder)
+                            + (unsigned long)BLOCK_OUTPUT_MAX
+                            + (unsigned long)sizeof (ThreadTask)))
+              + (unsigned long)window_n * sizeof (unsigned short)
+              + STAGE_MAX;
+      }
+
+    if (dp > 1U)
+      {
+        decoder_symbols = (unsigned long)(ENTROPY_STREAM_COUNT - 1U)
+                          * SEQ_MAX;
+      }
+
+    (void)printf ("pthread build: %u available logical processors;"
+                  " --threads=%u\n", cpus, thread_limit);
+    (void)printf ("compression mode: %s\n",
+                  cp > 1U ? "independent blocks" : "sequential");
+    (void)printf ("compression participants: %u (main thread included)\n",
+                  cp);
+    if (cp > 1U)
+      {
+        (void)printf ("parallel-block encoder state: %lu bytes"
+                      " (all worker contexts, output buffers, history, and"
+                      " input scratch)\n", block_state);
+      }
+    (void)printf ("compression worker-stack budget: %lu bytes\n",
+                  block_stack);
+    (void)printf ("decompression participants: %u (main thread included)\n",
+                  dp);
+    (void)printf ("decompression symbol buffers: %lu bytes maximum"
+                  " (allocated only for ordinary LL/ML blocks)\n",
+                  decoder_symbols);
+    (void)printf ("decompression worker-stack budget: %lu bytes\n",
+                  decoder_stack);
+    (void)printf ("worker stack size: %lu bytes per pthread\n",
+                  THREAD_STACK_BYTES);
+  }
+#else
+  (void)thread_limit;
+#endif /* if defined(LZ9ANS_PTHREADS) */
+}
+
+/*****************************************************************************/
+
 int
 main (int argc, char **argv)
 {
@@ -6327,60 +7985,77 @@ main (int argc, char **argv)
   LZ9FileSize input_bytes = 0, output_bytes = 0;
   unsigned int mode = 0;
   int level = 5, verbose = 0, level_seen = 0, window_seen = 0, i, okay;
+  int threads_seen = 0;
   int input_is_stdio, output_is_stdio, unknown_count, size_reporting = 1;
   int output_is_same_file = 0;
   unsigned int window_n = WINDOW_DEFAULT;
-  unsigned int features;
+  unsigned int features, thread_limit = 0U;
   clock_t start, finish;
 
-  if ((argc == 2 && !strcmp (argv[1], "--memory"))
-      || (argc == 2 && !strcmp (argv[1], "--memory-32k"))
-      || (argc == 2 && !strcmp (argv[1], "--memory-64k")))
+  if (argc >= 2
+      && (!strcmp (argv[1], "--memory")
+          || !strcmp (argv[1], "--memory-32k")
+          || !strcmp (argv[1], "--memory-64k")))
     {
-      unsigned int win
-          = !strcmp (argv[1], "--memory-64k") ? WINDOW_64K : WINDOW_DEFAULT;
-      unsigned long enc
-          = (unsigned long)sizeof (Encoder)
-            + (unsigned long)(win + BLOCK_N) * sizeof (unsigned short)
-            + (unsigned long)SEQ_MAX * sizeof (Sequence)
-            + (unsigned long)HASH_N * sizeof (int)
-            + (unsigned long)win * sizeof (int) + STAGE_MAX + DESC_MAX
-            + (unsigned long)sizeof (AnsTable)
-            + (unsigned long)PHASE_GROUPS_MAX * sizeof (AnsTable);
-      unsigned long dec = (unsigned long)sizeof (Output)
-                          + (unsigned long)win * sizeof (unsigned short)
-                          + STAGE_MAX + DESC_MAX
-                          + (unsigned long)DEC_TABLE_COUNT
-                            * sizeof (DecTable)
-                          + (unsigned long)ENTROPY_STREAM_COUNT
-                            * sizeof (Stream);
-      (void)printf (
-              "window: %u symbols\n", win);
-      (void)printf (
-              "static CRC lookup table: %lu bytes\n",
-              (unsigned long)sizeof (crc_table));
-      (void)printf (
-              "encoder allocated state: %lu bytes"
-              " (excludes helper stack temporaries)\n", enc);
-      (void)printf (
-              "decoder allocated state: %lu bytes"
-              " (plus small stack temporaries)\n", dec);
+      int seen = 0;
+
+      if (argc > 4)
+        {
+          (void)fprintf (stderr, "Invalid memory-reporting option.\n");
+
+          return 2;
+        }
+
+      for (i = 2; i < argc; ++i)
+        {
+          if (parse_thread_limit (argv[i], &thread_limit))
+            {
+              if (seen)
+                {
+                  (void)fprintf (stderr, "Duplicate --threads option.\n");
+
+                  return 2;
+                }
+
+              seen = 1;
+            }
+          else
+            {
+              (void)fprintf (stderr, "Invalid memory-reporting option: %s\n",
+                             argv[i]);
+
+              return 2;
+            }
+        }
+
+      print_memory_usage (!strcmp (argv[1], "--memory-64k")
+                              ? WINDOW_64K : WINDOW_DEFAULT,
+                          thread_limit);
 
       return 0;
     }
 
-  if (argc < 4 || argc > 14
+  if (argc < 4 || argc > 15
       || (strcmp (argv[1], "c8") != 0 && strcmp (argv[1], "c9") != 0
           && strcmp (argv[1], "d") != 0))
     {
       (void)fprintf (stderr,
               "LZ9ANS reference compressor/decompressor " LZ9VER "\n\n");
+#if defined(LZ9ANS_PTHREADS)
+      (void)fprintf (stderr,
+              "Usage:\n"
+              "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
+              " [--window=<32k|64k>] [--threads=N]\n");
+      (void)fprintf (stderr,
+              "  lz9ans d <input> <output> [-v] [--threads=N]\n\n");
+#else
       (void)fprintf (stderr,
               "Usage:\n"
               "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
               " [--window=<32k|64k>]\n");
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v]\n\n");
+#endif /* if defined(LZ9ANS_PTHREADS) */
       (void)fprintf (stderr,
               "  Specify an input or output name of '-' for stdin");
       (void)fprintf (stderr,
@@ -6401,6 +8076,11 @@ main (int argc, char **argv)
               "  --window=<32k|64k>:");
       (void)fprintf (stderr,
               "  use 32k or 64k symbol history window (default: 32k)\n");
+#if defined(LZ9ANS_PTHREADS)
+      (void)fprintf (stderr,
+              "  --threads=N:          0=automatic; positive N limits"
+              " concurrent participants (default: automatic)\n");
+#endif /* if defined(LZ9ANS_PTHREADS) */
       return 2;
     }
 
@@ -6411,7 +8091,19 @@ main (int argc, char **argv)
 
   for (i = 4; i < argc; ++i)
     {
-      if (!strcmp (argv[i], "-v"))
+      if (strncmp (argv[i], "--threads", 9U) == 0)
+        {
+          if (threads_seen || !parse_thread_limit (argv[i], &thread_limit))
+            {
+              (void)fprintf (stderr, "Invalid or duplicate --threads option: %s\n",
+                             argv[i]);
+
+              return 2;
+            }
+
+          threads_seen = 1;
+        }
+      else if (!strcmp (argv[i], "-v"))
         {
           if (verbose)
             {
@@ -6553,11 +8245,11 @@ main (int argc, char **argv)
   if (mode)
     {
       okay = encode_file (in, out, mode, count, unknown_count, level,
-                          window_n, features);
+                          window_n, features, thread_limit);
     }
   else
     {
-      okay = decode_file (in, out);
+      okay = decode_file (in, out, thread_limit);
     }
 
   finish = clock ();

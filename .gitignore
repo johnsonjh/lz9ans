@@ -5,6 +5,7 @@
 /a.exe
 /a.out
 /*.bak
+/.build-config
 /compile_commands.json
 /corpus/*.csv
 /corpus/obj/
