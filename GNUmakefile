@@ -146,11 +146,11 @@ lint: lz9ans.c crc32_hw.h
 
 pvs pvs-studio:
 	$(MAKE) clean
-	scan-build bear -- $(MAKE) all
+	scan-build bear -- $(MAKE) lz9ans
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
 	$(MAKE) clean
-	scan-build bear -- $(MAKE) all THREADS=pthreads
+	scan-build bear -- $(MAKE) lz9ans THREADS=pthreads
 	pvs-studio-analyzer analyze --intermodular -j 12 -o log.pvs
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
 
