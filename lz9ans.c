@@ -6040,14 +6040,14 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
         produced += lr;
         literals += lr;
         code =
-          parallel_codes ?
-               decoder_buffers->symbols[STREAM_ML - STREAM_LL][i] /* //-V547 */
+          parallel_codes ? /* //-V547 */
+               decoder_buffers->symbols[STREAM_ML - STREAM_LL][i]
                          : stream_get_ph (&s[STREAM_ML],
                                           (unsigned int)o->produced & 3U);
         ml = decode_len (code, min_match, &extra);
         code =
-          parallel_codes ?
-               decoder_buffers->symbols[STREAM_OF - STREAM_LL][i] /* //-V547 */
+          parallel_codes ? /* //-V547 */
+               decoder_buffers->symbols[STREAM_OF - STREAM_LL][i]
                          : stream_get (&s[STREAM_OF]);
         d = decode_dist (code, &extra, o->reps, o->window_n,
                          o->of_alphabet, aligned_distances);
