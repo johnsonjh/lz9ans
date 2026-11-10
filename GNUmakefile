@@ -137,6 +137,8 @@ oracle: lz9ans.c crc32_hw.h
 
 lint: lz9ans.c crc32_hw.h
 	cppi -ac ./lz9ans.c ./crc32_hw.h
+	reuse lint -q || reuse lint
+	flawfinder --quiet --dataonly --omittime --error-level=3 --context -m3 .
 	$(MAKE) clean
 	eval $${MAKE:-$(MAKE)} sanitizers CC="$${CLANG:-clang}"
 	$(MAKE) test
@@ -147,6 +149,10 @@ lint: lz9ans.c crc32_hw.h
 		-Wno-missing-noreturn -Wno-padded -Wno-overlength-strings \
 		-Werror -D_ALL_SOURCE -D_GNU_SOURCE lz9ans.c \
 		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
+	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
+		-Wno-missing-noreturn -Wno-padded -Wno-overlength-strings \
+		-Werror -D_ALL_SOURCE -D_GNU_SOURCE -DLZ9ANS_PTHREADS lz9ans.c \
+		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -pthread -lm
 	$(MAKE) pvs-studio
 	$(MAKE) clean
 
@@ -154,11 +160,11 @@ lint: lz9ans.c crc32_hw.h
 
 pvs pvs-studio:
 	$(MAKE) clean
-	scan-build bear -- $(MAKE) lz9ans
+	scan-build --status-bugs bear -- $(MAKE) lz9ans THREADS=none
 	pvs-studio-analyzer analyze --intermodular -j $$(nproc) -o log.pvs
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
 	$(MAKE) clean
-	scan-build bear -- $(MAKE) lz9ans THREADS=pthreads
+	scan-build --status-bugs bear -- $(MAKE) lz9ans THREADS=pthreads
 	pvs-studio-analyzer analyze --intermodular -j $$(nproc) -o log.pvs
 	plog-converter -a "GA:1,2,3" -t fullhtml log.pvs -o pvsreport -w
 
