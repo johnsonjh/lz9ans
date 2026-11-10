@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`36`** (2026‑11‑10)
+> Document revision **`37`** (2026‑11‑10)
 
 <!-- toc -->
 
@@ -760,17 +760,34 @@ length; this cannot improve the current match and avoids extending and pricing
 dominated candidates.  The prune is applied only when that comparison is within
 the available input and candidate history.
 
+The reference encoder normalizes each active symbol histogram to a total
+frequency of 1024 using a deterministic, integer‑valued, KL‑oriented
+normalizer.  It first establishes positive lower and upper frequency bounds
+for each active symbol, starts from the upper‑bound allocation, and considers
+the possible one‑count decrements.  For a symbol with observed count
+`c_i`, decrementing its current frequency from `j` to `j-1` has marginal cost
+proportional to `c_i * ln(j/(j-1))`.  The encoder selects the least‑cost
+decrements needed to make the frequency sum exactly 1024.  The implementation
+compares these costs using precomputed Q64 fixed‑point logarithms and a bounded
+integer selection procedure.
+
+This is a deterministic fixed‑precision approximation to the KL‑optimal
+positive integer allocation; it is an implementation detail and it does not
+change the descriptor syntax.  The normalization algorithm remains
+non‑normative as stated in Section 5.1.
+
 The cost estimator produces per‑symbol prices in fixed‑point **Q8 bits** (256
 cost units per bit).  It counts codes in a preliminary parse, normalizes their
-tANS frequencies to 1024, estimates negative log probability plus an amortized
-descriptor cost, and compares `tANS` with `RAW` and `RLE`.  It adds exact
-extra‑bit counts for the chosen `LL`/`ML`/`OF` codes and estimates a fixed
-per‑sequence overhead.  Literal sums are accelerated with a per‑symbol
-cumulative prefix array containing `BLOCK_N + 1` entries (32,769 entries for
-the current 32K‑symbol block), allowing each literal‑range cost to be computed
-in constant time.  Levels 8–9 consider slightly shorter alternatives when
-costed.  When distance 1 could use either `RUN` or an initialized repeat slot,
-the cost‑aware parser may choose the lower estimated offset‑code cost.
+tANS frequencies to 1024 using this normalizer, estimates negative log
+probability plus an amortized descriptor cost, and compares `tANS` with `RAW`
+and `RLE`.  It adds exact extra‑bit counts for the chosen `LL`/`ML`/`OF` codes
+and estimates a fixed per‑sequence overhead.  Literal sums are accelerated with
+a per‑symbol cumulative prefix array containing `BLOCK_N + 1` entries (32,769
+entries for the current 32K‑symbol block), allowing each literal‑range cost to
+be computed in constant time.  Levels 8–9 consider slightly shorter
+alternatives when costed.  When distance 1 could use either `RUN` or an
+initialized repeat slot, the cost‑aware parser may choose the lower estimated
+offset‑code cost.
 
 This is **bounded heuristic optimization**, not exact optimal parsing.  Prices
 come from one or two block‑level frequency snapshots; the final entropy
