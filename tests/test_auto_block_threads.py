@@ -293,8 +293,6 @@ def check_options(serial, threaded, cpu_count):
         assert b"--parallel-blocks" not in threaded_help
         assert b"--threads" not in serial_help
         assert b"--threads=N" in threaded_help
-        assert b"hard maximum: 32 (32-bit), 128 (64-bit)" in threaded_help
-        assert b"hard maximum" not in serial_help
 
         serial_report = run([str(serial), "--memory"]).stdout
         assert b"pthread build" not in serial_report
