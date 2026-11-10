@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`35`** (2026‑11‑10)
+> Document revision **`36`** (2026‑11‑10)
 
 <!-- toc -->
 
@@ -76,20 +76,20 @@ partial symbols can represent an arbitrary final bit count.
 
 ### 1.1. Constants
 
-| Identifier           | Value  | Meaning                                              |
-|---------------------:|:-------|:-----------------------------------------------------|
-| `BLOCK_N`            | 32,768 | Maximum logical output symbols in a block            |
-| `WINDOW_DEFAULT`     | 32,768 | Default maximum backward match distance, in symbols  |
-| `WINDOW_64K`         | 65,536 | Optional maximum backward match distance, in symbols |
-| `MIN_MATCH_DEFAULT`  | 3      | Default minimum matched symbols                      |
-| `MIN_MATCH_SHORT`    | 2      | Minimum when frame flag `0x04` is set                |
-| `MAX_MATCH`          | 32,768 | Maximum matched symbols in one sequence              |
-| `TABLE_LOG`          | 10     | Base‑two log of tANS state count                     |
-| `TABLE_N`            | 1,024  | tANS states, numbered 0–1023                         |
-| `STREAM_COUNT`       | 5      | `LIT`, `LL`, `ML`, `OF`, raw `EXTRA` payload         |
-| `MAX_DESC_OCTETS`    | 8,192  | Maximum total entropy descriptors in a block         |
-| `MAX_PAYLOAD_OCTETS` | 81,920 | Maximum combined compressed substreams in a block    |
-| `FRAME_HEADER_MAX_N` | 4,096  | Maximum frame‑header length, including TLVs and CRC  |
+| Identifier           |   Value  | Meaning                                              |
+|---------------------:|---------:|:-----------------------------------------------------|
+| `BLOCK_N`            | `32,768` | Maximum logical output symbols in a block            |
+| `WINDOW_DEFAULT`     | `32,768` | Default maximum backward match distance, in symbols  |
+| `WINDOW_64K`         | `65,536` | Optional maximum backward match distance, in symbols |
+| `MIN_MATCH_DEFAULT`  | `3`      | Default minimum matched symbols                      |
+| `MIN_MATCH_SHORT`    | `2`      | Minimum when frame flag `0x04` is set                |
+| `MAX_MATCH`          | `32,768` | Maximum matched symbols in one sequence              |
+| `TABLE_LOG`          | `10`     | Base‑two log of tANS state count                     |
+| `TABLE_N`            | `1,024`  | tANS states, numbered 0–1023                         |
+| `STREAM_COUNT`       | `5`      | `LIT`, `LL`, `ML`, `OF`, raw `EXTRA` payload         |
+| `MAX_DESC_OCTETS`    | `8,192`  | Maximum total entropy descriptors in a block         |
+| `MAX_PAYLOAD_OCTETS` | `81,920` | Maximum combined compressed substreams in a block    |
+| `FRAME_HEADER_MAX_N` | `4,096`  | Maximum frame‑header length, including TLVs and CRC  |
 
 The block limit is 32,768 symbols in V9.  The default window is 32,768 symbols;
 frame flag bit 0 enables a 65,536‑symbol window.  The reference encoder selects
@@ -123,18 +123,17 @@ defined in section 10.4.
 
 The frame‑header CRC covers **all header octets preceding its final four‑octet
 CRC field** (the first 13 octets when there are no extensions).  Each block CRC
-covers
-its **decoded logical symbols re‑packed as a fresh 9‑bit MSB‑first stream**,
-zero‑padded at the *end of that block*, regardless of the frame's mode 8 or
-9.  Therefore a mode‑8 file's block CRC is **not** the CRC of its ordinary
-input octets.  When mode‑9 blocks share a frame, the final octet padding is
-applied anew for each block CRC, but the actual frame output packing carries
-unused bits across block boundaries without introducing gaps.
+covers its **decoded logical symbols re‑packed as a fresh 9‑bit MSB‑first
+stream**, zero‑padded at the *end of that block*, regardless of the frame's
+mode 8 or 9.  Therefore a mode‑8 file's block CRC is **not** the CRC of its
+ordinary input octets.  When mode‑9 blocks share a frame, the final octet
+padding is applied anew for each block CRC, but the actual frame output
+packing carries unused bits across block boundaries without introducing gaps.
 
 CRC algorithm: CRC‑32/ISO‑HDLC (reflected polynomial `0xEDB88320`, initial
 state `0xFFFFFFFF`, process bits least‑significant‑first **within each already
-constructed octet**, final XOR `0xFFFFFFFF`).  This equals the usual
-`zlib.crc32()` over the prescribed octets.
+constructed octet**, final XOR `0xFFFFFFFF`).  This equals the usual zlib
+`crc32()` over the prescribed octets.
 
 ## 3. Frame and block headers
 
@@ -142,8 +141,8 @@ Every V9 frame begins with a frame header whose length is 17–4,096 octets.
 The header is followed by block records.  A known‑length frame's blocks produce
 exactly the symbol count in the frame header and are followed by EOF or one
 optional terminal `END` record.  A zero‑symbol known‑length frame has no data
-blocks.  The reference encoder emits the unknown‑length form for stdin input,
-and the C decoder accepts it from either files or stdin, as specified in
+blocks.  The reference encoder emits the unknown‑length form for `stdin` input,
+and the C decoder accepts it from either files or `stdin`, as specified in
 section 10.  All integer fields are unsigned and little‑endian except the ASCII
 magic bytes and single‑byte control/feature fields.
 
@@ -155,7 +154,7 @@ The fixed 13‑octet prefix is followed by zero or more TLV
 With **no** extensions, the header is exactly 17 octets.
 
 | Offset              | Octets   | Required value / interpretation                                         |
-|--------------------:|:---------|:------------------------------------------------------------------------|
+|--------------------:|:--------:|:------------------------------------------------------------------------|
 | `0`                 | `4`      | ASCII `LZ9A` (`4c 5a 39 41`)                                            |
 | `4`                 | `1`      | Version **`9`**                                                         |
 | `5`                 | `1`      | Output representation **`8`** or **`9`**                                |
@@ -179,14 +178,15 @@ extension identifies a streaming frame in which `N` is zero and an `END` record
 is mandatory.  The C decoder supports both forms and rejects a missing `END`,
 a duplicate `END`, or any octets after `END`.
 
-For compression, the UNIX CLI uses a known‑length frame when the input is a
-named file: it counts the input before encoding, which requires a seekable
-input.  When the input name is `-`, it reads stdin incrementally and emits an
-unknown‑length frame without seeking.  Input is consumed in block‑sized batches;
-this is a streaming file format, not a low‑latency interactive record protocol.
-The output name may independently be `-` for stdout.  Decompression accepts
-either frame form from a file or stdin and can write to a file or stdout.
-Size/ratio reporting with `-v` is disabled when either standard stream is used.
+For compression, the UNIX CLI reference implementation uses a known‑length
+frame when the input is a named file: it counts the input before encoding,
+which requires a seekable input.  When the input name is `-`, it reads `stdin`
+incrementally and emits an unknown‑length frame without seeking.  Input is
+consumed in block‑sized batches; this is a streaming file format, not a
+low‑latency interactive record protocol. The output name may independently be
+`-` for `stdout`.  Decompression accepts either frame form from a file or
+`stdin` and can write to a file or `stdout`.  Size/ratio reporting with `-v` is
+disabled when UNIX `stdin` or `stdout` streams are used.
 
 ### 3.2. Block prefix and type-specific headers
 
@@ -197,7 +197,7 @@ version byte determines the block layout.  The `END` control record is also a
 one–octet control value before any optional extension length.
 
 | Offset | Octets | Interpretation                                            |
-|-------:|:-------|:----------------------------------------------------------|
+|-------:|-------:|:----------------------------------------------------------|
 | `0`    | `1`    | Block type and type–specific flags/width                  |
 | `1`    | `2`    | `n`: decoded logical symbols in this data block, 1–32,768 |
 
@@ -214,7 +214,7 @@ There is no per–block version or header–length field.
 A `STORED` block has a **7–octet** header:
 
 | Offset | Octets | Interpretation                                                     |
-|-------:|:-------|:-------------------------------------------------------------------|
+|-------:|-------:|:-------------------------------------------------------------------|
 | `0`    | `1`    | Type and stored symbol width (`width << 2`)                        |
 | `1`    | `2`    | `n`: decoded logical symbols                                       |
 | `3`    | `4`    | CRC–32/ISO–HDLC of this block's decoded canonical packed–9 symbols |
@@ -227,7 +227,7 @@ valid.  The payload immediately follows the 7–octet header.
 An `LZ` block has a **23–octet** header:
 
 | Offset | Octets | Interpretation                                                                    |
-|-------:|:-------|:----------------------------------------------------------------------------------|
+|-------:|-------:|:----------------------------------------------------------------------------------|
 | `0`    | `1`    | Type and type–specific flags                                                      |
 | `1`    | `2`    | `n`: decoded logical symbols                                                      |
 | `3`    | `2`    | `q`: number of `LZ` match sequences, 0–`floor(n/m)` (`m` = minimum match, 3 or 2) |
@@ -400,17 +400,19 @@ length = bias + 15 + 2^k + read_extra(k)
 ```
 
 For example, `LL=0` maps to code 0, `ML=m` maps to code 0, and `LL=16` maps to
-code 16 with zero additional bits (`k=0`).  Codes permit larger values than
-can fit into one block; decoders **MUST** reject any decoded length that
-exceeds the remaining block capacity.  `ML` values larger than 32,768 cannot
-occur in a valid V9 encoder output.
+code 16 with zero additional bits (`k=0`).  Decoded `LL` or `ML` codes
+outside the range 0–31 are invalid; decoders **MUST** reject such a code
+before reading the corresponding length's `EXTRA` bits.  Codes permit larger
+values than can fit into one block; decoders **MUST** reject any decoded
+length that exceeds the remaining block capacity.  `ML` values larger than
+32,768 cannot occur in a valid V9 encoder output.
 
 ### 4.2. Offset alphabet, repeat slots, and RUN
 
 `OF` has **20** codes by default and 21 codes (0–20) with a 64K window:
 
 | OF code   | Meaning                                             | EXTRA bits    | Repeat‑slot action                |
-|----------:|:----------------------------------------------------|:--------------|:----------------------------------|
+|----------:|:----------------------------------------------------|:-------------:|:----------------------------------|
 | `0`       | Distance currently in slot `R0`                     | `0`           | Promote that distance to `R0`     |
 | `1`       | Distance currently in slot `R1`                     | `0`           | Promote that distance to `R0`     |
 | `2`       | Distance currently in slot `R2`                     | `0`           | Promote that distance to `R0`     |
@@ -484,14 +486,14 @@ specified by its descriptor, not inferred from the data.
 
 Descriptors are concatenated and parsed without alignment gaps:
 
-| Mode byte   | Name    | Rest of descriptor                                          | Payload                                                 |
-|------------:|:--------|:------------------------------------------------------------|:--------------------------------------------------------|
-| `0`         | `EMPTY` | Nothing                                                     | Zero bits; allowed only when symbol count is zero       |
-| `1`         | `RAW`   | One octet: symbol width                                     | Forward MSB‑first fixed‑width codes                     |
-| `2`         | `RLE`   | One unsigned varint: sole symbol value                      | Zero bits, repeat symbol for entire count               |
-| `3`         | `tANS`  | Presence bitmap followed by packed normalized frequencies   | Reverse‑consumed tANS bit groups                        |
-| `4`         | `REUSE` | Nothing                                                     | Reverse‑consumed tANS bit groups using prior table      |
-| `5`         | `PHASED`| Partition id, then one sub‑descriptor per group (10.9)      | Reverse‑consumed tANS bit groups, table chosen by phase |
+| Mode byte   |  Name    | Rest of descriptor                                          | Payload                                                 |
+|------------:|:--------:|:------------------------------------------------------------|:--------------------------------------------------------|
+| `0`         | `EMPTY`  | Nothing                                                     | Zero bits; allowed only when symbol count is zero       |
+| `1`         | `RAW`    | One octet: symbol width                                     | Forward MSB‑first fixed‑width codes                     |
+| `2`         | `RLE`    | One unsigned varint: sole symbol value                      | Zero bits, repeat symbol for entire count               |
+| `3`         | `tANS`   | Presence bitmap followed by packed normalized frequencies   | Reverse‑consumed tANS bit groups                        |
+| `4`         | `REUSE`  | Nothing                                                     | Reverse‑consumed tANS bit groups using prior table      |
+| `5`         | `PHASED` | Partition id, then one sub‑descriptor per group (10.9)      | Reverse‑consumed tANS bit groups, table chosen by phase |
 
 `RAW` `LIT` accepts width 7/8/9; `RAW` `LL`, `ML`, `OF` always use width **5**.
 Five bits suffice for the 21‑symbol `OF` alphabet used with a 64K window; codes
@@ -526,10 +528,13 @@ when the descriptor ends.  Frequencies **MUST** be positive, and their sum
 - **`LL`, `ML`, `OF`:** Frequencies use truncated‑binary coding in ascending
   symbol order.  Let `assigned` be the sum of frequencies already decoded and
   `remaining` the number of set bitmap entries not yet decoded.  For the next
-  frequency, define `R = 1024 - assigned - remaining` and `x = f - 1`.
-  Let `b=floor(log2(R))` and `cutoff=2^(b+1)-R`.  If `x < cutoff`, read/write
-  `x` in `b` bits; otherwise read/write `x+cutoff` in `b+1` bits.  Then add
-  `f` to `assigned`.
+  frequency, define `R = 1024 - assigned - remaining`,
+  `b = floor(log2(R))`, and `cutoff = 2^(b+1) - R`.  To encode the frequency,
+  let `x = f - 1`: if `x < cutoff`, write `x` in `b` bits; otherwise write
+  `x + cutoff` in `b+1` bits.  To decode, read `b` bits as integer `v`.  If
+  `v < cutoff`, set `x = v`; otherwise read one additional bit `bit` and set
+  `x = ((v << 1) | bit) - cutoff`.  The decoded frequency is `f = x + 1`;
+  add `f` to `assigned`.
 
 The decoder **MUST** reject a descriptor if a decoded frequency is zero, a
 value exceeds the remaining normalization budget, the frequencies do not sum to
@@ -735,17 +740,17 @@ The search‑depth limit is the number of hash‑chain candidates examined; the
 three repeat‑distance slots are probed separately and therefore do not consume
 this budget:
 
-| Level | Hash‑chain depth | Parser behavior                                    |
-|------:|:-----------------|:---------------------------------------------------|
-| `1`   | `2`              | Greedy, no entropy‑price pass                      |
-| `2`   | `4`              | Greedy, no entropy‑price pass                      |
-| `3`   | `8`              | Greedy, no entropy‑price pass                      |
-| `4`   | `8`              | Initial greedy pass; entropy‑price reparse         |
-| `5`   | `24`             | Level 4 plus one‑position lazy choice; **default** |
-| `6`   | `48`             | Level 5 with deeper candidate search               |
-| `7`   | `96`             | Level 6 with deeper candidate search               |
-| `8`   | `192`            | Level 7 plus near‑longest alternative match trials |
-| `9`   | `512`            | Level 8 plus a further cost‑refinement pass        |
+| Level | Hash‑chain depth | Parser behavior                                     |
+|------:|-----------------:|:----------------------------------------------------|
+| `1`   | `2`              | Greedy, no entropy‑price pass                       |
+| `2`   | `4`              | Greedy, no entropy‑price pass                       |
+| `3`   | `8`              | Greedy, no entropy‑price pass                       |
+| `4`   | `12`             | Initial greedy pass with entropy‑price reparse      |
+| `5`   | `24`             | Level 4 plus one‑position lazy choice (**default**) |
+| `6`   | `48`             | Level 5 with deeper candidate search                |
+| `7`   | `96`             | Level 6 with deeper candidate search                |
+| `8`   | `192`            | Level 7 plus near‑longest alternative match trials  |
+| `9`   | `512`            | Level 8 plus a further cost‑refinement pass         |
 
 The match finder explicitly probes `R0`, `R1`, and `R2` before walking the hash
 chain, so repeat distances remain candidates even when their chain entries
@@ -785,6 +790,14 @@ additional block storage.  The compile‑time threshold defaults to 97; setting
 setting it to zero disables the heuristic.  The threshold changes only encoder
 selection, not the V9 stream format or decoder requirements.
 
+When lazy matching is enabled (levels 5–9), the encoder may compare a match
+with a match beginning one symbol later.  This lookahead is attempted only when
+the current match length is less than the configured threshold.  The threshold
+is 64 by default, except at level 8, where the compile‑time macro
+`LZ9ANS_L8_LAZY_MAX_LENGTH` controls it and defaults to 32.  The macro must be
+at least 4.  It changes only the level‑8 encoder heuristic, not the V9 stream
+format or decoder requirements.
+
 For each symbol stream the encoder chooses `EMPTY`, `RLE`, `RAW`, or `TANS`,
 or a cached `REUSE` model.  At levels 1–5, ordinary `REUSE` is emitted only
 when the normalized model exactly matches the most recently installed model
@@ -800,10 +813,10 @@ to know which parser or level was used.
 
 ### 7.1. Reference implementation memory usage
 
-The UNIX reference implementation's explicitly allocated state on a standard
-Linux x86_64 system for the default 32K window size reports **678,678 octets
-of encoder state** and **213,596 octets of decoder state**, which can be
-verified with `./lz9ans --memory`.  The 32K encoder remains below
+The non‑pthread UNIX reference implementation's explicitly allocated state on
+a standard Linux x86_64 system for the default 32K window size reports
+**678,678 octets of encoder state** and **213,596 octets of decoder state**,
+which can be verified with `./lz9ans --memory`.  The 32K encoder remains below
 **664&nbsp;KiB**.
 
 For the 64K window size, `./lz9ans --memory-64k` reports **875,286 octets of
@@ -874,7 +887,13 @@ LZ9ANS‑managed heap allocations.  The independent‑block encoder contexts are
 allocated only when the pthread build selects more than one compression
 participant.  A pthread build using `--threads=1` (or running where only one
 logical processor is available) uses the original encoder path and does not
-allocate block‑worker contexts.
+allocate block‑worker contexts.  On Linux x86_64, a pthread build with
+`--threads=1` reports **678,690 octets** (32K window) and **875,298 octets**
+(64K window) of encoder state, 12 octets above the respective serial figures
+in section 7.1.  The pthread build stores `Encoder.prefix` as a pointer and
+separately counts its 131,076‑octet backing array, whereas the serial build
+embeds that array in `Encoder`; the 12‑octet net difference is unrelated to
+worker‑context or output‑buffer allocation.
 
 ## 8. Golden vectors and interoperability
 
@@ -892,7 +911,7 @@ they are not intended as a general compression benchmark.  The V9 decoder
 rejects every other frame version; no legacy decoding is implemented.
 
 | Fixture       | Input mode | Level | Raw octets | Frame octets  | SHA–256 of compressed frame                                        |
-|--------------:|:-----------|:------|:-----------|:--------------|:-------------------------------------------------------------------|
+|--------------:|:----------:|:-----:|-----------:|--------------:|:-------------------------------------------------------------------|
 | `empty8`      | `8`        | `1`   | `0`        | `17`          | `c2cc46e5e963872f68ee43ff3592cf72320110c97f0d270cc11ce0a2782e1d84` |
 | `abc8`        | `8`        | `1`   | `12`       | `35`          | `775135fe7d9a110e1c4c0e7b46612fe292c174500c0a3bc7cb921d5bcafc0bc5` |
 | `run8`        | `8`        | `6`   | `96`       | `49`          | `dab23891e60115f4b978b0e91465a91f0df66bb40e032ace094fc3ba229434a6` |
@@ -927,16 +946,16 @@ to match exactly.
   one raw `EXTRA` stream.  Earlier frame versions are rejected; there is no
   legacy decoding path.
 
-- **Streaming:** The CLI reads stdin and writes stdout using `-` as the
-  corresponding path.  Compression from stdin reads input in block‑sized
+- **Streaming:** The CLI reads `stdin` and writes `stdout` using `-` as the
+  corresponding path.  Compression from `stdin` reads input in block‑sized
   batches, writes the `0x81` unknown‑count frame TLV, and terminates with a
   minimal `END` record.  This supports pipes and nonseekable streams but is not
   a low‑latency interactive record protocol.  Compression from a named input
   file counts the file first and emits a known‑length frame.  The C decoder
-  accepts either frame form from a file or stdin and writes to a file or
-  stdout.  The Python inspection decoder is limited to known‑length frames.
-  The CLI's `-v` size/ratio reporting need not be available when stdin or
-  stdout is used.
+  accepts either frame form from a file or `stdin` and writes to a file or
+  `stdout`.  The Python inspection decoder is limited to known‑length frames.
+  The CLI's `-v` size/ratio reporting need not be available when `stdin` or
+  `stdout` is used.
 
 - **Final partial Multics symbol:** The `END` TLV defines the number of
   low‑order bits to truncate from the last 9‑bit symbol.  The C decoder parses
@@ -979,13 +998,13 @@ to match exactly.
 
 - **Portability:** This specific UNIX reference implementation expects 8‑bit
   C `char`, 16‑bit `short`, and 32‑bit `int`.  Compression from a named input
-  file requires seeking to count the input; the stdin path does not seek and
+  file requires seeking to count the input; the `stdin` path does not seek and
   uses the unknown‑length representation.  Decompression does not require
-  seeking, and stdout is a nonseekable destination supported by both encoder
+  seeking, and `stdout` is a non‑seekable destination supported by both encoder
   and decoder.  A named input file still must be seekable when it is
-  compressed, even when the output is stdout.  On POSIX hosts, the CLI rejects
-  an existing output path that resolves to the same file as the opened input,
-  including hard‑link and symbolic‑link aliases.  Any Multics (PL/I) port
+  compressed, even when the output is `stdout`.  On POSIX hosts, the CLI
+  rejects an existing output path that resolves to the same file as the opened
+  input, including hard‑link and symbolic‑link aliases.  Any Multics PL/I port
   should carry the *wire equations* and **use** **36‑bit‑native**
   representations, **not** emulate these C types unnecessarily.
 
@@ -1000,7 +1019,7 @@ header is 17 octets and the CRC covers offsets 0–12.
 ### 10.1. Frame feature flags
 
 | Bit   | Mask   | Meaning                                                          |
-|------:|:-------|:-----------------------------------------------------------------|
+|------:|:------:|:-----------------------------------------------------------------|
 | `0`   | `0x01` | 65,536‑symbol history window                                     |
 | `1`   | `0x02` | Phased entropy tables are available (descriptor mode 5)          |
 | `2`   | `0x04` | Two‑symbol matches: minimum match length is 2                    |
@@ -1064,7 +1083,7 @@ header **MUST** set the frame `N` field at offset 8 to zero and include exactly
 one frame TLV with identifier `0x81`, length zero, and no value octets.  A zero
 count without this extension continues to mean an ordinary empty known‑length
 frame.  The reference encoder uses this representation when its input is
-stdin.
+`stdin`.
 
 An unknown‑length frame **MUST** end with exactly one `END` record (section
 10.4).  The total decoded symbol count is the sum of the decoded `n` values of
@@ -1074,9 +1093,9 @@ data after `END` **MUST** be rejected.  These rules provide an explicit end
 condition for pipes and other nonseekable streams; `EOF` alone is **not** a
 valid substitute for `END`.
 
-The reference encoder emits `0x81` for stdin input.  The C decoder accepts
+The reference encoder emits `0x81` for `stdin` input.  The C decoder accepts
 this frame form and decodes data blocks until the required `END` record.
-File‑based input compression remains known‑length and seek‑counted; stdout
+File‑based input compression remains known‑length and seek‑counted; `stdout`
 output does not change the frame‑length representation.
 
 ### 10.4. END record and final-symbol truncation
@@ -1176,16 +1195,16 @@ For code 20 with the 64K window:
 
 The encoder sets the flag from the distance residue.  This feature does not
 change the `OF` alphabet or its RAW width.  The additional flag is included in
-the ordinary forward `EXTRA` bit order.  A decoder **MUST** reject noncanonical
-flag‑0 forms whose decoded distance is divisible by four.
+the ordinary forward `EXTRA` bit order.  A decoder **MUST** reject
+non‑canonical flag‑0 forms whose decoded distance is divisible by four.
 
 ### 10.7. Per-block aligned-distance selection (`0x18`)
 
 When frame feature bits 3 and 4 are both set, alignment is selected separately
 for each `LZ` block.  The decoder **MUST** use aligned‑distance decoding only
-when bit 4 of block‑header octet 4 is set.  For an `LZ` block this bit is
-otherwise zero; bits 5–7 of that octet **MUST** be zero.  For a `STORED` block,
-octet 4 continues to encode the stored symbol width in bits 2–7, and bit 4
+when bit 4 of block‑header octet 0 is set.  For an `LZ` block this bit is
+otherwise zero; bits 5–7 of octet 0 **MUST** be zero.  For a `STORED` block,
+octet 0 continues to encode the stored symbol width in bits 2–7, and bit 4
 **MUST NOT** be interpreted as an alignment selector.  The reference encoder
 always emits both frame feature bits and makes a fresh selection for every
 `LZ` block.
@@ -1217,7 +1236,7 @@ The table gives the bound for each minimum match length `m` (3 by default; 2
 when flag `0x04` is set).
 
 | Stream  | Maximum meaningful bits (`m=3`)       | Octets (`m=3`) | Maximum meaningful bits (`m=2`)       | Octets (`m=2`) |
-|:--------|--------------------------------------:|---------------:|--------------------------------------:|---------------:|
+|--------:|--------------------------------------:|---------------:|--------------------------------------:|---------------:|
 | `LIT`   | `32,768 * 10 + 10 = 327,690`          | `40,962`       | `327,690`                             | `40,962`       |
 | `LL`    | `floor(32,768/3) * 10 + 10 = 109,230` | `13,654`       | `floor(32,768/2) * 10 + 10 = 163,850` | `20,482`       |
 | `ML`    | `floor(32,768/3) * 10 + 10 = 109,230` | `13,654`       | `163,850`                             | `20,482`       |
@@ -1257,7 +1276,7 @@ data that starts at a word boundary, the four phases are the four 9‑bit
 quarters of each word.  The phase used for each entropy symbol is:
 
 | Stream | Phase of …                                                             |
-|:-------|:-----------------------------------------------------------------------|
+|-------:|:-----------------------------------------------------------------------|
 | `LIT`  | the output position at which that literal is written                   |
 | `LL`   | the output position at which the sequence starts (before its literals) |
 | `ML`   | the output position of the first symbol of the match                   |
@@ -1271,7 +1290,7 @@ Terminal literals (after the last sequence) use their own positions.
 following partitions are valid; `pid` is the partition identifier byte.
 
 | Stream | `pid` | Name     | Group of phase 0 / 1 / 2 / 3 | Groups |
-|:-------|------:|:---------|:-----------------------------|-------:|
+|-------:|:-----:|:--------:|:-----------------------------|:------:|
 | `LIT`  | `0`   | `023\|1` | `0 / 1 / 0 / 0`              | 2      |
 | `LIT`  | `1`   | `02\|13` | `0 / 1 / 0 / 1`              | 2      |
 | `LL`   | `0`   | `02\|13` | `0 / 1 / 0 / 1`              | 2      |
