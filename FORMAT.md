@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`31`** (2026‑11‑09)
+> Document revision **`32`** (2026‑11‑10)
 
 <!-- toc -->
 
@@ -1266,12 +1266,12 @@ Terminal literals (after the last sequence) use their own positions.
 **Partitions.** A partition maps the four phases to group numbers.  Only the
 following partitions are valid; `pid` is the partition identifier byte.
 
-| Stream | `pid` | Name    | Group of phase 0 / 1 / 2 / 3 | Groups |
-|:-------|------:|:--------|:-----------------------------|-------:|
-| `LIT`  | `0`   | `023|1` | `0 / 1 / 0 / 0`              | 2      |
-| `LIT`  | `1`   | `02|13` | `0 / 1 / 0 / 1`              | 2      |
-| `LL`   | `0`   | `02|13` | `0 / 1 / 0 / 1`              | 2      |
-| `ML`   | `0`   | `01|23` | `0 / 0 / 1 / 1`              | 2      |
+| Stream | `pid` | Name     | Group of phase 0 / 1 / 2 / 3 | Groups |
+|:-------|------:|:---------|:-----------------------------|-------:|
+| `LIT`  | `0`   | `023\|1` | `0 / 1 / 0 / 0`              | 2      |
+| `LIT`  | `1`   | `02\|13` | `0 / 1 / 0 / 1`              | 2      |
+| `LL`   | `0`   | `02\|13` | `0 / 1 / 0 / 1`              | 2      |
+| `ML`   | `0`   | `01\|23` | `0 / 0 / 1 / 1`              | 2      |
 
 Any other `pid` for the stream is invalid.
 
@@ -1327,8 +1327,8 @@ octets.
 
 ### 10.10. Two-symbol matches (`0x04`)
 
-Flag `0x04` lowers the minimum match length `m` from 3 to 2.  Three things
-change, and nothing else:
+Flag `0x04` lowers the minimum match length `m` from **3** to **2**.
+Three things change, and nothing else:
 
 1. The `ML` length conversion of section 4.1 uses `bias=2`, so `ML code 0`
    means a match of length 2.
