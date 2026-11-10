@@ -3972,7 +3972,7 @@ norm_active_kl (const unsigned int *counts, const unsigned int *idx,
       unsigned int symbol = idx[k];
       unsigned int count = counts[symbol];
       unsigned int rem, lower_q, upper_q;
-      unsigned int lower, upper, j;
+      unsigned int lower, upper, span, j;
 
       if (!count || count > total)
         {
@@ -3992,10 +3992,16 @@ norm_active_kl (const unsigned int *counts, const unsigned int *idx,
                                    total, reciprocal, &rem);
       upper = upper_q + 1U;
 
-      if (upper > NORM_TICKET_MAX_J || upper < lower
-          || upper - lower > NORM_TICKET_MAX
+      if (upper > NORM_TICKET_MAX_J || upper < lower)
+        {
+          return 0;
+        }
+
+      span = upper - lower;
+
+      if (span > NORM_TICKET_MAX
           || upper_sum > 0x7fffffffU - upper
-          || ticket_n > NORM_TICKET_MAX - (upper - lower))
+          || ticket_n > NORM_TICKET_MAX - span)
         {
           return 0;
         }
