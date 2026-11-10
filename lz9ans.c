@@ -140,6 +140,29 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 
 /*****************************************************************************/
 
+#define THREAD_LIMIT_32BIT 32U
+#define THREAD_LIMIT_64BIT 128U
+
+/*****************************************************************************/
+
+static unsigned int
+thread_limit_maximum (void)
+{
+  return sizeof (void *) <= 4U ? THREAD_LIMIT_32BIT : THREAD_LIMIT_64BIT;
+}
+
+/*****************************************************************************/
+
+static unsigned int
+clamp_thread_limit (unsigned int limit)
+{
+  unsigned int maximum = thread_limit_maximum ();
+
+  return limit > maximum ? maximum : limit;
+}
+
+/*****************************************************************************/
+
 #if !defined(LZ9ANS_EARLY_STORED_LITERAL_PERCENT)
 # define LZ9ANS_EARLY_STORED_LITERAL_PERCENT 97U
 #endif /* if !defined(LZ9ANS_EARLY_STORED_LITERAL_PERCENT) */
@@ -625,6 +648,12 @@ compression_participants (unsigned int limit)
 {
   unsigned int cpus = available_processors ();
   unsigned int participants = limit ? limit : cpus;
+  unsigned int maximum = thread_limit_maximum ();
+
+  if (participants > maximum)
+    {
+      participants = maximum;
+    }
 
   if (participants > cpus)
     {
@@ -706,6 +735,11 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
 
     cpus = available_processors ();
     desired = limit ? limit : cpus;
+
+    if (desired > thread_limit_maximum ())
+      {
+        desired = thread_limit_maximum ();
+      }
 
     if (desired > cpus)
       {
@@ -10148,7 +10182,7 @@ parse_thread_limit (const char *option, unsigned int *limit)
       ++p;
     }
 
-  *limit = value;
+  *limit = clamp_thread_limit (value);
 
   return 1;
 }

@@ -7,6 +7,7 @@ from pathlib import Path
 import random
 import re
 import shlex
+import struct
 import subprocess
 import tempfile
 
@@ -292,6 +293,8 @@ def check_options(serial, threaded, cpu_count):
         assert b"--parallel-blocks" not in threaded_help
         assert b"--threads" not in serial_help
         assert b"--threads=N" in threaded_help
+        assert b"hard maximum: 32 (32-bit), 128 (64-bit)" in threaded_help
+        assert b"hard maximum" not in serial_help
 
         serial_report = run([str(serial), "--memory"]).stdout
         assert b"pthread build" not in serial_report
@@ -300,6 +303,22 @@ def check_options(serial, threaded, cpu_count):
         one = run([str(threaded), "--memory", "--threads=1"]).stdout
         two = run([str(threaded), "--memory", "--threads=2"]).stdout
         auto = run([str(threaded), "--memory"]).stdout
+        many = run([str(threaded), "--memory", "--threads=999"]).stdout
+        maximum = 32 if struct.calcsize("P") == 4 else 128
+        match = re.search(
+            rb"pthread build: (\d+) available logical processors; --threads=(\d+)",
+            many,
+        )
+        assert match, many.decode(errors="replace")
+        cpus, requested = (int(value) for value in match.groups())
+        assert cpus == cpu_count
+        assert requested == maximum, (requested, maximum)
+        participants = re.search(rb"compression participants: (\d+)", many)
+        assert participants, many.decode(errors="replace")
+        assert int(participants.group(1)) == min(cpus, maximum)
+        auto_participants = re.search(rb"compression participants: (\d+)", auto)
+        assert auto_participants, auto.decode(errors="replace")
+        assert int(auto_participants.group(1)) == min(cpus, maximum)
         assert b"compression participants: 1" in one
         assert b"compression mode: sequential" in one
         assert b"parallel-block encoder state" not in one
