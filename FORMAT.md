@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`32`** (2026‑11‑10)
+> Document revision **`33`** (2026‑11‑10)
 
 <!-- toc -->
 
@@ -27,6 +27,7 @@
 - [6. Decoder procedure and validation requirements](#6-decoder-procedure-and-validation-requirements)
 - [7. Encoder reference choices (informative, not required for decoding)](#7-encoder-reference-choices-informative-not-required-for-decoding)
   * [7.1. Reference implementation memory usage](#71-reference-implementation-memory-usage)
+  * [7.2. Optional pthread details](#72-optional-pthread-details)
 - [8. Golden vectors and interoperability](#8-golden-vectors-and-interoperability)
 - [9. Format gaps and future design choices](#9-format-gaps-and-future-design-choices)
 - [10. Version 9 features, extensions, and control records](#10-version-9-features-extensions-and-control-records)
@@ -40,6 +41,7 @@
   * [10.8. V9 stream-size bounds](#108-v9-stream-size-bounds)
   * [10.9. Phased entropy tables (`0x02`)](#109-phased-entropy-tables-0x02)
   * [10.10. Two-symbol matches (`0x04`)](#1010-two-symbol-matches-0x04)
+  * [10.11. Independent-block encoding in the reference implementation](#1011-independent-block-encoding-in-the-reference-implementation)
 
 <!-- tocstop -->
 
@@ -823,15 +825,17 @@ The reported values are **not** intended as a proof of native Multics segment
 occupancy: ANSI C89 type widths (8‑bit‑octet size assumed) and Multics PL/I
 word representations are different and must be sized separately.
 
-**Optional pthread details**: The `--threads=N` limit (includes the main)
-thread: `0` (zero) means automatic sizing, `1` (one) selects the original
-sequential encoder, and larger positive values cap the number of concurrent
-threads.  The encoder uses independent‑block encoding automatically when more
-than one logical processor is available and the effective limit exceeds one;
-otherwise it uses the original sequential encoder.  Participants are bounded
-by the available logical processors and, for known‑length input, the number of
-input blocks.  The default serial build accepts and validates this option but
-ignores it; only the pthread‑enabled build advertises it in command help.
+### 7.2. Optional pthread details
+
+The `--threads=N` limit (includes the main) thread: `0` (zero) means automatic
+sizing, `1` (one) selects the original sequential encoder, and larger positive
+values cap the number of concurrent threads.  The encoder uses
+independent‑block encoding automatically when more than one logical processor
+is available and the effective limit exceeds one; otherwise it uses the
+original sequential encoder.  Participants are bounded by the available logical
+processors and, for known‑length input, the number of input blocks.  The
+default serial build accepts and validates this option but ignores it; only the
+pthread‑enabled build advertises it in command help.
 
 Threading is an *implementation detail* and does not alter any V9 frame, block,
 descriptor, checksum, or entropy‑coding rule.  With more than one effective
@@ -868,8 +872,8 @@ worker stacks.  Each additional pthread is given a 262,144‑octet stack; this
 operating‑system‑managed stack reservation is reported separately from
 LZ9ANS‑managed heap allocations.  The independent‑block encoder contexts are
 allocated only when the pthread build selects more than one compression
-participant.  A pthread build using `--threads=1`, or running where only one
-logical processor is available, uses the original encoder path and does not
+participant.  A pthread build using `--threads=1` (or running where only one
+logical processor is available) uses the original encoder path and does not
 allocate block‑worker contexts.
 
 ## 8. Golden vectors and interoperability
@@ -1342,14 +1346,16 @@ a repeat slot (`OF` codes 0–2) or `RUN` (code 3), and only in the cost‑guide
 levels 6 to 9, where the price of the two literals they replace is known and
 the frame advertises feature flag `0x04`.
 
-**Independent–block encoding in the reference implementation**: In a pthread
-build, compression *automatically* uses independent–block encoding when the
-effective participant limit exceeds one.  `--threads=0` selects the available
-logical–processor count; a positive value caps participants, including the
-coordinator.  `--threads=1`, or a system with only one available logical
-processor, uses the original sequential encoder.  The default non–threaded
-build never selects independent–block encoding and retains the original
-serial behavior.  There is no separate command–line switch for this strategy.
+### 10.11. Independent-block encoding in the reference implementation
+
+In a pthread build, compression *automatically* uses independent–block encoding
+when the effective participant limit exceeds one.  `--threads=0` selects the
+available logical–processor count; a positive value caps participants,
+including the coordinator.  `--threads=1`, or a system with only one available
+logical processor, uses the original sequential encoder.  The default
+non–threaded build never selects independent–block encoding and retains the
+original serial behavior.  There is no separate command–line switch for
+this strategy.
 
 Independent–block encoding does not add a V9 feature bit or alter any
 block/header/descriptor syntax.  The coordinator partitions input into the
