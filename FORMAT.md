@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`33`** (2026‑11‑10)
+> Document revision **`34`** (2026‑11‑10)
 
 <!-- toc -->
 
@@ -739,10 +739,10 @@ this budget:
 | `2`   | `4`              | Greedy, no entropy‑price pass                      |
 | `3`   | `8`              | Greedy, no entropy‑price pass                      |
 | `4`   | `8`              | Initial greedy pass; entropy‑price reparse         |
-| `5`   | `24`             | Level 4 plus one‑position lazy choice; default     |
+| `5`   | `24`             | Level 4 plus one‑position lazy choice; **default** |
 | `6`   | `48`             | Level 5 with deeper candidate search               |
-| `7`   | `96`             | Level 5 with deeper candidate search               |
-| `8`   | `192`            | Level 5 plus near‑longest alternative match trials |
+| `7`   | `96`             | Level 6 with deeper candidate search               |
+| `8`   | `192`            | Level 7 plus near‑longest alternative match trials |
 | `9`   | `512`            | Level 8 plus a further cost‑refinement pass        |
 
 The match finder explicitly probes `R0`, `R1`, and `R2` before walking the hash
