@@ -54,6 +54,12 @@ lz9ans: lz9ans.c crc32_hw.h .build-config
 
 ##############################################################################
 
+strip:
+	strip lz9ans 2> /dev/null || :
+	sstrip -z lz9ans 2> /dev/null || :
+
+##############################################################################
+
 test: lz9ans
 	./tests/test_lz9ans.py --fuzz --independent
 	./tests/test_normalizer.py
