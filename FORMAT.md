@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`37`** (2026‑11‑10)
+> Document revision **`38`** (2026‑11‑10)
 
 <!-- toc -->
 
@@ -866,8 +866,11 @@ independent‑block encoding automatically when more than one logical processor
 is available and the effective limit exceeds one; otherwise it uses the
 original sequential encoder.  Participants are bounded by the available logical
 processors and, for known‑length input, the number of input blocks.  The
-default serial build accepts and validates this option but ignores it; only the
-pthread‑enabled build advertises it in command help.
+maximum effective participant count is 32 on 32‑bit builds and 128 on 64‑bit
+builds. Larger explicit requests are silently clamped to that maximum, and
+automatic sizing is subject to the same cap.  These limits include the main
+thread.  The default serial build accepts and validates this option but ignores
+it; only the pthread‑enabled build advertises it in command help.
 
 Threading is an *implementation detail* and does not alter any V9 frame, block,
 descriptor, checksum, or entropy‑coding rule.  With more than one effective
@@ -1386,12 +1389,13 @@ the frame advertises feature flag `0x04`.
 
 In a pthread build, compression *automatically* uses independent–block encoding
 when the effective participant limit exceeds one.  `--threads=0` selects the
-available logical–processor count; a positive value caps participants,
-including the coordinator.  `--threads=1`, or a system with only one available
-logical processor, uses the original sequential encoder.  The default
-non–threaded build never selects independent–block encoding and retains the
-original serial behavior.  There is no separate command–line switch for
-this strategy.
+available logical–processor count, capped at 32 participants on 32‑bit builds
+and 128 on 64‑bit builds; a positive value caps participants, including the
+coordinator, and requests above the architecture limit are silently clamped.
+`--threads=1`, or a system with only one available logical processor, uses the
+original sequential encoder.  The default non–threaded build never selects
+independent–block encoding and retains the original serial behavior.  There is
+no separate command–line switch for this strategy.
 
 Independent–block encoding does not add a V9 feature bit or alter any
 block/header/descriptor syntax.  The coordinator partitions input into the
