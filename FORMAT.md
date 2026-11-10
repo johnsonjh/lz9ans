@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`34`** (2026‑11‑10)
+> Document revision **`35`** (2026‑11‑10)
 
 <!-- toc -->
 
@@ -333,9 +333,10 @@ unknown‑length frame.  The C decoder requires that record for an unknown‑len
 frame, validates its terminal position, and also accepts an optional `END`
 after the symbol count of a known‑length frame.  It parses the extended form
 and its CRC.  Its `0x82` handling currently accepts only value zero; nonzero
-partial‑symbol truncation is not implemented.  The Python inspection decoder
-remains a known‑length‑only test tool and does not decode streaming frames or
-`END` records.
+partial‑symbol truncation is not implemented.
+
+The Python inspection decoder is a known‑length‑only test tool and does not
+decode streaming frames or `END` records.
 
 ## 4. Decoded sequence semantics
 
@@ -728,7 +729,8 @@ stored in a 32‑bit C field so the encoder can carry a 17‑bit distance plus t
 repeat‑slot tag; this is an implementation detail, not a wire field.
 
 The levels from `-1` through `-9` all produce **the same V9 wire format**.
-The default is **level 5** and the default window remains **32,768 symbols**.
+The default is **level 5** and the default window size is **32,768 symbols**.
+
 The search‑depth limit is the number of hash‑chain candidates examined; the
 three repeat‑distance slots are probed separately and therefore do not consume
 this budget:
@@ -861,9 +863,7 @@ reconstruction.  If either `LL` or `ML` uses a phased descriptor, the decoder
 uses its sequential path.  A phased `LIT` descriptor alone does not require
 that fallback.
 
-The serial memory figures above remain the figures reported by the default
-build; it allocates no pthread worker workspaces or worker stacks.  In a
-pthread build, `--memory`, `--memory-32k`, and `--memory-64k` accept an
+In a pthread build, `--memory`, `--memory-32k`, and `--memory-64k` accept an
 optional `--threads=N` and report the effective compression/decompression
 participant limits, the per‑block encoder contexts and output buffers when
 block encoding is selected, the maximum 49,155‑octet decoder symbol arrays
@@ -934,9 +934,9 @@ to match exactly.
   a low‑latency interactive record protocol.  Compression from a named input
   file counts the file first and emits a known‑length frame.  The C decoder
   accepts either frame form from a file or stdin and writes to a file or
-  stdout.  The Python inspection decoder remains limited to known‑length
-  frames.  The CLI's `-v` size/ratio reporting need not be available when stdin
-  or stdout is used.
+  stdout.  The Python inspection decoder is limited to known‑length frames.
+  The CLI's `-v` size/ratio reporting need not be available when stdin or
+  stdout is used.
 
 - **Final partial Multics symbol:** The `END` TLV defines the number of
   low‑order bits to truncate from the last 9‑bit symbol.  The C decoder parses
@@ -1018,8 +1018,8 @@ ordinary single–table tANS coding and minimum match length of three.  It
 always sets bits 3 and 4 to advertise the per–block aligned–distance selector,
 and records the alignment decision in each `LZ` block.  Phased partition
 choices are recorded in the corresponding stream descriptors.  The maximum
-block size remains 32,768 symbols.  Frames whose version byte is not 9
-**MUST** be rejected; no earlier format version is supported.
+block size is 32,768 symbols.  Frames whose version byte is not 9 **MUST** be
+rejected; no earlier format version is supported.
 
 ### 10.2. TLV extension convention
 
@@ -1075,9 +1075,9 @@ condition for pipes and other nonseekable streams; `EOF` alone is **not** a
 valid substitute for `END`.
 
 The reference encoder emits `0x81` for stdin input.  The C decoder accepts
-this frame form and decodes data blocks until the required `END` record.  File
-input compression remains known‑length and seek‑counted; stdout output does not
-change the frame‑length representation.
+this frame form and decodes data blocks until the required `END` record.
+File‑based input compression remains known‑length and seek‑counted; stdout
+output does not change the frame‑length representation.
 
 ### 10.4. END record and final-symbol truncation
 
@@ -1129,7 +1129,7 @@ complicating the symbol/block codec.
 The current C implementation does not implement nonzero truncation: its
 extended‑`END` parser accepts `0x82` only when the value is zero, and it writes
 all complete decoded symbols.  It emits only the minimal `END` form, not an
-extended record.  The Python inspection decoder remains known‑length‑only and
+extended record.  The Python inspection decoder is known‑length‑only and
 rejects `END` records.
 
 ### 10.5. 64K history window (`0x01`)
