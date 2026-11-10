@@ -136,6 +136,7 @@ oracle: lz9ans.c crc32_hw.h
 ##############################################################################
 
 lint: lz9ans.c crc32_hw.h
+	cppi -ac ./lz9ans.c ./crc32_hw.h
 	$(MAKE) clean
 	eval $${MAKE:-$(MAKE)} sanitizers CC="$${CLANG:-clang}"
 	$(MAKE) test
