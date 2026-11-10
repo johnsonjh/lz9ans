@@ -56,6 +56,7 @@ lz9ans: lz9ans.c crc32_hw.h .build-config
 
 test: lz9ans
 	./tests/test_lz9ans.py --fuzz --independent
+	./tests/test_normalizer.py
 	./tests/test_stdio.py
 	./tests/test_large_files.py
 	./tests/test_levels.py

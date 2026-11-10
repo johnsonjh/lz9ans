@@ -107,7 +107,17 @@ def main():
                 )
                 == 0
             )
-            assert (work / "encoded").read_bytes() == vector, name
+            encoded = (work / "encoded").read_bytes()
+
+            decoded_encoded, _ = decode(encoded)
+            assert decoded_encoded == raw, name
+            assert (
+                command(
+                    str(binary), "d", str(work / "encoded"), str(work / "decoded-kl")
+                )
+                == 0
+            )
+            assert (work / "decoded-kl").read_bytes() == raw, name
             if name == "run8":
                 assert stats["offset_3"] == 1
             if name == "longdist16k":
@@ -118,7 +128,7 @@ def main():
             if name == "phased9":
                 assert all(stats[f"phased_kind{k}"] > 0 for k in (0, 1, 2)), stats
                 assert stats["match_2"] > 0, stats
-            print("PASS byte-exact v9", name)
+            print("PASS KL-normalizer v9 round-trip", name)
 
         # The RUN fixture has no initialized MRU distance. Change its OF RLE
         # symbol to REP0; the independent and C decoders must reject it.

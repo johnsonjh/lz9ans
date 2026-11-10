@@ -19,8 +19,9 @@ decompression speeds.
 **LZ9ANS** uses a custom table‑based asymmetric numeral system (tANS)
 implementation.  Its state transitions and decoding‑table organization follow
 the same general approach used by **Finite State Entropy** (FSE), but its
-normalization, descriptor encoding, table conventions, and output bitstream
-representation are original and specific to **LZ9ANS**.
+descriptor encoding, table conventions, and output bitstream representation are
+original and specific to **LZ9ANS**, with frequency normalization based on
+K. Szewczyk's Linear KL‑Optimal method.
 
 On Multics (and OS2200) systems, an **11%** on‑disk savings can be realized by
 packing the 8‑bit **LZ9ANS** output stream to a more compact (but less
@@ -152,6 +153,10 @@ early testing phases of this work.
   "**Zstandard Compression**,"
   *Internet Engineering Task Force (IETF), Request for Comments (RFC) 8878*,
   Feb. 2021, [doi:&nbsp;10.17487/RFC8878](http://dx.doi.org/10.17487/RFC8878).
+
+* K. Szewczyk,
+  "**Linear KL–Optimal Frequency Normalisation**," 2026,
+  [arXiv:2605.00579](https://arxiv.org/abs/2605.00579).
 
 * V. Gopal, E. Ozturk, J. Guilford, G. Wolrich, W. K. Feghali, and M. G. Dixon,
   "**Fast CRC Computation for Generic Polynomials Using PCLMULQDQ
