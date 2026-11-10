@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.10 (2026-11-09)"
+#define LZ9VER "v0.9.11 (2026-11-10)"
 
 /*****************************************************************************/
 
@@ -1763,11 +1763,14 @@ ans_get (Stream *s)
 
 /*****************************************************************************/
 
+#if defined(LZ9ANS_TEST_NORMALIZER)
 static int
-norm_active (const unsigned int *counts, const unsigned int *idx,
-             unsigned int active, unsigned int total, unsigned short *freq)
+norm_active_legacy ( /*cppcheck-suppress unusedFunction*/
+                    const unsigned int *counts, const unsigned int *idx,
+                    unsigned int active, unsigned int total,
+                    unsigned short *freq)
 {
-  unsigned int k, remaining, used = 0;
+  unsigned int k, remaining, used = 0U;
   unsigned int key[512];
 
   if (active < 2U || active > 512U || !total || total > 0x3fffffU)
@@ -1777,10 +1780,11 @@ norm_active (const unsigned int *counts, const unsigned int *idx,
 
   remaining = TABLE_N - active;
 
-  for (k = 0; k < active; ++k)
+  for (k = 0U; k < active; ++k)
     {
       unsigned int i = idx[k];
       unsigned int q = counts[i] * remaining;
+
       freq[i] = (unsigned short)(1U + q / total);
       key[k] = ((q % total) << 9) | (511U - i);
       used += freq[i];
@@ -1794,9 +1798,9 @@ norm_active (const unsigned int *counts, const unsigned int *idx,
       while (lo < hi)
         {
           unsigned int mid = lo + ((hi - lo + 1U) >> 1);
-          unsigned int n = 0;
+          unsigned int n = 0U;
 
-          for (k = 0; k < active; ++k)
+          for (k = 0U; k < active; ++k)
             {
               n += (unsigned int)(key[k] >= mid);
             }
@@ -1813,7 +1817,7 @@ norm_active (const unsigned int *counts, const unsigned int *idx,
 
       if (lo)
         {
-          for (k = 0; k < active; ++k)
+          for (k = 0U; k < active; ++k)
             {
               if (key[k] >= lo)
                 {
@@ -1825,6 +1829,2290 @@ norm_active (const unsigned int *counts, const unsigned int *idx,
     }
 
   return used == TABLE_N;
+}
+#endif /* if defined(LZ9ANS_TEST_NORMALIZER) */
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_TEST_NORMALIZER)
+static void
+norm_u32_sort_small (unsigned int *values, unsigned int n)
+{
+  unsigned int i;
+
+  for (i = 1U; i < n; ++i)
+    {
+      unsigned int value = values[i];
+      unsigned int j = i;
+
+      while (j && value < values[j - 1U])
+        {
+          values[j] = values[j - 1U];
+          --j;
+        }
+
+      values[j] = value;
+    }
+}
+
+/*****************************************************************************/
+
+static unsigned int
+norm_u32_select (unsigned int *values, unsigned int n, unsigned int kth)
+{
+  while (n > 5U)
+    {
+      unsigned int i, medians = 0U;
+      unsigned int lt, gt, pivot;
+
+      for (i = 0U; i < n; i += 5U)
+        {
+          unsigned int group_n = n - i;
+          unsigned int median, tmp;
+
+          if (group_n > 5U)
+            {
+              group_n = 5U;
+            }
+
+          norm_u32_sort_small (values + i, group_n);
+          median = i + group_n / 2U;
+          tmp = values[medians];
+          values[medians] = values[median];
+          values[median] = tmp;
+          ++medians;
+        }
+
+      pivot = norm_u32_select (values, medians, medians / 2U);
+      lt = 0U;
+      gt = n;
+      i = 0U;
+
+      while (i < gt)
+        {
+          if (values[i] < pivot)
+            {
+              unsigned int tmp = values[lt];
+
+              values[lt] = values[i];
+              values[i] = tmp;
+              ++lt;
+              ++i;
+            }
+          else if (values[i] > pivot)
+            {
+              unsigned int tmp;
+
+              --gt;
+              tmp = values[gt];
+              values[gt] = values[i];
+              values[i] = tmp;
+            }
+          else
+            {
+              ++i;
+            }
+        }
+
+      if (kth < lt)
+        {
+          n = lt;
+        }
+      else if (kth < gt)
+        {
+          return pivot;
+        }
+      else
+        {
+          values += gt;
+          kth -= gt;
+          n -= gt;
+        }
+    }
+
+  norm_u32_sort_small (values, n);
+
+  return values[kth];
+}
+
+/*****************************************************************************/
+
+static int
+norm_active_legacy_select ( /*cppcheck-suppress unusedFunction*/
+                           const unsigned int *counts,
+                           const unsigned int *idx, unsigned int active,
+                           unsigned int total, unsigned short *freq)
+{
+  unsigned int k, remaining, used = 0U;
+  unsigned int key[512], select_key[512];
+
+  if (active < 2U || active > 512U || !total || total > 0x3fffffU)
+    {
+      return 0;
+    }
+
+  remaining = TABLE_N - active;
+
+  for (k = 0U; k < active; ++k)
+    {
+      unsigned int i = idx[k];
+      unsigned int q = counts[i] * remaining;
+
+      freq[i] = (unsigned short)(1U + q / total);
+      key[k] = ((q % total) << 9) | (511U - i);
+      used += freq[i];
+    }
+
+  if (used < TABLE_N)
+    {
+      unsigned int deficit = TABLE_N - used;
+      unsigned int threshold;
+
+      (void)memcpy (select_key, key, active * sizeof (unsigned int));
+      threshold = norm_u32_select (select_key, active, active - deficit);
+
+      for (k = 0U; k < active; ++k)
+        {
+          if (key[k] >= threshold)
+            {
+              ++freq[idx[k]];
+              ++used;
+            }
+        }
+    }
+
+  return used == TABLE_N;
+}
+#endif /* if defined(LZ9ANS_TEST_NORMALIZER) */
+
+/*****************************************************************************/
+
+#define NORM_TICKET_MAX (4U * 512U - 4U)
+#define NORM_TICKET_MAX_J (TABLE_N + 512U - 2U)
+
+/*****************************************************************************/
+
+typedef struct
+{
+  unsigned int hi;
+  unsigned int lo;
+} NormLogQ64;
+
+/*****************************************************************************/
+
+typedef struct
+{
+  unsigned int cost_hi;
+  unsigned int cost_mid;
+  unsigned int cost_lo;
+  unsigned short symbol;
+  unsigned short j;
+} NormTicket;
+
+/*****************************************************************************/
+
+typedef struct
+{
+  unsigned int hi;
+  unsigned int mid;
+  unsigned int lo;
+} NormTicketCost;
+
+/*****************************************************************************/
+
+static const NormLogQ64 norm_log_q64[NORM_TICKET_MAX_J + 1U] =
+{
+  {          0UL,          0UL },
+  {          0UL,          0UL },
+  { 0xb17217f7UL, 0xd1cf79acUL }, /* 2 */
+  { 0x67cc8fb2UL, 0xfe612fcbUL }, /* 3 */
+  { 0x49a58844UL, 0xd36e49e1UL }, /* 4 */
+  { 0x391fef8fUL, 0x35344358UL }, /* 5 */
+  { 0x2eaca023UL, 0xc92cec73UL }, /* 6 */
+  { 0x27766b40UL, 0x83a55225UL }, /* 7 */
+  { 0x222f1d04UL, 0x4fc8f7bcUL }, /* 8 */
+  { 0x1e27076eUL, 0x2af2e5eaUL }, /* 9 */
+  { 0x1af8e821UL, 0x0a415d6eUL }, /* 10 */
+  { 0x18663f79UL, 0x3c46c69cUL }, /* 11 */
+  { 0x164660aaUL, 0x8ce625d7UL }, /* 12 */
+  { 0x147dadcbUL, 0xbdba8303UL }, /* 13 */
+  { 0x12f8bd74UL, 0xc5eacf22UL }, /* 14 */
+  { 0x11a9844eUL, 0xb18ef134UL }, /* 15 */
+  { 0x108598b5UL, 0x9e3a0689UL }, /* 16 */
+  { 0x0f851860UL, 0x08b15331UL }, /* 17 */
+  { 0x0ea1ef0eUL, 0x224192b9UL }, /* 18 */
+  { 0x0dd75973UL, 0x2434c1a7UL }, /* 19 */
+  { 0x0d218eadUL, 0xe60c9bc7UL }, /* 20 */
+  { 0x0c7d831fUL, 0x7963f4b6UL }, /* 21 */
+  { 0x0be8bc59UL, 0xc2e2d1e6UL }, /* 22 */
+  { 0x0b6130d2UL, 0x7dc5107fUL }, /* 23 */
+  { 0x0ae52fd8UL, 0x0f211557UL }, /* 24 */
+  { 0x0a734f6bUL, 0x6c0756e6UL }, /* 25 */
+  { 0x0a0a5e60UL, 0x51b32c1dUL }, /* 26 */
+  { 0x09a959a2UL, 0x6d3862e7UL }, /* 27 */
+  { 0x094f63d2UL, 0x58b26c3bUL }, /* 28 */
+  { 0x08fbbea6UL, 0xf67f6f0eUL }, /* 29 */
+  { 0x08adc5a7UL, 0xbb0f8225UL }, /* 30 */
+  { 0x0864e9f0UL, 0xaa97e451UL }, /* 31 */
+  { 0x0820aec4UL, 0xf3a22238UL }, /* 32 */
+  { 0x07e0a6c3UL, 0x9e0cc013UL }, /* 33 */
+  { 0x07a4719cUL, 0x6aa4931eUL }, /* 34 */
+  { 0x076bba2aUL, 0xdcb9f86bUL }, /* 35 */
+  { 0x073634e3UL, 0x45879a4eUL }, /* 36 */
+  { 0x07039e82UL, 0x14f760aeUL }, /* 37 */
+  { 0x06d3baf1UL, 0x0f3d60f9UL }, /* 38 */
+  { 0x06a65458UL, 0x9985c15cUL }, /* 39 */
+  { 0x067b3a55UL, 0x4c86da6cUL }, /* 40 */
+  { 0x0652414bUL, 0x874811c2UL }, /* 41 */
+  { 0x062b41d3UL, 0xf21be2f4UL }, /* 42 */
+  { 0x0606183cUL, 0xd5dc8a62UL }, /* 43 */
+  { 0x05e2a41cUL, 0xed064783UL }, /* 44 */
+  { 0x05c0c7f4UL, 0xeeac1f4eUL }, /* 45 */
+  { 0x05a068ddUL, 0x8f18f131UL }, /* 46 */
+  { 0x05816e40UL, 0x15c95063UL }, /* 47 */
+  { 0x0563c197UL, 0xf957c4f4UL }, /* 48 */
+  { 0x05474e3cUL, 0x33dc5a68UL }, /* 49 */
+  { 0x052c012fUL, 0x382afc7eUL }, /* 50 */
+  { 0x0511c8f4UL, 0x9ca9fc4bUL }, /* 51 */
+  { 0x04f8956bUL, 0xb5092fd2UL }, /* 52 */
+  { 0x04e057aeUL, 0x726c4367UL }, /* 53 */
+  { 0x04c901f3UL, 0xfacc1f80UL }, /* 54 */
+  { 0x04b28776UL, 0x7d5b3798UL }, /* 55 */
+  { 0x049cdc5bUL, 0xdb5734a3UL }, /* 56 */
+  { 0x0487f5a0UL, 0xcb82556cUL }, /* 57 */
+  { 0x0473c906UL, 0x2afd19a2UL }, /* 58 */
+  { 0x04604d00UL, 0x38cadc50UL }, /* 59 */
+  { 0x044d78a7UL, 0x8244a5d5UL }, /* 60 */
+  { 0x043b43abUL, 0x4e6064eeUL }, /* 61 */
+  { 0x0429a645UL, 0x5c377f63UL }, /* 62 */
+  { 0x0418992eUL, 0xcecc1066UL }, /* 63 */
+  { 0x04081596UL, 0x24d611d2UL }, /* 64 */
+  { 0x03f81516UL, 0x1f807c7aUL }, /* 65 */
+  { 0x03e891adUL, 0x7e8c4399UL }, /* 66 */
+  { 0x03d985b7UL, 0x7b61be10UL }, /* 67 */
+  { 0x03caebe4UL, 0xef42d50eUL }, /* 68 */
+  { 0x03bcbf36UL, 0x13207d62UL }, /* 69 */
+  { 0x03aefaf4UL, 0xc9997b09UL }, /* 70 */
+  { 0x03a19aafUL, 0x656a17c9UL }, /* 71 */
+  { 0x03949a33UL, 0xe01d8285UL }, /* 72 */
+  { 0x0387f58bUL, 0x7629cce3UL }, /* 73 */
+  { 0x037ba8f6UL, 0x9ecd93cbUL }, /* 74 */
+  { 0x036fb0e9UL, 0x570ff638UL }, /* 75 */
+  { 0x03640a07UL, 0xb82d6ac1UL }, /* 76 */
+  { 0x0358b122UL, 0xd28a6aa7UL }, /* 77 */
+  { 0x034da335UL, 0xc6fb56b5UL }, /* 78 */
+  { 0x0342dd63UL, 0x18d27cc5UL }, /* 79 */
+  { 0x03385cf2UL, 0x33b45da7UL }, /* 80 */
+  { 0x032e1f4dUL, 0x20b1887cUL }, /* 81 */
+  { 0x032421feUL, 0x66968947UL }, /* 82 */
+  { 0x031a62afUL, 0x11c73863UL }, /* 83 */
+  { 0x0310df24UL, 0xe054aa91UL }, /* 84 */
+  { 0x03079540UL, 0x8f4d5e7bUL }, /* 85 */
+  { 0x02fe82fcUL, 0x468f2be8UL }, /* 86 */
+  { 0x02f5a66aUL, 0x20a2e4acUL }, /* 87 */
+  { 0x02ecfdb2UL, 0xcc6362d7UL }, /* 88 */
+  { 0x02e48714UL, 0x4665aa33UL }, /* 89 */
+  { 0x02dc40e0UL, 0xa846751bUL }, /* 90 */
+  { 0x02d4297dUL, 0x0c2b91cfUL }, /* 91 */
+  { 0x02cc3f60UL, 0x82ed5f62UL }, /* 92 */
+  { 0x02c48113UL, 0x1b7ef31fUL }, /* 93 */
+  { 0x02bced2cUL, 0xfa4a5d44UL }, /* 94 */
+  { 0x02b58255UL, 0x7f528013UL }, /* 95 */
+  { 0x02ae3f42UL, 0x7a0544e2UL }, /* 96 */
+  { 0x02a722b7UL, 0x69bff66aUL }, /* 97 */
+  { 0x02a02b84UL, 0xca1c63feUL }, /* 98 */
+  { 0x02995887UL, 0x6a3065abUL }, /* 99 */
+  { 0x0292a8a7UL, 0xcdfa96d2UL }, /* 100 */
+  { 0x028c1ad9UL, 0x9946ced7UL }, /* 101 */
+  { 0x0285ae1bUL, 0x03632d74UL }, /* 102 */
+  { 0x027f6174UL, 0x530b9c92UL }, /* 103 */
+  { 0x027933f7UL, 0x61fd933fUL }, /* 104 */
+  { 0x027324bfUL, 0x27b0c899UL }, /* 105 */
+  { 0x026d32efUL, 0x4abb7aceUL }, /* 106 */
+  { 0x02675db3UL, 0xb8720c3eUL }, /* 107 */
+  { 0x0261a440UL, 0x425a1342UL }, /* 108 */
+  { 0x025c05d0UL, 0x4110a23aUL }, /* 109 */
+  { 0x025681a6UL, 0x3c4a955dUL }, /* 110 */
+  { 0x0251170bUL, 0x979c2916UL }, /* 111 */
+  { 0x024bc550UL, 0x43bb0b8cUL }, /* 112 */
+  { 0x02468bcaUL, 0x73f39228UL }, /* 113 */
+  { 0x024169d6UL, 0x578ec345UL }, /* 114 */
+  { 0x023c5ed5UL, 0xd6eb8670UL }, /* 115 */
+  { 0x02376a30UL, 0x54119332UL }, /* 116 */
+  { 0x02328b52UL, 0x6e88a7baUL }, /* 117 */
+  { 0x022dc1adUL, 0xca423497UL }, /* 118 */
+  { 0x02290cb8UL, 0xd96707d2UL }, /* 119 */
+  { 0x02246beeUL, 0xa8dd9e03UL }, /* 120 */
+  { 0x021fdeceUL, 0xaf60a0c5UL }, /* 121 */
+  { 0x021b64dcUL, 0x9effc429UL }, /* 122 */
+  { 0x0216fda0UL, 0x38e7acd4UL }, /* 123 */
+  { 0x0212a8a5UL, 0x234fd28eUL }, /* 124 */
+  { 0x020e657aUL, 0xc16f7295UL }, /* 125 */
+  { 0x020a33b4UL, 0x0d5c9dd0UL }, /* 126 */
+  { 0x020612e7UL, 0x73ba43adUL }, /* 127 */
+  { 0x020202aeUL, 0xb11bce25UL }, /* 128 */
+  { 0x01fe02a6UL, 0xb1067890UL }, /* 129 */
+  { 0x01fa126fUL, 0x6e7a03eaUL }, /* 130 */
+  { 0x01f631abUL, 0xd5ebca30UL }, /* 131 */
+  { 0x01f26001UL, 0xa8a07969UL }, /* 132 */
+  { 0x01ee9d19UL, 0x6151efc1UL }, /* 133 */
+  { 0x01eae89eUL, 0x1a0fce4fUL }, /* 134 */
+  { 0x01e7423dUL, 0x734a613eUL }, /* 135 */
+  { 0x01e3a9a7UL, 0x7bf873cfUL }, /* 136 */
+  { 0x01e01e8eUL, 0x9ac98db8UL }, /* 137 */
+  { 0x01dca0a7UL, 0x7856efaaUL }, /* 138 */
+  { 0x01d92fa8UL, 0xea466ed7UL }, /* 139 */
+  { 0x01d5cb4bUL, 0xdf530c33UL }, /* 140 */
+  { 0x01d2734bUL, 0x4c2fd55aUL }, /* 141 */
+  { 0x01cf2764UL, 0x193a426fUL }, /* 142 */
+  { 0x01cbe755UL, 0x10f1dfb1UL }, /* 143 */
+  { 0x01c8b2deUL, 0xcf2ba2d4UL }, /* 144 */
+  { 0x01c589c3UL, 0xb0f7d4c0UL }, /* 145 */
+  { 0x01c26bc7UL, 0xc531f823UL }, /* 146 */
+  { 0x01bf58b0UL, 0xbdb28d85UL }, /* 147 */
+  { 0x01bc5045UL, 0xe11b0646UL }, /* 148 */
+  { 0x01b9524fUL, 0xfd34a1e0UL }, /* 149 */
+  { 0x01b65e99UL, 0x59db5458UL }, /* 150 */
+  { 0x01b374edUL, 0xac6e3276UL }, /* 151 */
+  { 0x01b0951aUL, 0x0bbf384bUL }, /* 152 */
+  { 0x01adbeecUL, 0xe47c918aUL }, /* 153 */
+  { 0x01aaf235UL, 0xee0dd91dUL }, /* 154 */
+  { 0x01a82ec6UL, 0x1fe00ee8UL }, /* 155 */
+  { 0x01a5746fUL, 0xa71b47ccUL }, /* 156 */
+  { 0x01a2c305UL, 0xdcbd5d46UL }, /* 157 */
+  { 0x01a01a5dUL, 0x3c151f7fUL }, /* 158 */
+  { 0x019d7a4bUL, 0x5999c6a2UL }, /* 159 */
+  { 0x019ae2a6UL, 0xda1a9704UL }, /* 160 */
+  { 0x01985347UL, 0x6a42df5fUL }, /* 161 */
+  { 0x0195cc05UL, 0xb66ea91dUL }, /* 162 */
+  { 0x01934cbbUL, 0x62cca0d0UL }, /* 163 */
+  { 0x0190d543UL, 0x03c9e876UL }, /* 164 */
+  { 0x018e6578UL, 0x16c4ae51UL }, /* 165 */
+  { 0x018bfd36UL, 0xfb028a12UL }, /* 166 */
+  { 0x01899c5cUL, 0xeae7c6e5UL }, /* 167 */
+  { 0x018742c7UL, 0xf56ce3acUL }, /* 168 */
+  { 0x0184f056UL, 0xf7cfb3e1UL }, /* 169 */
+  { 0x0182a4e9UL, 0x977daa9aUL }, /* 170 */
+  { 0x01806060UL, 0x3c34f6f2UL }, /* 171 */
+  { 0x017e229cUL, 0x0a5a34f6UL }, /* 172 */
+  { 0x017beb7eUL, 0xdd8090e8UL }, /* 173 */
+  { 0x0179baebUL, 0x432253c4UL }, /* 174 */
+  { 0x017790c4UL, 0x7587e7d7UL }, /* 175 */
+  { 0x01756ceeUL, 0x56db7b00UL }, /* 176 */
+  { 0x01734f4dUL, 0x6c677979UL }, /* 177 */
+  { 0x017137c6UL, 0xd9fe30baUL }, /* 178 */
+  { 0x016f2640UL, 0x5d88fd2bUL }, /* 179 */
+  { 0x016d1aa0UL, 0x4abd77f0UL }, /* 180 */
+  { 0x016b14cdUL, 0x86f72b7cUL }, /* 181 */
+  { 0x016914afUL, 0x85346653UL }, /* 182 */
+  { 0x01671a2eUL, 0x4234d31fUL }, /* 183 */
+  { 0x01652532UL, 0x40b88c43UL }, /* 184 */
+  { 0x016335a4UL, 0x85de6f7dUL }, /* 185 */
+  { 0x01614b6eUL, 0x95a083a2UL }, /* 186 */
+  { 0x015f667aUL, 0x6f6d4f92UL }, /* 187 */
+  { 0x015d86b2UL, 0x8add0db2UL }, /* 188 */
+  { 0x015bac01UL, 0xd481b322UL }, /* 189 */
+  { 0x0159d653UL, 0xaad0ccf1UL }, /* 190 */
+  { 0x01580593UL, 0xdb264045UL }, /* 191 */
+  { 0x015639aeUL, 0x9edf049cUL }, /* 192 */
+  { 0x01547290UL, 0x988af8e5UL }, /* 193 */
+  { 0x0152b026UL, 0xd134fd85UL }, /* 194 */
+  { 0x0150f25eUL, 0xb5c08610UL }, /* 195 */
+  { 0x014f3926UL, 0x145bddeeUL }, /* 196 */
+  { 0x014d846bUL, 0x1a066333UL }, /* 197 */
+  { 0x014bd41cUL, 0x502a0278UL }, /* 198 */
+  { 0x014a2828UL, 0x9a4745f1UL }, /* 199 */
+  { 0x0148807fUL, 0x33b350e2UL }, /* 200 */
+  { 0x0146dd0fUL, 0xad67273dUL }, /* 201 */
+  { 0x01453dc9UL, 0xebdfa79aUL }, /* 202 */
+  { 0x0143a29eUL, 0x250da3baUL }, /* 203 */
+  { 0x01420b7cUL, 0xde5589baUL }, /* 204 */
+  { 0x01407856UL, 0xea9e1577UL }, /* 205 */
+  { 0x013ee91dUL, 0x686d871bUL }, /* 206 */
+  { 0x013d5dc1UL, 0xc014e0cfUL }, /* 207 */
+  { 0x013bd635UL, 0xa1e8b270UL }, /* 208 */
+  { 0x013a526bUL, 0x0486feb8UL }, /* 209 */
+  { 0x0138d254UL, 0x2329c9e2UL }, /* 210 */
+  { 0x013755e3UL, 0x7c05e5f0UL }, /* 211 */
+  { 0x0135dd0bUL, 0xceb594dfUL }, /* 212 */
+  { 0x013467c0UL, 0x1aae9cfbUL }, /* 213 */
+  { 0x0132f5f3UL, 0x9dc36f43UL }, /* 214 */
+  { 0x01318799UL, 0xd2af0356UL }, /* 215 */
+  { 0x01301ca6UL, 0x6fab0fecUL }, /* 216 */
+  { 0x012eb50dUL, 0x65104a03UL }, /* 217 */
+  { 0x012d50c2UL, 0xdc005838UL }, /* 218 */
+  { 0x012befbbUL, 0x35192aa9UL }, /* 219 */
+  { 0x012a91ebUL, 0x07316ab4UL }, /* 220 */
+  { 0x01293747UL, 0x1e1db8b2UL }, /* 221 */
+  { 0x0127dfc4UL, 0x797e7065UL }, /* 222 */
+  { 0x01268b58UL, 0x4b95af82UL }, /* 223 */
+  { 0x012539f7UL, 0xf8255c0bUL }, /* 224 */
+  { 0x0123eb99UL, 0x1354eaabUL }, /* 225 */
+  { 0x0122a031UL, 0x609ea77cUL }, /* 226 */
+  { 0x012157b6UL, 0xd1c445c9UL }, /* 227 */
+  { 0x0120121fUL, 0x85ca7d7cUL }, /* 228 */
+  { 0x011ecf61UL, 0xc7fb7ee7UL }, /* 229 */
+  { 0x011d8f74UL, 0x0ef00789UL }, /* 230 */
+  { 0x011c524cUL, 0xfb9ee437UL }, /* 231 */
+  { 0x011b17e3UL, 0x5872aefbUL }, /* 232 */
+  { 0x0119e02eUL, 0x18659892UL }, /* 233 */
+  { 0x0118ab24UL, 0x56230f27UL }, /* 234 */
+  { 0x011778bdUL, 0x532f1578UL }, /* 235 */
+  { 0x011648f0UL, 0x77131f1fUL }, /* 236 */
+  { 0x01151bb5UL, 0x4e90482eUL }, /* 237 */
+  { 0x0113f103UL, 0x8ad6bfa4UL }, /* 238 */
+  { 0x0112c8d3UL, 0x00c23dbaUL }, /* 239 */
+  { 0x0111a31bUL, 0xa81b6049UL }, /* 240 */
+  { 0x01107fd5UL, 0x9addc8b0UL }, /* 241 */
+  { 0x010f5ef9UL, 0x1482d815UL }, /* 242 */
+  { 0x010e407eUL, 0x7150e7b6UL }, /* 243 */
+  { 0x010d245eUL, 0x2daedc73UL }, /* 244 */
+  { 0x010c0a90UL, 0xe57bf57aUL }, /* 245 */
+  { 0x010af30fUL, 0x536bb75aUL }, /* 246 */
+  { 0x0109ddd2UL, 0x5065d579UL }, /* 247 */
+  { 0x0108cad2UL, 0xd2e9fd15UL }, /* 248 */
+  { 0x0107ba09UL, 0xee7765d5UL }, /* 249 */
+  { 0x0106ab70UL, 0xd2f80cc0UL }, /* 250 */
+  { 0x01059f00UL, 0xcc2f7f7cUL }, /* 251 */
+  { 0x010494b3UL, 0x412d1e55UL }, /* 252 */
+  { 0x01038c81UL, 0xb3c1bc8eUL }, /* 253 */
+  { 0x01028665UL, 0xbff8871fUL }, /* 254 */
+  { 0x01018259UL, 0x1b931acdUL }, /* 255 */
+  { 0x01008055UL, 0x9588b358UL }, /* 256 */
+  { 0x00ff8055UL, 0x15885e02UL }, /* 257 */
+  { 0x00fe8251UL, 0x9b7e1a8dUL }, /* 258 */
+  { 0x00fd8645UL, 0x3f1ad64cUL }, /* 259 */
+  { 0x00fc8c2aUL, 0x2f5f2d9eUL }, /* 260 */
+  { 0x00fb93faUL, 0xb228e0c2UL }, /* 261 */
+  { 0x00fa9db1UL, 0x23c2e96eUL }, /* 262 */
+  { 0x00f9a947UL, 0xf6781f55UL }, /* 263 */
+  { 0x00f8b6b9UL, 0xb2285a14UL }, /* 264 */
+  { 0x00f7c600UL, 0xf3dfffceUL }, /* 265 */
+  { 0x00f6d718UL, 0x6d71eff3UL }, /* 266 */
+  { 0x00f5e9faUL, 0xe513ba72UL }, /* 267 */
+  { 0x00f4fea3UL, 0x34fc13ddUL }, /* 268 */
+  { 0x00f4150cUL, 0x4b03779cUL }, /* 269 */
+  { 0x00f32d31UL, 0x2846e9a3UL }, /* 270 */
+  { 0x00f2470cUL, 0xe0ccc9a8UL }, /* 271 */
+  { 0x00f1629aUL, 0x9b2baa28UL }, /* 272 */
+  { 0x00f07fd5UL, 0x90331dffUL }, /* 273 */
+  { 0x00ef9eb9UL, 0x0a966fb8UL }, /* 274 */
+  { 0x00eebf40UL, 0x66993611UL }, /* 275 */
+  { 0x00ede167UL, 0x11bdb99aUL }, /* 276 */
+  { 0x00ed0528UL, 0x8a751fa9UL }, /* 277 */
+  { 0x00ec2a80UL, 0x5fd14f2dUL }, /* 278 */
+  { 0x00eb516aUL, 0x31388449UL }, /* 279 */
+  { 0x00ea79e1UL, 0xae1a87eaUL }, /* 280 */
+  { 0x00e9a3e2UL, 0x95a780e8UL }, /* 281 */
+  { 0x00e8cf68UL, 0xb6885471UL }, /* 282 */
+  { 0x00e7fc6fUL, 0xee988be6UL }, /* 283 */
+  { 0x00e72af4UL, 0x2aa1b689UL }, /* 284 */
+  { 0x00e65af1UL, 0x66183da3UL }, /* 285 */
+  { 0x00e58c63UL, 0xaad9a20eUL }, /* 286 */
+  { 0x00e4bf47UL, 0x10ec1a48UL }, /* 287 */
+  { 0x00e3f397UL, 0xbe3f888cUL }, /* 288 */
+  { 0x00e32951UL, 0xe66fc078UL }, /* 289 */
+  { 0x00e26071UL, 0xca881449UL }, /* 290 */
+  { 0x00e198f3UL, 0xb8c821aaUL }, /* 291 */
+  { 0x00e0d2d4UL, 0x0c69d679UL }, /* 292 */
+  { 0x00e00e0fUL, 0x2d68a604UL }, /* 293 */
+  { 0x00df4aa1UL, 0x9049e781UL }, /* 294 */
+  { 0x00de8887UL, 0xb5e656a9UL }, /* 295 */
+  { 0x00ddc7beUL, 0x2b34af9dUL }, /* 296 */
+  { 0x00dd0841UL, 0x89155f65UL }, /* 297 */
+  { 0x00dc4a0eUL, 0x741f427aUL }, /* 298 */
+  { 0x00db8d21UL, 0x9c6d6b1eUL }, /* 299 */
+  { 0x00dad177UL, 0xbd6de93aUL }, /* 300 */
+  { 0x00da170dUL, 0x9db18de5UL }, /* 301 */
+  { 0x00d95de0UL, 0x0ebca491UL }, /* 302 */
+  { 0x00d8a5ebUL, 0xecd89c61UL }, /* 303 */
+  { 0x00d7ef2eUL, 0x1ee69beaUL }, /* 304 */
+  { 0x00d739a3UL, 0x9632fa2dUL }, /* 305 */
+  { 0x00d68549UL, 0x4e49975dUL }, /* 306 */
+  { 0x00d5d21cUL, 0x4ccb1079UL }, /* 307 */
+  { 0x00d52019UL, 0xa142c8a4UL }, /* 308 */
+  { 0x00d46f3eUL, 0x64fdc375UL }, /* 309 */
+  { 0x00d3bf87UL, 0xbae24b73UL }, /* 310 */
+  { 0x00d310f2UL, 0xcf486034UL }, /* 311 */
+  { 0x00d2637cUL, 0xd7d2e798UL }, /* 312 */
+  { 0x00d1b723UL, 0x13499dbfUL }, /* 313 */
+  { 0x00d10be2UL, 0xc973bf87UL }, /* 314 */
+  { 0x00d061b9UL, 0x4af36b53UL }, /* 315 */
+  { 0x00cfb8a3UL, 0xf121b42cUL }, /* 316 */
+  { 0x00cf10a0UL, 0x1deb632bUL }, /* 317 */
+  { 0x00ce69abUL, 0x3bae6377UL }, /* 318 */
+  { 0x00cdc3c2UL, 0xbd17d4f2UL }, /* 319 */
+  { 0x00cd1ee4UL, 0x1d02c212UL }, /* 320 */
+  { 0x00cc7b0cUL, 0xde57753aUL }, /* 321 */
+  { 0x00cbd83aUL, 0x8beb6a25UL }, /* 322 */
+  { 0x00cb366aUL, 0xb861d80bUL }, /* 323 */
+  { 0x00ca959aUL, 0xfe0cd112UL }, /* 324 */
+  { 0x00c9f5c8UL, 0xfecef3feUL }, /* 325 */
+  { 0x00c956f2UL, 0x63fdacd2UL }, /* 326 */
+  { 0x00c8b914UL, 0xde44016aUL }, /* 327 */
+  { 0x00c81c2eUL, 0x2585e70cUL }, /* 328 */
+  { 0x00c7803bUL, 0xf8c41e00UL }, /* 329 */
+  { 0x00c6e53cUL, 0x1e009051UL }, /* 330 */
+  { 0x00c64b2cUL, 0x62233109UL }, /* 331 */
+  { 0x00c5b20aUL, 0x98df5909UL }, /* 332 */
+  { 0x00c519d4UL, 0x9c999f04UL }, /* 333 */
+  { 0x00c48288UL, 0x4e4e27e1UL }, /* 334 */
+  { 0x00c3ec23UL, 0x95776d19UL }, /* 335 */
+  { 0x00c356a4UL, 0x5ff57693UL }, /* 336 */
+  { 0x00c2c208UL, 0xa1f5858fUL }, /* 337 */
+  { 0x00c22e4eUL, 0x55da2e52UL }, /* 338 */
+  { 0x00c19b73UL, 0x7c23de47UL }, /* 339 */
+  { 0x00c10976UL, 0x1b59cc53UL }, /* 340 */
+  { 0x00c07854UL, 0x3ff35133UL }, /* 341 */
+  { 0x00bfe80bUL, 0xfc41a5bfUL }, /* 342 */
+  { 0x00bf589bUL, 0x685a04fcUL }, /* 343 */
+  { 0x00beca00UL, 0xa2002ffaUL }, /* 344 */
+  { 0x00be3c39UL, 0xcc91517aUL }, /* 345 */
+  { 0x00bdaf45UL, 0x10ef3f6eUL }, /* 346 */
+  { 0x00bd2320UL, 0x9d6c1870UL }, /* 347 */
+  { 0x00bc97caUL, 0xa5b63b53UL }, /* 348 */
+  { 0x00bc0d41UL, 0x62c49700UL }, /* 349 */
+  { 0x00bb8383UL, 0x12c350d7UL }, /* 350 */
+  { 0x00bafa8dUL, 0xf900bfe2UL }, /* 351 */
+  { 0x00ba7260UL, 0x5ddabb1eUL }, /* 352 */
+  { 0x00b9eaf8UL, 0x8eac393cUL }, /* 353 */
+  { 0x00b96454UL, 0xddbb403dUL }, /* 354 */
+  { 0x00b8de73UL, 0xa2272350UL }, /* 355 */
+  { 0x00b85953UL, 0x37d70d6aUL }, /* 356 */
+  { 0x00b7d4f1UL, 0xff68d718UL }, /* 357 */
+  { 0x00b7514eUL, 0x5e202613UL }, /* 358 */
+  { 0x00b6ce66UL, 0xbdd5d51fUL }, /* 359 */
+  { 0x00b64c39UL, 0x8ce7a2d1UL }, /* 360 */
+  { 0x00b5cac5UL, 0x3e2825e0UL }, /* 361 */
+  { 0x00b54a08UL, 0x48cf059cUL }, /* 362 */
+  { 0x00b4ca01UL, 0x2869754aUL }, /* 363 */
+  { 0x00b44aaeUL, 0x5ccaf10aUL }, /* 364 */
+  { 0x00b3cc0eUL, 0x69fe3b14UL }, /* 365 */
+  { 0x00b34e1fUL, 0xd836980bUL }, /* 366 */
+  { 0x00b2d0e1UL, 0x33c14926UL }, /* 367 */
+  { 0x00b25451UL, 0x0cf7431dUL }, /* 368 */
+  { 0x00b1d86dUL, 0xf82f2091UL }, /* 369 */
+  { 0x00b15d36UL, 0x8daf4eecUL }, /* 370 */
+  { 0x00b0e2a9UL, 0x69a07488UL }, /* 371 */
+  { 0x00b068c5UL, 0x2c000f1aUL }, /* 372 */
+  { 0x00afef88UL, 0x78934944UL }, /* 373 */
+  { 0x00af76f1UL, 0xf6da064eUL }, /* 374 */
+  { 0x00aeff00UL, 0x52022303UL }, /* 375 */
+  { 0x00ae87b2UL, 0x38daeaafUL }, /* 376 */
+  { 0x00ae1106UL, 0x5dc8bf49UL }, /* 377 */
+  { 0x00ad9afbUL, 0x76b8f3d9UL }, /* 378 */
+  { 0x00ad2590UL, 0x3d15d827UL }, /* 379 */
+  { 0x00acb0c3UL, 0x6dbaf4caUL }, /* 380 */
+  { 0x00ac3c93UL, 0xc8e976bdUL }, /* 381 */
+  { 0x00abc900UL, 0x123cc989UL }, /* 382 */
+  { 0x00ab5607UL, 0x109f5f40UL }, /* 383 */
+  { 0x00aae3a7UL, 0x8e3fa55cUL }, /* 384 */
+  { 0x00aa71e0UL, 0x588525c5UL }, /* 385 */
+  { 0x00aa00b0UL, 0x4005d320UL }, /* 386 */
+  { 0x00a99016UL, 0x187b7fabUL }, /* 387 */
+  { 0x00a92010UL, 0xb8b97ddbUL }, /* 388 */
+  { 0x00a8b09eUL, 0xfaa269fbUL }, /* 389 */
+  { 0x00a841bfUL, 0xbb1e1c15UL }, /* 390 */
+  { 0x00a7d371UL, 0xda0fc15fUL }, /* 391 */
+  { 0x00a765b4UL, 0x3a4c1c8fUL }, /* 392 */
+  { 0x00a6f885UL, 0xc18fec42UL }, /* 393 */
+  { 0x00a68be5UL, 0x587676f1UL }, /* 394 */
+  { 0x00a61fd1UL, 0xea703ba4UL }, /* 395 */
+  { 0x00a5b44aUL, 0x65b9c6d4UL }, /* 396 */
+  { 0x00a5494dUL, 0xbb52aad5UL }, /* 397 */
+  { 0x00a4dedaUL, 0xdef49b1cUL }, /* 398 */
+  { 0x00a474f0UL, 0xc70aa9d1UL }, /* 399 */
+  { 0x00a40b8eUL, 0x6ca8a711UL }, /* 400 */
+  { 0x00a3a2b2UL, 0xcb82a145UL }, /* 401 */
+  { 0x00a33a5cUL, 0xe1e485f8UL }, /* 402 */
+  { 0x00a2d28bUL, 0xb0a9e2a7UL }, /* 403 */
+  { 0x00a26b3eUL, 0x3b35c4f2UL }, /* 404 */
+  { 0x00a20473UL, 0x876ab9a5UL }, /* 405 */
+  { 0x00a19e2aUL, 0x9da2ea15UL }, /* 406 */
+  { 0x00a13862UL, 0x88a8574bUL }, /* 407 */
+  { 0x00a0d31aUL, 0x55ad326fUL }, /* 408 */
+  { 0x00a06e51UL, 0x14445206UL }, /* 409 */
+  { 0x00a00a05UL, 0xd659c371UL }, /* 410 */
+  { 0x009fa637UL, 0xb02b7840UL }, /* 411 */
+  { 0x009f42e5UL, 0xb8420edbUL }, /* 412 */
+  { 0x009ee00fUL, 0x0769b604UL }, /* 413 */
+  { 0x009e7db2UL, 0xb8ab2accUL }, /* 414 */
+  { 0x009e1bcfUL, 0xe944d079UL }, /* 415 */
+  { 0x009dba65UL, 0xb8a3e1f7UL }, /* 416 */
+  { 0x009d5973UL, 0x485dbc67UL }, /* 417 */
+  { 0x009cf8f7UL, 0xbc294251UL }, /* 418 */
+  { 0x009c98f2UL, 0x39d8572cUL }, /* 419 */
+  { 0x009c3961UL, 0xe95172b5UL }, /* 420 */
+  { 0x009bda45UL, 0xf4894bc2UL }, /* 421 */
+  { 0x009b7b9dUL, 0x877c9a2dUL }, /* 422 */
+  { 0x009b1d67UL, 0xd029ef6aUL }, /* 423 */
+  { 0x009abfa3UL, 0xfe8ba574UL }, /* 424 */
+  { 0x009a6251UL, 0x4491e3acUL }, /* 425 */
+  { 0x009a056eUL, 0xd61cb94fUL }, /* 426 */
+  { 0x0099a8fbUL, 0xe8f64d25UL }, /* 427 */
+  { 0x00994cf7UL, 0xb4cd221eUL }, /* 428 */
+  { 0x0098f161UL, 0x732e706eUL }, /* 429 */
+  { 0x00989638UL, 0x5f8092e8UL }, /* 430 */
+  { 0x00983b7bUL, 0xb6fd883aUL }, /* 431 */
+  { 0x0097e12aUL, 0xb8ad87b2UL }, /* 432 */
+  { 0x00978744UL, 0xa561a94fUL }, /* 433 */
+  { 0x00972dc8UL, 0xbfaea0b3UL }, /* 434 */
+  { 0x0096d4b6UL, 0x4be78abeUL }, /* 435 */
+  { 0x00967c0cUL, 0x9018cd7aUL }, /* 436 */
+  { 0x009623caUL, 0xd4030a15UL }, /* 437 */
+  { 0x0095cbf0UL, 0x61162094UL }, /* 438 */
+  { 0x0095747cUL, 0x826c44fdUL }, /* 439 */
+  { 0x00951d6eUL, 0x84c525b8UL }, /* 440 */
+  { 0x0094c6c5UL, 0xb68122d0UL }, /* 441 */
+  { 0x00947081UL, 0x679c95e1UL }, /* 442 */
+  { 0x00941aa0UL, 0xe9ab2a5fUL }, /* 443 */
+  { 0x0093c523UL, 0x8fd34605UL }, /* 444 */
+  { 0x00937008UL, 0xaec9811dUL }, /* 445 */
+  { 0x00931b4fUL, 0x9ccc2e65UL }, /* 446 */
+  { 0x0092c6f7UL, 0xb19ef25eUL }, /* 447 */
+  { 0x00927300UL, 0x468669adUL }, /* 448 */
+  { 0x00921f68UL, 0xb643de71UL }, /* 449 */
+  { 0x0091cc30UL, 0x5d110c3aUL }, /* 450 */
+  { 0x00917956UL, 0x989bf274UL }, /* 451 */
+  { 0x009126daUL, 0xc802b508UL }, /* 452 */
+  { 0x0090d4bcUL, 0x4bcf8afaUL }, /* 453 */
+  { 0x009082faUL, 0x85f4bacfUL }, /* 454 */
+  { 0x00903194UL, 0xd9c8a489UL }, /* 455 */
+  { 0x008fe08aUL, 0xac01d8f2UL }, /* 456 */
+  { 0x008f8fdbUL, 0x62b33e1cUL }, /* 457 */
+  { 0x008f3f86UL, 0x654840cbUL }, /* 458 */
+  { 0x008eef8bUL, 0x1c8112a3UL }, /* 459 */
+  { 0x008e9fe8UL, 0xf26ef4e6UL }, /* 460 */
+  { 0x008e509fUL, 0x52708f92UL }, /* 461 */
+  { 0x008e01adUL, 0xa92e54a5UL }, /* 462 */
+  { 0x008db313UL, 0x6496ef6aUL }, /* 463 */
+  { 0x008d64cfUL, 0xf3dbbf91UL }, /* 464 */
+  { 0x008d16e2UL, 0xc76d5fedUL }, /* 465 */
+  { 0x008cc94bUL, 0x50f838a5UL }, /* 466 */
+  { 0x008c7c09UL, 0x03611cb1UL }, /* 467 */
+  { 0x008c2f1bUL, 0x52c1f277UL }, /* 468 */
+  { 0x008be281UL, 0xb466675bUL }, /* 469 */
+  { 0x008b963bUL, 0x9ec8ae1cUL }, /* 470 */
+  { 0x008b4a48UL, 0x898e47ceUL }, /* 471 */
+  { 0x008afea7UL, 0xed84d751UL }, /* 472 */
+  { 0x008ab359UL, 0x449eff17UL }, /* 473 */
+  { 0x008a685cUL, 0x09f14918UL }, /* 474 */
+  { 0x008a1dafUL, 0xb9af18c5UL }, /* 475 */
+  { 0x0089d353UL, 0xd127a6dfUL }, /* 476 */
+  { 0x00898947UL, 0xcec306ffUL }, /* 477 */
+  { 0x00893f8bUL, 0x31ff36bcUL }, /* 478 */
+  { 0x0088f61dUL, 0x7b6d363aUL }, /* 479 */
+  { 0x0088acfeUL, 0x2cae2a0eUL }, /* 480 */
+  { 0x0088642cUL, 0xc8708642UL }, /* 481 */
+  { 0x00881ba8UL, 0xd26d426eUL }, /* 482 */
+  { 0x0087d371UL, 0xcf6516aeUL }, /* 483 */
+  { 0x00878b87UL, 0x451dc166UL }, /* 484 */
+  { 0x008743e8UL, 0xba5f55a5UL }, /* 485 */
+  { 0x0086fc95UL, 0xb6f19211UL }, /* 486 */
+  { 0x0086b58dUL, 0xc399403bUL }, /* 487 */
+  { 0x00866ed0UL, 0x6a159c37UL }, /* 488 */
+  { 0x0086285dUL, 0x351dc45eUL }, /* 489 */
+  { 0x0085e233UL, 0xb05e311cUL }, /* 490 */
+  { 0x00859c53UL, 0x687634aeUL }, /* 491 */
+  { 0x008556bbUL, 0xeaf582acUL }, /* 492 */
+  { 0x0085116cUL, 0xc659bf49UL }, /* 493 */
+  { 0x0084cc65UL, 0x8a0c1630UL }, /* 494 */
+  { 0x008487a5UL, 0xc65ed8d8UL }, /* 495 */
+  { 0x0084432dUL, 0x0c8b243dUL }, /* 496 */
+  { 0x0083fefaUL, 0xeeae8de1UL }, /* 497 */
+  { 0x0083bb0eUL, 0xffc8d7f4UL }, /* 498 */
+  { 0x00837768UL, 0xd3b9ac9bUL }, /* 499 */
+  { 0x00833407UL, 0xff3e6025UL }, /* 500 */
+  { 0x0082f0ecUL, 0x17efba24UL }, /* 501 */
+  { 0x0082ae14UL, 0xb43fc557UL }, /* 502 */
+  { 0x00826b81UL, 0x6b77a636UL }, /* 503 */
+  { 0x00822931UL, 0xd5b5781fUL }, /* 504 */
+  { 0x0081e725UL, 0x8bea3106UL }, /* 505 */
+  { 0x0081a55cUL, 0x27d78b88UL }, /* 506 */
+  { 0x008163d5UL, 0x440df752UL }, /* 507 */
+  { 0x00812290UL, 0x7bea8fcdUL }, /* 508 */
+  { 0x0080e18dUL, 0x6b9518e4UL }, /* 509 */
+  { 0x0080a0cbUL, 0xaffe01e9UL }, /* 510 */
+  { 0x0080604aUL, 0xe6dc6e69UL }, /* 511 */
+  { 0x0080200aUL, 0xaeac44efUL }, /* 512 */
+  { 0x007fe00aUL, 0xa6ac439aUL }, /* 513 */
+  { 0x007fa04aUL, 0x6edc1a68UL }, /* 514 */
+  { 0x007f60c9UL, 0xa7fa8b38UL }, /* 515 */
+  { 0x007f2187UL, 0xf3838f55UL }, /* 516 */
+  { 0x007ee284UL, 0xf3ae828fUL }, /* 517 */
+  { 0x007ea3c0UL, 0x4b6c53bdUL }, /* 518 */
+  { 0x007e6539UL, 0x9e65ba9dUL }, /* 519 */
+  { 0x007e26f0UL, 0x90f97302UL }, /* 520 */
+  { 0x007de8e4UL, 0xc83a7d37UL }, /* 521 */
+  { 0x007dab15UL, 0xe9ee638aUL }, /* 522 */
+  { 0x007d6d83UL, 0x9c8b84e9UL }, /* 523 */
+  { 0x007d302dUL, 0x87376485UL }, /* 524 */
+  { 0x007cf313UL, 0x51c4fe69UL }, /* 525 */
+  { 0x007cb634UL, 0xa4b320ecUL }, /* 526 */
+  { 0x007c7991UL, 0x292acafaUL }, /* 527 */
+  { 0x007c3d28UL, 0x88fd8f1bUL }, /* 528 */
+  { 0x007c00faUL, 0x6ea3fb28UL }, /* 529 */
+  { 0x007bc506UL, 0x853c04a6UL }, /* 530 */
+  { 0x007b894cUL, 0x788779abUL }, /* 531 */
+  { 0x007b4dcbUL, 0xf4ea7648UL }, /* 532 */
+  { 0x007b1284UL, 0xa769de68UL }, /* 533 */
+  { 0x007ad776UL, 0x3da9dc0aUL }, /* 534 */
+  { 0x007a9ca0UL, 0x65ec61d9UL }, /* 535 */
+  { 0x007a6202UL, 0xcf0fb204UL }, /* 536 */
+  { 0x007a279dUL, 0x288ce94eUL }, /* 537 */
+  { 0x0079ed6fUL, 0x22768e4dUL }, /* 538 */
+  { 0x0079b378UL, 0x6d7724bdUL }, /* 539 */
+  { 0x007979b8UL, 0xbacfc4e6UL }, /* 540 */
+  { 0x0079402fUL, 0xbc56b705UL }, /* 541 */
+  { 0x007906ddUL, 0x247612a3UL }, /* 542 */
+  { 0x0078cdc0UL, 0xa62a61d4UL }, /* 543 */
+  { 0x007894d9UL, 0xf5014854UL }, /* 544 */
+  { 0x00785c28UL, 0xc5182e6bUL }, /* 545 */
+  { 0x007823acUL, 0xcb1aef94UL }, /* 546 */
+  { 0x0077eb65UL, 0xbc428cdbUL }, /* 547 */
+  { 0x0077b353UL, 0x4e53e2ddUL }, /* 548 */
+  { 0x00777b75UL, 0x379e6367UL }, /* 549 */
+  { 0x007743cbUL, 0x2efad2aaUL }, /* 550 */
+  { 0x00770c54UL, 0xebca07eaUL }, /* 551 */
+  { 0x0076d512UL, 0x25f3b1b0UL }, /* 552 */
+  { 0x00769e02UL, 0x95e51d63UL }, /* 553 */
+  { 0x00766725UL, 0xf4900247UL }, /* 554 */
+  { 0x0076307bUL, 0xfb694fd4UL }, /* 555 */
+  { 0x0075fa04UL, 0x6467ff5aUL }, /* 556 */
+  { 0x0075c3beUL, 0xea03e8e6UL }, /* 557 */
+  { 0x00758dabUL, 0x47349b63UL }, /* 558 */
+  { 0x007557c9UL, 0x377037e0UL }, /* 559 */
+  { 0x00752218UL, 0x76aa500aUL }, /* 560 */
+  { 0x0074ec98UL, 0xc152c7a8UL }, /* 561 */
+  { 0x0074b749UL, 0xd454b940UL }, /* 562 */
+  { 0x0074822bUL, 0x6d155dafUL }, /* 563 */
+  { 0x00744d3dUL, 0x4972f6c3UL }, /* 564 */
+  { 0x0074187fUL, 0x27c3bcceUL }, /* 565 */
+  { 0x0073e3f0UL, 0xc6d4cf18UL }, /* 566 */
+  { 0x0073af91UL, 0xe5e9273cUL }, /* 567 */
+  { 0x00737b62UL, 0x44b88f4eUL }, /* 568 */
+  { 0x00734761UL, 0xa36e9ae0UL }, /* 569 */
+  { 0x0073138fUL, 0xc2a9a2c3UL }, /* 570 */
+  { 0x0072dfecUL, 0x6379c37fUL }, /* 571 */
+  { 0x0072ac77UL, 0x475fde8fUL }, /* 572 */
+  { 0x00727930UL, 0x304c9e38UL }, /* 573 */
+  { 0x00724616UL, 0xe09f7c11UL }, /* 574 */
+  { 0x0072132bUL, 0x1b25ca1aUL }, /* 575 */
+  { 0x0071e06cUL, 0xa319be72UL }, /* 576 */
+  { 0x0071addbUL, 0x3c21818bUL }, /* 577 */
+  { 0x00717b76UL, 0xaa4e3eedUL }, /* 578 */
+  { 0x0071493eUL, 0xb21b386eUL }, /* 579 */
+  { 0x00711733UL, 0x186cdbdbUL }, /* 580 */
+  { 0x0070e553UL, 0xa28fdb17UL }, /* 581 */
+  { 0x0070b3a0UL, 0x16384693UL }, /* 582 */
+  { 0x00708218UL, 0x3980aa29UL }, /* 583 */
+  { 0x007050bbUL, 0xd2e92c50UL }, /* 584 */
+  { 0x00701f8aUL, 0xa956af97UL }, /* 585 */
+  { 0x006fee84UL, 0x8411f66dUL }, /* 586 */
+  { 0x006fbda9UL, 0x2ac6c92cUL }, /* 587 */
+  { 0x006f8cf8UL, 0x65831e55UL }, /* 588 */
+  { 0x006f5c71UL, 0xfcb64507UL }, /* 589 */
+  { 0x006f2c15UL, 0xb93011a2UL }, /* 590 */
+  { 0x006efbe3UL, 0x64200c8bUL }, /* 591 */
+  { 0x006ecbdaUL, 0xc714a313UL }, /* 592 */
+  { 0x006e9bfbUL, 0xabfa5a76UL }, /* 593 */
+  { 0x006e6c45UL, 0xdd1b04efUL }, /* 594 */
+  { 0x006e3cb9UL, 0x251cf8cfUL }, /* 595 */
+  { 0x006e0d55UL, 0x4f0249abUL }, /* 596 */
+  { 0x006dde1aUL, 0x26280376UL }, /* 597 */
+  { 0x006daf07UL, 0x764567a7UL }, /* 598 */
+  { 0x006d801dUL, 0x0b6b2c47UL }, /* 599 */
+  { 0x006d515aUL, 0xb202bcf3UL }, /* 600 */
+  { 0x006d22c0UL, 0x36cd7dc5UL }, /* 601 */
+  { 0x006cf44dUL, 0x66e41020UL }, /* 602 */
+  { 0x006cc602UL, 0x0fb59959UL }, /* 603 */
+  { 0x006c97ddUL, 0xff070b39UL }, /* 604 */
+  { 0x006c69e1UL, 0x02f26e4fUL }, /* 605 */
+  { 0x006c3c0aUL, 0xe9e62e12UL }, /* 606 */
+  { 0x006c0e5bUL, 0x82a466c5UL }, /* 607 */
+  { 0x006be0d2UL, 0x9c423525UL }, /* 608 */
+  { 0x006bb370UL, 0x062707cfUL }, /* 609 */
+  { 0x006b8633UL, 0x900bf25dUL }, /* 610 */
+  { 0x006b591dUL, 0x09fb023bUL }, /* 611 */
+  { 0x006b2c2cUL, 0x444e9522UL }, /* 612 */
+  { 0x006aff61UL, 0x0fb0b14aUL }, /* 613 */
+  { 0x006ad2bbUL, 0x3d1a5f2eUL }, /* 614 */
+  { 0x006aa63aUL, 0x9dd304ffUL }, /* 615 */
+  { 0x006a79dfUL, 0x036fc3a6UL }, /* 616 */
+  { 0x006a4da8UL, 0x3fd2d567UL }, /* 617 */
+  { 0x006a2196UL, 0x252aee0eUL }, /* 618 */
+  { 0x0069f5a8UL, 0x85f29ca8UL }, /* 619 */
+  { 0x0069c9dfUL, 0x34efaecbUL }, /* 620 */
+  { 0x00699e3aUL, 0x0532955cUL }, /* 621 */
+  { 0x006972b8UL, 0xca15cad8UL }, /* 622 */
+  { 0x0069475bUL, 0x573d3b16UL }, /* 623 */
+  { 0x00691c21UL, 0x8095ac82UL }, /* 624 */
+  { 0x0068f10bUL, 0x1a542ac9UL }, /* 625 */
+  { 0x0068c617UL, 0xf8f572f6UL }, /* 626 */
+  { 0x00689b47UL, 0xf13d60f8UL }, /* 627 */
+  { 0x0068709aUL, 0xd8365e8eUL }, /* 628 */
+  { 0x00684610UL, 0x8330d396UL }, /* 629 */
+  { 0x00681ba8UL, 0xc7c297bdUL }, /* 630 */
+  { 0x0067f163UL, 0x7bc66585UL }, /* 631 */
+  { 0x0067c740UL, 0x755b4ea7UL }, /* 632 */
+  { 0x00679d3fUL, 0x8ae431c4UL }, /* 633 */
+  { 0x00677360UL, 0x93073168UL }, /* 634 */
+  { 0x006749a3UL, 0x64ad2c56UL }, /* 635 */
+  { 0x00672007UL, 0xd7013721UL }, /* 636 */
+  { 0x0066f68dUL, 0xc1701701UL }, /* 637 */
+  { 0x0066cd34UL, 0xfba7bdf1UL }, /* 638 */
+  { 0x0066a3fdUL, 0x5d96c809UL }, /* 639 */
+  { 0x00667ae6UL, 0xbf6bfa09UL }, /* 640 */
+  { 0x006651f0UL, 0xf995c12aUL }, /* 641 */
+  { 0x0066291bUL, 0xe4c1b410UL }, /* 642 */
+  { 0x00660067UL, 0x59dc14feUL }, /* 643 */
+  { 0x0065d7d3UL, 0x320f5527UL }, /* 644 */
+  { 0x0065af5fUL, 0x46c39931UL }, /* 645 */
+  { 0x0065870bUL, 0x719e3edaUL }, /* 646 */
+  { 0x00655ed7UL, 0x8c8163c1UL }, /* 647 */
+  { 0x006536c3UL, 0x718b6d51UL }, /* 648 */
+  { 0x00650eceUL, 0xfb1691c3UL }, /* 649 */
+  { 0x0064e6faUL, 0x03b8623cUL }, /* 650 */
+  { 0x0064bf44UL, 0x66415604UL }, /* 651 */
+  { 0x006497adUL, 0xfdbc56ceUL }, /* 652 */
+  { 0x00647036UL, 0xa56e4e0dUL }, /* 653 */
+  { 0x006448deUL, 0x38d5b35dUL }, /* 654 */
+  { 0x006421a4UL, 0x93aa1bf4UL }, /* 655 */
+  { 0x0063fa89UL, 0x91dbcb18UL }, /* 656 */
+  { 0x0063d38dUL, 0x0f93439cUL }, /* 657 */
+  { 0x0063acaeUL, 0xe930da63UL }, /* 658 */
+  { 0x006385eeUL, 0xfb4c49daUL }, /* 659 */
+  { 0x00635f4dUL, 0x22b44677UL }, /* 660 */
+  { 0x006338c9UL, 0x3c6e142eUL }, /* 661 */
+  { 0x00631263UL, 0x25b51cdbUL }, /* 662 */
+  { 0x0062ec1aUL, 0xbbfa87a9UL }, /* 663 */
+  { 0x0062c5efUL, 0xdce4d161UL }, /* 664 */
+  { 0x00629fe2UL, 0x664f65afUL }, /* 665 */
+  { 0x006279f2UL, 0x364a3955UL }, /* 666 */
+  { 0x0062541fUL, 0x2b196543UL }, /* 667 */
+  { 0x00622e69UL, 0x2334c29dUL }, /* 668 */
+  { 0x006208cfUL, 0xfd4787a1UL }, /* 669 */
+  { 0x0061e353UL, 0x982fe578UL }, /* 670 */
+  { 0x0061bdf3UL, 0xd2fea6deUL }, /* 671 */
+  { 0x006198b0UL, 0x8cf6cfb5UL }, /* 672 */
+  { 0x00617389UL, 0xa58d3d66UL }, /* 673 */
+  { 0x00614e7eUL, 0xfc684829UL }, /* 674 */
+  { 0x00612990UL, 0x715f651cUL }, /* 675 */
+  { 0x006104bdUL, 0xe47ac936UL }, /* 676 */
+  { 0x0060e007UL, 0x35f30d04UL }, /* 677 */
+  { 0x0060bb6cUL, 0x4630d143UL }, /* 678 */
+  { 0x006096ecUL, 0xf5cc6443UL }, /* 679 */
+  { 0x00607289UL, 0x258d6810UL }, /* 680 */
+  { 0x00604e40UL, 0xb66a7976UL }, /* 681 */
+  { 0x00602a13UL, 0x8988d7bdUL }, /* 682 */
+  { 0x00600601UL, 0x803c0d36UL }, /* 683 */
+  { 0x005fe20aUL, 0x7c059889UL }, /* 684 */
+  { 0x005fbe2eUL, 0x5e9496c6UL }, /* 685 */
+  { 0x005f9a6dUL, 0x09c56e36UL }, /* 686 */
+  { 0x005f76c6UL, 0x5fa179ebUL }, /* 687 */
+  { 0x005f533aUL, 0x425eb60fUL }, /* 688 */
+  { 0x005f2fc8UL, 0x945f6ce6UL }, /* 689 */
+  { 0x005f0c71UL, 0x3831e494UL }, /* 690 */
+  { 0x005ee934UL, 0x10900d93UL }, /* 691 */
+  { 0x005ec611UL, 0x005f31dbUL }, /* 692 */
+  { 0x005ea307UL, 0xeaafa4c9UL }, /* 693 */
+  { 0x005e8018UL, 0xb2bc73a8UL }, /* 694 */
+  { 0x005e5d43UL, 0x3beb16f8UL }, /* 695 */
+  { 0x005e3a87UL, 0x69cb245bUL }, /* 696 */
+  { 0x005e17e5UL, 0x2016012fUL }, /* 697 */
+  { 0x005df55cUL, 0x42ae95d1UL }, /* 698 */
+  { 0x005dd2ecUL, 0xb5a10192UL }, /* 699 */
+  { 0x005db096UL, 0x5d224f45UL }, /* 700 */
+  { 0x005d8e59UL, 0x1d902a7cUL }, /* 701 */
+  { 0x005d6c34UL, 0xdb709567UL }, /* 702 */
+  { 0x005d4a29UL, 0x7b719f53UL }, /* 703 */
+  { 0x005d2836UL, 0xe2691bcbUL }, /* 704 */
+  { 0x005d065cUL, 0xf5545a5aUL }, /* 705 */
+  { 0x005ce49bUL, 0x9957dee2UL }, /* 706 */
+  { 0x005cc2f2UL, 0xb3bf1a9bUL }, /* 707 */
+  { 0x005ca162UL, 0x29fc25a2UL }, /* 708 */
+  { 0x005c7fe9UL, 0xe1a77926UL }, /* 709 */
+  { 0x005c5e89UL, 0xc07faa2aUL }, /* 710 */
+  { 0x005c3d41UL, 0xac6924deUL }, /* 711 */
+  { 0x005c1c11UL, 0x8b6de88cUL }, /* 712 */
+  { 0x005bfaf9UL, 0x43bd4414UL }, /* 713 */
+  { 0x005bd9f8UL, 0xbbab9304UL }, /* 714 */
+  { 0x005bb90fUL, 0xd9b1fb2fUL }, /* 715 */
+  { 0x005b983eUL, 0x846e2ae4UL }, /* 716 */
+  { 0x005b7784UL, 0xa2a217a7UL }, /* 717 */
+  { 0x005b56e2UL, 0x1b33bd78UL }, /* 718 */
+  { 0x005b3656UL, 0xd52cdea6UL }, /* 719 */
+  { 0x005b15e2UL, 0xb7bac42bUL }, /* 720 */
+  { 0x005af585UL, 0xaa2dfe8fUL }, /* 721 */
+  { 0x005ad53fUL, 0x93fa2750UL }, /* 722 */
+  { 0x005ab510UL, 0x5cb5a2d1UL }, /* 723 */
+  { 0x005a94f7UL, 0xec1962cbUL }, /* 724 */
+  { 0x005a74f6UL, 0x2a00a945UL }, /* 725 */
+  { 0x005a550aUL, 0xfe68cc05UL }, /* 726 */
+  { 0x005a3536UL, 0x5170f88aUL }, /* 727 */
+  { 0x005a1578UL, 0x0b59f87fUL }, /* 728 */
+  { 0x0059f5d0UL, 0x1485f6adUL }, /* 729 */
+  { 0x0059d63eUL, 0x55784468UL }, /* 730 */
+  { 0x0059b6c2UL, 0xb6d51f7cUL }, /* 731 */
+  { 0x0059975dUL, 0x2161788fUL }, /* 732 */
+  { 0x0059780dUL, 0x7e02b9fcUL }, /* 733 */
+  { 0x005958d3UL, 0xb5be8f2aUL }, /* 734 */
+  { 0x005939afUL, 0xb1baac54UL }, /* 735 */
+  { 0x00591aa1UL, 0x5b3c96c9UL }, /* 736 */
+  { 0x0058fba8UL, 0x9ba96da4UL }, /* 737 */
+  { 0x0058dcc5UL, 0x5c85b2edUL }, /* 738 */
+  { 0x0058bdf7UL, 0x8775153aUL }, /* 739 */
+  { 0x00589f3fUL, 0x063a39b2UL }, /* 740 */
+  { 0x0058809bUL, 0xc2b6868dUL }, /* 741 */
+  { 0x0058620dUL, 0xa6e9edfbUL }, /* 742 */
+  { 0x00584394UL, 0x9cf2b97bUL }, /* 743 */
+  { 0x00582530UL, 0x8f0d559fUL }, /* 744 */
+  { 0x005806e1UL, 0x67941e3dUL }, /* 745 */
+  { 0x0057e8a7UL, 0x10ff2b07UL }, /* 746 */
+  { 0x0057ca81UL, 0x75e41c91UL }, /* 747 */
+  { 0x0057ac70UL, 0x80f5e9bdUL }, /* 748 */
+  { 0x00578e74UL, 0x1d04ad91UL }, /* 749 */
+  { 0x0057708cUL, 0x34fd7572UL }, /* 750 */
+  { 0x005752b8UL, 0xb3ea0fc2UL }, /* 751 */
+  { 0x005734f9UL, 0x84f0daedUL }, /* 752 */
+  { 0x0057174eUL, 0x935494cdUL }, /* 753 */
+  { 0x0056f9b7UL, 0xca742a7cUL }, /* 754 */
+  { 0x0056dc35UL, 0x15ca887fUL }, /* 755 */
+  { 0x0056bec6UL, 0x60ee6b5aUL }, /* 756 */
+  { 0x0056a16bUL, 0x97923081UL }, /* 757 */
+  { 0x00568424UL, 0xa583a7a6UL }, /* 758 */
+  { 0x005666f1UL, 0x76abe468UL }, /* 759 */
+  { 0x005649d1UL, 0xf70f1062UL }, /* 760 */
+  { 0x00562cc6UL, 0x12cc3d95UL }, /* 761 */
+  { 0x00560fcdUL, 0xb61d3928UL }, /* 762 */
+  { 0x0055f2e8UL, 0xcd565e8dUL }, /* 763 */
+  { 0x0055d617UL, 0x44e66afcUL }, /* 764 */
+  { 0x0055b959UL, 0x09565144UL }, /* 765 */
+  { 0x00559caeUL, 0x07490dfcUL }, /* 766 */
+  { 0x00558016UL, 0x2b7b7c01UL }, /* 767 */
+  { 0x00556391UL, 0x62c4295bUL }, /* 768 */
+  { 0x0055471fUL, 0x9a132c66UL }, /* 769 */
+  { 0x00552ac0UL, 0xbe71f95fUL }, /* 770 */
+  { 0x00550e74UL, 0xbd03383dUL }, /* 771 */
+  { 0x0054f23bUL, 0x83029ae3UL }, /* 772 */
+  { 0x0054d614UL, 0xfdc4b3a1UL }, /* 773 */
+  { 0x0054ba01UL, 0x1ab6cc0aUL }, /* 774 */
+  { 0x00549dffUL, 0xc75ebc1eUL }, /* 775 */
+  { 0x00548210UL, 0xf15ac1bdUL }, /* 776 */
+  { 0x00546634UL, 0x86615871UL }, /* 777 */
+  { 0x00544a6aUL, 0x7441118aUL }, /* 778 */
+  { 0x00542eb2UL, 0xa8e06c7bUL }, /* 779 */
+  { 0x0054130dUL, 0x123daf99UL }, /* 780 */
+  { 0x0053f779UL, 0x9e6ec114UL }, /* 781 */
+  { 0x0053dbf8UL, 0x3ba1004bUL }, /* 782 */
+  { 0x0053c088UL, 0xd8191f62UL }, /* 783 */
+  { 0x0053a52bUL, 0x6232fd2cUL }, /* 784 */
+  { 0x005389dfUL, 0xc8617f58UL }, /* 785 */
+  { 0x00536ea5UL, 0xf92e6ceaUL }, /* 786 */
+  { 0x0053537dUL, 0xe33a4905UL }, /* 787 */
+  { 0x00533867UL, 0x753c2dedUL }, /* 788 */
+  { 0x00531d62UL, 0x9e01a864UL }, /* 789 */
+  { 0x0053026fUL, 0x4c6e9340UL }, /* 790 */
+  { 0x0052e78dUL, 0x6f7cf351UL }, /* 791 */
+  { 0x0052ccbcUL, 0xf63cd384UL }, /* 792 */
+  { 0x0052b1fdUL, 0xcfd42155UL }, /* 793 */
+  { 0x0052974fUL, 0xeb7e8980UL }, /* 794 */
+  { 0x00527cb3UL, 0x388d54f9UL }, /* 795 */
+  { 0x00526227UL, 0xa6674623UL }, /* 796 */
+  { 0x005247adUL, 0x24887650UL }, /* 797 */
+  { 0x00522d43UL, 0xa2823381UL }, /* 798 */
+  { 0x005212ebUL, 0x0ffade68UL }, /* 799 */
+  { 0x0051f8a3UL, 0x5cadc8a9UL }, /* 800 */
+  { 0x0051de6cUL, 0x786b1360UL }, /* 801 */
+  { 0x0051c446UL, 0x53178de5UL }, /* 802 */
+  { 0x0051aa30UL, 0xdcac94ccUL }, /* 803 */
+  { 0x0051902cUL, 0x0537f12dUL }, /* 804 */
+  { 0x00517637UL, 0xbcdbb821UL }, /* 805 */
+  { 0x00515c53UL, 0xf3ce2a86UL }, /* 806 */
+  { 0x00514280UL, 0x9a5994f4UL }, /* 807 */
+  { 0x005128bdUL, 0xa0dc2ffeUL }, /* 808 */
+  { 0x00510f0aUL, 0xf7c800a3UL }, /* 809 */
+  { 0x0050f568UL, 0x8fa2b902UL }, /* 810 */
+  { 0x0050dbd6UL, 0x59059946UL }, /* 811 */
+  { 0x0050c254UL, 0x449d50cfUL }, /* 812 */
+  { 0x0050a8e2UL, 0x4329df93UL }, /* 813 */
+  { 0x00508f80UL, 0x457e77b8UL }, /* 814 */
+  { 0x0050762eUL, 0x3c815f70UL }, /* 815 */
+  { 0x00505cecUL, 0x192bd2ffUL }, /* 816 */
+  { 0x005043b9UL, 0xcc89e706UL }, /* 817 */
+  { 0x00502a97UL, 0x47ba6b00UL }, /* 818 */
+  { 0x00501184UL, 0x7beecbf9UL }, /* 819 */
+  { 0x004ff881UL, 0x5a6af778UL }, /* 820 */
+  { 0x004fdf8dUL, 0xd4853ea4UL }, /* 821 */
+  { 0x004fc6a9UL, 0xdba6399cUL }, /* 822 */
+  { 0x004fadd5UL, 0x6148ab07UL }, /* 823 */
+  { 0x004f9510UL, 0x56f963d4UL }, /* 824 */
+  { 0x004f7c5aUL, 0xae572736UL }, /* 825 */
+  { 0x004f63b4UL, 0x59128eceUL }, /* 826 */
+  { 0x004f4b1dUL, 0x48edef0cUL }, /* 827 */
+  { 0x004f3295UL, 0x6fbd3bc0UL }, /* 828 */
+  { 0x004f1a1cUL, 0xbf65ece5UL }, /* 829 */
+  { 0x004f01b3UL, 0x29dee394UL }, /* 830 */
+  { 0x004ee958UL, 0xa1304f30UL }, /* 831 */
+  { 0x004ed10dUL, 0x177392c7UL }, /* 832 */
+  { 0x004eb8d0UL, 0x7ed32a96UL }, /* 833 */
+  { 0x004ea0a2UL, 0xc98a91d0UL }, /* 834 */
+  { 0x004e8883UL, 0xe9e62887UL }, /* 835 */
+  { 0x004e7073UL, 0xd24319caUL }, /* 836 */
+  { 0x004e5872UL, 0x750f41f8UL }, /* 837 */
+  { 0x004e407fUL, 0xc4c91535UL }, /* 838 */
+  { 0x004e289bUL, 0xb3ff861dUL }, /* 839 */
+  { 0x004e10c6UL, 0x3551ec99UL }, /* 840 */
+  { 0x004df8ffUL, 0x3b6fece9UL }, /* 841 */
+  { 0x004de146UL, 0xb9195edaUL }, /* 842 */
+  { 0x004dc99cUL, 0xa11e3526UL }, /* 843 */
+  { 0x004db200UL, 0xe65e6507UL }, /* 844 */
+  { 0x004d9a73UL, 0x7bc9cdf1UL }, /* 845 */
+  { 0x004d82f4UL, 0x54602179UL }, /* 846 */
+  { 0x004d6b83UL, 0x6330cb6bUL }, /* 847 */
+  { 0x004d5420UL, 0x9b5ada09UL }, /* 848 */
+  { 0x004d3ccbUL, 0xf00ce672UL }, /* 849 */
+  { 0x004d2585UL, 0x5484fd3bUL }, /* 850 */
+  { 0x004d0e4cUL, 0xbc10872aUL }, /* 851 */
+  { 0x004cf722UL, 0x1a0c3224UL }, /* 852 */
+  { 0x004ce005UL, 0x61e3da3bUL }, /* 853 */
+  { 0x004cc8f6UL, 0x871272eaUL }, /* 854 */
+  { 0x004cb1f5UL, 0x7d21f07eUL }, /* 855 */
+  { 0x004c9b02UL, 0x37ab31a0UL }, /* 856 */
+  { 0x004c841cUL, 0xaa55e909UL }, /* 857 */
+  { 0x004c6d44UL, 0xc8d88765UL }, /* 858 */
+  { 0x004c567aUL, 0x86f82553UL }, /* 859 */
+  { 0x004c3fbdUL, 0xd8886d95UL }, /* 860 */
+  { 0x004c290eUL, 0xb16b8760UL }, /* 861 */
+  { 0x004c126dUL, 0x059200d9UL }, /* 862 */
+  { 0x004bfbd8UL, 0xc8fab9b5UL }, /* 863 */
+  { 0x004be551UL, 0xefb2cdfdUL }, /* 864 */
+  { 0x004bced8UL, 0x6dd580fdUL }, /* 865 */
+  { 0x004bb86cUL, 0x378c2853UL }, /* 866 */
+  { 0x004ba20dUL, 0x410e1728UL }, /* 867 */
+  { 0x004b8bbbUL, 0x7ea0898bUL }, /* 868 */
+  { 0x004b7576UL, 0xe4968feeUL }, /* 869 */
+  { 0x004b5f3fUL, 0x6750facfUL }, /* 870 */
+  { 0x004b4914UL, 0xfb3e467cUL }, /* 871 */
+  { 0x004b32f7UL, 0x94da86ffUL }, /* 872 */
+  { 0x004b1ce7UL, 0x28af5430UL }, /* 873 */
+  { 0x004b06e3UL, 0xab53b5e5UL }, /* 874 */
+  { 0x004af0edUL, 0x116c1048UL }, /* 875 */
+  { 0x004adb03UL, 0x4faa104cUL }, /* 876 */
+  { 0x004ac526UL, 0x5acc9848UL }, /* 877 */
+  { 0x004aaf56UL, 0x279facb5UL }, /* 878 */
+  { 0x004a9992UL, 0xaafc6107UL }, /* 879 */
+  { 0x004a83dbUL, 0xd9c8c4b0UL }, /* 880 */
+  { 0x004a6e31UL, 0xa8f7d03cUL }, /* 881 */
+  { 0x004a5894UL, 0x0d895294UL }, /* 882 */
+  { 0x004a4302UL, 0xfc89de5fUL }, /* 883 */
+  { 0x004a2d7eUL, 0x6b12b783UL }, /* 884 */
+  { 0x004a1806UL, 0x4e49c0c7UL }, /* 885 */
+  { 0x004a029aUL, 0x9b616998UL }, /* 886 */
+  { 0x0049ed3bUL, 0x47989be4UL }, /* 887 */
+  { 0x0049d7e8UL, 0x483aaa21UL }, /* 888 */
+  { 0x0049c2a1UL, 0x929f3d67UL }, /* 889 */
+  { 0x0049ad67UL, 0x1c2a43b5UL }, /* 890 */
+  { 0x00499838UL, 0xda4bde49UL }, /* 891 */
+  { 0x00498316UL, 0xc280501dUL }, /* 892 */
+  { 0x00496e00UL, 0xca4fec83UL }, /* 893 */
+  { 0x004958f6UL, 0xe74f05dbUL }, /* 894 */
+  { 0x004943f9UL, 0x0f1ddc68UL }, /* 895 */
+  { 0x00492f07UL, 0x37688d45UL }, /* 896 */
+  { 0x00491a21UL, 0x55e70171UL }, /* 897 */
+  { 0x00490547UL, 0x605cdd00UL }, /* 898 */
+  { 0x0048f079UL, 0x4c996e65UL }, /* 899 */
+  { 0x0048dbb7UL, 0x10779dd5UL }, /* 900 */
+  { 0x0048c700UL, 0xa1dddccbUL }, /* 901 */
+  { 0x0048b255UL, 0xf6be15a9UL }, /* 902 */
+  { 0x00489db7UL, 0x05159b70UL }, /* 903 */
+  { 0x00488923UL, 0xc2ed1998UL }, /* 904 */
+  { 0x0048749cUL, 0x265883ffUL }, /* 905 */
+  { 0x00486020UL, 0x257706fbUL }, /* 906 */
+  { 0x00484bafUL, 0xb672f77cUL }, /* 907 */
+  { 0x0048374aUL, 0xcf81c354UL }, /* 908 */
+  { 0x004822f1UL, 0x66e3e191UL }, /* 909 */
+  { 0x00480ea3UL, 0x72e4c2f8UL }, /* 910 */
+  { 0x0047fa60UL, 0xe9dac293UL }, /* 911 */
+  { 0x0047e629UL, 0xc2271660UL }, /* 912 */
+  { 0x0047d1fdUL, 0xf235c016UL }, /* 913 */
+  { 0x0047bdddUL, 0x707d7e06UL }, /* 914 */
+  { 0x0047a9c8UL, 0x337fbc11UL }, /* 915 */
+  { 0x004795beUL, 0x31c884baUL }, /* 916 */
+  { 0x004781bfUL, 0x61ee7257UL }, /* 917 */
+  { 0x00476dcbUL, 0xba92a04cUL }, /* 918 */
+  { 0x004759e3UL, 0x32609c6eUL }, /* 919 */
+  { 0x00474605UL, 0xc00e5878UL }, /* 920 */
+  { 0x00473233UL, 0x5a5c1b92UL }, /* 921 */
+  { 0x00471e6bUL, 0xf8147400UL }, /* 922 */
+  { 0x00470aafUL, 0x900c28d5UL }, /* 923 */
+  { 0x0046f6feUL, 0x19222bd0UL }, /* 924 */
+  { 0x0046e357UL, 0x8a3f8b46UL }, /* 925 */
+  { 0x0046cfbbUL, 0xda576424UL }, /* 926 */
+  { 0x0046bc2bUL, 0x0066d40bUL }, /* 927 */
+  { 0x0046a8a4UL, 0xf374eb86UL }, /* 928 */
+  { 0x00469529UL, 0xaa92a04bUL }, /* 929 */
+  { 0x004681b9UL, 0x1cdabfa2UL }, /* 930 */
+  { 0x00466e53UL, 0x4171e0d9UL }, /* 931 */
+  { 0x00465af8UL, 0x0f8657ccUL }, /* 932 */
+  { 0x004647a7UL, 0x7e50278fUL }, /* 933 */
+  { 0x00463461UL, 0x8510f521UL }, /* 934 */
+  { 0x00462126UL, 0x1b13fa3cUL }, /* 935 */
+  { 0x00460df5UL, 0x37adf83aUL }, /* 936 */
+  { 0x0045faceUL, 0xd23d2b0dUL }, /* 937 */
+  { 0x0045e7b2UL, 0xe2293c4eUL }, /* 938 */
+  { 0x0045d4a1UL, 0x5ee33664UL }, /* 939 */
+  { 0x0045c19aUL, 0x3fe577b8UL }, /* 940 */
+  { 0x0045ae9dUL, 0x7cb3a608UL }, /* 941 */
+  { 0x00459babUL, 0x0cdaa1c6UL }, /* 942 */
+  { 0x004588c2UL, 0xe7f07991UL }, /* 943 */
+  { 0x004575e5UL, 0x05945dc0UL }, /* 944 */
+  { 0x00456311UL, 0x5d6e9403UL }, /* 945 */
+  { 0x00455047UL, 0xe7306b14UL }, /* 946 */
+  { 0x00453d88UL, 0x9a942e85UL }, /* 947 */
+  { 0x00452ad3UL, 0x6f5d1a93UL }, /* 948 */
+  { 0x00451828UL, 0x5d57501eUL }, /* 949 */
+  { 0x00450587UL, 0x5c57c8a7UL }, /* 950 */
+  { 0x0044f2f0UL, 0x643c4a66UL }, /* 951 */
+  { 0x0044e063UL, 0x6ceb5c78UL }, /* 952 */
+  { 0x0044cde0UL, 0x6e543b16UL }, /* 953 */
+  { 0x0044bb67UL, 0x606ecbe9UL }, /* 954 */
+  { 0x0044a8f8UL, 0x3b3b9268UL }, /* 955 */
+  { 0x00449692UL, 0xf6c3a454UL }, /* 956 */
+  { 0x00448437UL, 0x8b189e36UL }, /* 957 */
+  { 0x004471e5UL, 0xf0549804UL }, /* 958 */
+  { 0x00445f9eUL, 0x1e9a19c3UL }, /* 959 */
+  { 0x00444d60UL, 0x0e14104bUL }, /* 960 */
+  { 0x00443b2bUL, 0xb6f5c219UL }, /* 961 */
+  { 0x00442901UL, 0x117ac42aUL }, /* 962 */
+  { 0x004416e0UL, 0x15e6eef7UL }, /* 963 */
+  { 0x004404c8UL, 0xbc865377UL }, /* 964 */
+  { 0x0043f2baUL, 0xfdad3035UL }, /* 965 */
+  { 0x0043e0b6UL, 0xd1b7e67aUL }, /* 966 */
+  { 0x0043cebcUL, 0x310aef87UL }, /* 967 */
+  { 0x0043bccbUL, 0x1412d1dfUL }, /* 968 */
+  { 0x0043aae3UL, 0x734416a4UL }, /* 969 */
+  { 0x00439905UL, 0x471b3f01UL }, /* 970 */
+  { 0x00438730UL, 0x881cb9aaUL }, /* 971 */
+  { 0x00437565UL, 0x2ed4d868UL }, /* 972 */
+  { 0x004363a3UL, 0x33d7c5baUL }, /* 973 */
+  { 0x004351eaUL, 0x8fc17a82UL }, /* 974 */
+  { 0x0043403bUL, 0x3b35b3c3UL }, /* 975 */
+  { 0x00432e95UL, 0x2edfe874UL }, /* 976 */
+  { 0x00431cf8UL, 0x63733f5cUL }, /* 977 */
+  { 0x00430b64UL, 0xd1aa8502UL }, /* 978 */
+  { 0x0042f9daUL, 0x724821acUL }, /* 979 */
+  { 0x0042e859UL, 0x3e160f70UL }, /* 980 */
+  { 0x0042d6e1UL, 0x2de5d04eUL }, /* 981 */
+  { 0x0042c572UL, 0x3a906461UL }, /* 982 */
+  { 0x0042b40cUL, 0x5cf6401bUL }, /* 983 */
+  { 0x0042a2afUL, 0x8dff4291UL }, /* 984 */
+  { 0x0042915bUL, 0xc69aabd9UL }, /* 985 */
+  { 0x00428010UL, 0xffbf1370UL }, /* 986 */
+  { 0x00426ecfUL, 0x326a5eb7UL }, /* 987 */
+  { 0x00425d96UL, 0x57a1b779UL }, /* 988 */
+  { 0x00424c66UL, 0x68718286UL }, /* 989 */
+  { 0x00423b3fUL, 0x5ded5652UL }, /* 990 */
+  { 0x00422a21UL, 0x312ff1b0UL }, /* 991 */
+  { 0x0042190bUL, 0xdb5b328eUL }, /* 992 */
+  { 0x004207ffUL, 0x55980ccbUL }, /* 993 */
+  { 0x0041f6fbUL, 0x99168115UL }, /* 994 */
+  { 0x0041e600UL, 0x9f0d93d3UL }, /* 995 */
+  { 0x0041d50eUL, 0x60bb4422UL }, /* 996 */
+  { 0x0041c424UL, 0xd76482dfUL }, /* 997 */
+  { 0x0041b343UL, 0xfc5529bdUL }, /* 998 */
+  { 0x0041a26bUL, 0xc8dff269UL }, /* 999 */
+  { 0x0041919cUL, 0x365e6dbcUL }, /* 1000 */
+  { 0x004180d5UL, 0x3e30fafcUL }, /* 1001 */
+  { 0x00417016UL, 0xd9bebf28UL }, /* 1002 */
+  { 0x00415f61UL, 0x02759c52UL }, /* 1003 */
+  { 0x00414eb3UL, 0xb1ca2906UL }, /* 1004 */
+  { 0x00413e0eUL, 0xe137a7c2UL }, /* 1005 */
+  { 0x00412d72UL, 0x8a3ffe74UL }, /* 1006 */
+  { 0x00411cdeUL, 0xa66bae0cUL }, /* 1007 */
+  { 0x00410c53UL, 0x2f49ca14UL }, /* 1008 */
+  { 0x0040fbd0UL, 0x1e6ff05bUL }, /* 1009 */
+  { 0x0040eb55UL, 0x6d7a40abUL }, /* 1010 */
+  { 0x0040dae3UL, 0x160b5488UL }, /* 1011 */
+  { 0x0040ca79UL, 0x11cc3700UL }, /* 1012 */
+  { 0x0040ba17UL, 0x5a6c5c83UL }, /* 1013 */
+  { 0x0040a9bdUL, 0xe9a19acfUL }, /* 1014 */
+  { 0x0040996cUL, 0xb92820e0UL }, /* 1015 */
+  { 0x00408923UL, 0xc2c26eedUL }, /* 1016 */
+  { 0x004078e3UL, 0x00394e7aUL }, /* 1017 */
+  { 0x004068aaUL, 0x6b5bca6aUL }, /* 1018 */
+  { 0x00405879UL, 0xfdff2724UL }, /* 1019 */
+  { 0x00404851UL, 0xb1fedac5UL }, /* 1020 */
+  { 0x00403831UL, 0x813c8555UL }, /* 1021 */
+  { 0x00402819UL, 0x659fe914UL }, /* 1022 */
+  { 0x00401809UL, 0x5916e2caUL }, /* 1023 */
+  { 0x00400801UL, 0x55956225UL }, /* 1024 */
+  { 0x003ff801UL, 0x5515621fUL }, /* 1025 */
+  { 0x003fe809UL, 0x5196e17aUL }, /* 1026 */
+  { 0x003fd819UL, 0x451fdb39UL }, /* 1027 */
+  { 0x003fc831UL, 0x29bc3f2fUL }, /* 1028 */
+  { 0x003fb850UL, 0xf97dea93UL }, /* 1029 */
+  { 0x003fa878UL, 0xae7ca0a5UL }, /* 1030 */
+  { 0x003f98a8UL, 0x42d60355UL }, /* 1031 */
+  { 0x003f88dfUL, 0xb0ad8c00UL }, /* 1032 */
+  { 0x003f791eUL, 0xf22c842eUL }, /* 1033 */
+  { 0x003f6966UL, 0x0181fe61UL }, /* 1034 */
+  { 0x003f59b4UL, 0xd8e2ceebUL }, /* 1035 */
+  { 0x003f4a0bUL, 0x728984d2UL }, /* 1036 */
+  { 0x003f3a69UL, 0xc8b662bbUL }, /* 1037 */
+  { 0x003f2acfUL, 0xd5af57e2UL }, /* 1038 */
+  { 0x003f1b3dUL, 0x93bff91dUL }, /* 1039 */
+  { 0x003f0bb2UL, 0xfd3979e5UL }, /* 1040 */
+  { 0x003efc30UL, 0x0c72a56eUL }, /* 1041 */
+  { 0x003eecb4UL, 0xbbc7d7c9UL }, /* 1042 */
+  { 0x003edd41UL, 0x059af70aUL }, /* 1043 */
+  { 0x003ecdd4UL, 0xe4536c81UL }, /* 1044 */
+  { 0x003ebe70UL, 0x525e1df6UL }, /* 1045 */
+  { 0x003eaf13UL, 0x4a2d66f3UL }, /* 1046 */
+  { 0x003e9fbdUL, 0xc6391217UL }, /* 1047 */
+  { 0x003e906fUL, 0xc0fe526eUL }, /* 1048 */
+  { 0x003e8129UL, 0x34ffbcddUL }, /* 1049 */
+  { 0x003e71eaUL, 0x1cc5418cUL }, /* 1050 */
+  { 0x003e62b2UL, 0x72dc2562UL }, /* 1051 */
+  { 0x003e5382UL, 0x31d6fb89UL }, /* 1052 */
+  { 0x003e4459UL, 0x544d9ef7UL }, /* 1053 */
+  { 0x003e3537UL, 0xd4dd2c03UL }, /* 1054 */
+  { 0x003e261dUL, 0xae27fa0aUL }, /* 1055 */
+  { 0x003e170aUL, 0xdad59510UL }, /* 1056 */
+  { 0x003e07ffUL, 0x5592b776UL }, /* 1057 */
+  { 0x003df8fbUL, 0x191143b2UL }, /* 1058 */
+  { 0x003de9feUL, 0x20083e14UL }, /* 1059 */
+  { 0x003ddb08UL, 0x6533c692UL }, /* 1060 */
+  { 0x003dcc19UL, 0xe35512a0UL }, /* 1061 */
+  { 0x003dbd32UL, 0x9532670bUL }, /* 1062 */
+  { 0x003dae52UL, 0x759711e2UL }, /* 1063 */
+  { 0x003d9f79UL, 0x7f536467UL }, /* 1064 */
+  { 0x003d90a7UL, 0xad3cad08UL }, /* 1065 */
+  { 0x003d81dcUL, 0xfa2d3160UL }, /* 1066 */
+  { 0x003d7319UL, 0x61042841UL }, /* 1067 */
+  { 0x003d645cUL, 0xdca5b3c9UL }, /* 1068 */
+  { 0x003d55a7UL, 0x67fadb79UL }, /* 1069 */
+  { 0x003d46f8UL, 0xfdf18660UL }, /* 1070 */
+  { 0x003d3851UL, 0x997c753fUL }, /* 1071 */
+  { 0x003d29b1UL, 0x35933cc5UL }, /* 1072 */
+  { 0x003d1b17UL, 0xcd323fc7UL }, /* 1073 */
+  { 0x003d0c85UL, 0x5b5aa988UL }, /* 1074 */
+  { 0x003cfdf9UL, 0xdb126804UL }, /* 1075 */
+  { 0x003cef75UL, 0x47642649UL }, /* 1076 */
+  { 0x003ce0f7UL, 0x9b5f46d2UL }, /* 1077 */
+  { 0x003cd280UL, 0xd217ddebUL }, /* 1078 */
+  { 0x003cc410UL, 0xe6a6ac24UL }, /* 1079 */
+  { 0x003cb5a7UL, 0xd42918c2UL }, /* 1080 */
+  { 0x003ca745UL, 0x95c12c3dUL }, /* 1081 */
+  { 0x003c98eaUL, 0x26958ac8UL }, /* 1082 */
+  { 0x003c8a95UL, 0x81d16edbUL }, /* 1083 */
+  { 0x003c7c47UL, 0xa2a4a3c8UL }, /* 1084 */
+  { 0x003c6e00UL, 0x8443805bUL }, /* 1085 */
+  { 0x003c5fc0UL, 0x21e6e179UL }, /* 1086 */
+  { 0x003c5186UL, 0x76cc24cfUL }, /* 1087 */
+  { 0x003c4353UL, 0x7e352385UL }, /* 1088 */
+  { 0x003c3527UL, 0x33682cf6UL }, /* 1089 */
+  { 0x003c2701UL, 0x91b00175UL }, /* 1090 */
+  { 0x003c18e2UL, 0x945bcd16UL }, /* 1091 */
+  { 0x003c0acaUL, 0x36bf227eUL }, /* 1092 */
+  { 0x003bfcb8UL, 0x7431f5baUL }, /* 1093 */
+  { 0x003beeadUL, 0x48109721UL }, /* 1094 */
+  { 0x003be0a8UL, 0xadbbae39UL }, /* 1095 */
+  { 0x003bd2aaUL, 0xa09834a4UL }, /* 1096 */
+  { 0x003bc4b3UL, 0x1c0f7116UL }, /* 1097 */
+  { 0x003bb6c2UL, 0x1b8ef251UL }, /* 1098 */
+  { 0x003ba8d7UL, 0x9a888a27UL }, /* 1099 */
+  { 0x003b9af3UL, 0x94724883UL }, /* 1100 */
+  { 0x003b8d16UL, 0x04c6767dUL }, /* 1101 */
+  { 0x003b7f3eUL, 0xe703916dUL }, /* 1102 */
+  { 0x003b716eUL, 0x36ac460fUL }, /* 1103 */
+  { 0x003b63a3UL, 0xef476ba1UL }, /* 1104 */
+  { 0x003b55e0UL, 0x0c5fff18UL }, /* 1105 */
+  { 0x003b4822UL, 0x89851e4bUL }, /* 1106 */
+  { 0x003b3a6bUL, 0x624a032eUL }, /* 1107 */
+  { 0x003b2cbaUL, 0x9245ff18UL }, /* 1108 */
+  { 0x003b1f10UL, 0x15147601UL }, /* 1109 */
+  { 0x003b116bUL, 0xe654d9d3UL }, /* 1110 */
+  { 0x003b03ceUL, 0x01aaa5c0UL }, /* 1111 */
+  { 0x003af636UL, 0x62bd5999UL }, /* 1112 */
+  { 0x003ae8a5UL, 0x0538752eUL }, /* 1113 */
+  { 0x003adb19UL, 0xe4cb73b8UL }, /* 1114 */
+  { 0x003acd94UL, 0xfd29c742UL }, /* 1115 */
+  { 0x003ac016UL, 0x4a0ad421UL }, /* 1116 */
+  { 0x003ab29dUL, 0xc729ec6aUL }, /* 1117 */
+  { 0x003aa52bUL, 0x70464b76UL }, /* 1118 */
+  { 0x003a97bfUL, 0x41231164UL }, /* 1119 */
+  { 0x003a8a59UL, 0x35873ea6UL }, /* 1120 */
+  { 0x003a7cf9UL, 0x493daf97UL }, /* 1121 */
+  { 0x003a6f9fUL, 0x78151811UL }, /* 1122 */
+  { 0x003a624bUL, 0xbddfff09UL }, /* 1123 */
+  { 0x003a54feUL, 0x1674ba38UL }, /* 1124 */
+  { 0x003a47b6UL, 0x7dad69c3UL }, /* 1125 */
+  { 0x003a3a74UL, 0xef67f3ecUL }, /* 1126 */
+  { 0x003a2d39UL, 0x678600c8UL }, /* 1127 */
+  { 0x003a2003UL, 0xe1ecf5fbUL }, /* 1128 */
+  { 0x003a12d4UL, 0x5a85f27aUL }, /* 1129 */
+  { 0x003a05aaUL, 0xcd3dca54UL }, /* 1130 */
+  { 0x0039f887UL, 0x3605027bUL }, /* 1131 */
+  { 0x0039eb69UL, 0x90cfcc9eUL }, /* 1132 */
+  { 0x0039de51UL, 0xd99602faUL }, /* 1133 */
+  { 0x0039d140UL, 0x0c532441UL }, /* 1134 */
+  { 0x0039c434UL, 0x25064f75UL }, /* 1135 */
+  { 0x0039b72eUL, 0x1fb23fd8UL }, /* 1136 */
+  { 0x0039aa2dUL, 0xf85d48d9UL }, /* 1137 */
+  { 0x00399d33UL, 0xab115207UL }, /* 1138 */
+  { 0x0039903fUL, 0x33dbd30eUL }, /* 1139 */
+  { 0x00398350UL, 0x8ecdcfb4UL }, /* 1140 */
+  { 0x00397667UL, 0xb7fbd3e0UL }, /* 1141 */
+  { 0x00396984UL, 0xab7def9fUL }, /* 1142 */
+  { 0x00395ca7UL, 0x656fb33eUL }, /* 1143 */
+  { 0x00394fcfUL, 0xe1f02b51UL }, /* 1144 */
+  { 0x003942feUL, 0x1d21dcdaUL }, /* 1145 */
+  { 0x00393632UL, 0x132ac15eUL }, /* 1146 */
+  { 0x0039296bUL, 0xc0344312UL }, /* 1147 */
+  { 0x00391cabUL, 0x206b38feUL }, /* 1148 */
+  { 0x00390ff0UL, 0x2fffe32fUL }, /* 1149 */
+  { 0x0039033aUL, 0xeb25e6ebUL }, /* 1150 */
+  { 0x0038f68bUL, 0x4e144ae7UL }, /* 1151 */
+  { 0x0038e9e1UL, 0x5505738aUL }, /* 1152 */
+  { 0x0038dd3cUL, 0xfc371f2cUL }, /* 1153 */
+  { 0x0038d09eUL, 0x3fea625fUL }, /* 1154 */
+  { 0x0038c405UL, 0x1c63a43bUL }, /* 1155 */
+  { 0x0038b771UL, 0x8dea9ab2UL }, /* 1156 */
+  { 0x0038aae3UL, 0x90ca46e7UL }, /* 1157 */
+  { 0x00389e5bUL, 0x2150f186UL }, /* 1158 */
+  { 0x003891d8UL, 0x3bd02727UL }, /* 1159 */
+  { 0x0038855aUL, 0xdc9cb4b4UL }, /* 1160 */
+  { 0x003878e3UL, 0x000ea3cfUL }, /* 1161 */
+  { 0x00386c70UL, 0xa2813748UL }, /* 1162 */
+  { 0x00386003UL, 0xc052e787UL }, /* 1163 */
+  { 0x0038539cUL, 0x55e55f0cUL }, /* 1164 */
+  { 0x0038473aUL, 0x5f9d76e8UL }, /* 1165 */
+  { 0x00383addUL, 0xd9e33341UL }, /* 1166 */
+  { 0x00382e86UL, 0xc121bfd2UL }, /* 1167 */
+  { 0x00382235UL, 0x11c76c7eUL }, /* 1168 */
+  { 0x003815e8UL, 0xc845a9d9UL }, /* 1169 */
+  { 0x003809a1UL, 0xe11105beUL }, /* 1170 */
+  { 0x0037fd60UL, 0x58a127e6UL }, /* 1171 */
+  { 0x0037f124UL, 0x2b70ce87UL }, /* 1172 */
+  { 0x0037e4edUL, 0x55fdcaf2UL }, /* 1173 */
+  { 0x0037d8bbUL, 0xd4c8fe3aUL }, /* 1174 */
+  { 0x0037cc8fUL, 0xa45655deUL }, /* 1175 */
+  { 0x0037c068UL, 0xc12cc877UL }, /* 1176 */
+  { 0x0037b447UL, 0x27d65269UL }, /* 1177 */
+  { 0x0037a82aUL, 0xd4dff29eUL }, /* 1178 */
+  { 0x00379c13UL, 0xc4d9a73bUL }, /* 1179 */
+  { 0x00379001UL, 0xf4566a66UL }, /* 1180 */
+  { 0x003783f5UL, 0x5fec2f05UL }, /* 1181 */
+  { 0x003777eeUL, 0x0433dd86UL }, /* 1182 */
+  { 0x00376bebUL, 0xddc950adUL }, /* 1183 */
+  { 0x00375feeUL, 0xe94b5265UL }, /* 1184 */
+  { 0x003753f7UL, 0x235b9891UL }, /* 1185 */
+  { 0x00374804UL, 0x889ec1e5UL }, /* 1186 */
+  { 0x00373c17UL, 0x15bc52c7UL }, /* 1187 */
+  { 0x0037302eUL, 0xc75eb228UL }, /* 1188 */
+  { 0x0037244bUL, 0x9a33266fUL }, /* 1189 */
+  { 0x0037186dUL, 0x8ae9d260UL }, /* 1190 */
+  { 0x00370c94UL, 0x9635b206UL }, /* 1191 */
+  { 0x003700c0UL, 0xb8cc97a5UL }, /* 1192 */
+  { 0x0036f4f1UL, 0xef6728b2UL }, /* 1193 */
+  { 0x0036e928UL, 0x36c0dac4UL }, /* 1194 */
+  { 0x0036dd63UL, 0x8b97f099UL }, /* 1195 */
+  { 0x0036d1a3UL, 0xeaad770eUL }, /* 1196 */
+  { 0x0036c5e9UL, 0x50c54229UL }, /* 1197 */
+  { 0x0036ba33UL, 0xbaa5ea1eUL }, /* 1198 */
+  { 0x0036ae83UL, 0x2518c85bUL }, /* 1199 */
+  { 0x0036a2d7UL, 0x8ce9f498UL }, /* 1200 */
+  { 0x00369730UL, 0xeee841eaUL }, /* 1201 */
+  { 0x00368b8fUL, 0x47e53bdbUL }, /* 1202 */
+  { 0x00367ff2UL, 0x94b52380UL }, /* 1203 */
+  { 0x0036745aUL, 0xd22eec9fUL }, /* 1204 */
+  { 0x003668c7UL, 0xfd2c3accUL }, /* 1205 */
+  { 0x00365d3aUL, 0x12895e8dUL }, /* 1206 */
+  { 0x003651b1UL, 0x0f255289UL }, /* 1207 */
+  { 0x0036462cUL, 0xefe1b8b0UL }, /* 1208 */
+  { 0x00363aadUL, 0xb1a2d76fUL }, /* 1209 */
+  { 0x00362f33UL, 0x514f96e0UL }, /* 1210 */
+  { 0x003623bdUL, 0xcbd17e08UL }, /* 1211 */
+  { 0x0036184dUL, 0x1e14b00aUL }, /* 1212 */
+  { 0x00360ce1UL, 0x4507e96cUL }, /* 1213 */
+  { 0x0036017aUL, 0x3d9c7d58UL }, /* 1214 */
+  { 0x0035f618UL, 0x04c652e0UL }, /* 1215 */
+  { 0x0035eabaUL, 0x977be246UL }, /* 1216 */
+  { 0x0035df61UL, 0xf2b6324cUL }, /* 1217 */
+  { 0x0035d40eUL, 0x1370d583UL }, /* 1218 */
+  { 0x0035c8beUL, 0xf6a9e79cUL }, /* 1219 */
+  { 0x0035bd74UL, 0x99620ac1UL }, /* 1220 */
+  { 0x0035b22eUL, 0xf89c64eeUL }, /* 1221 */
+  { 0x0035a6eeUL, 0x115e9d4dUL }, /* 1222 */
+  { 0x00359bb1UL, 0xe0b0d99bUL }, /* 1223 */
+  { 0x0035907aUL, 0x639dbb87UL }, /* 1224 */
+  { 0x00358547UL, 0x97325e1dUL }, /* 1225 */
+  { 0x00357a19UL, 0x787e532dUL }, /* 1226 */
+  { 0x00356ef0UL, 0x0493a0bcUL }, /* 1227 */
+  { 0x003563cbUL, 0x3886be72UL }, /* 1228 */
+  { 0x003558abUL, 0x116e9312UL }, /* 1229 */
+  { 0x00354d8fUL, 0x8c6471ecUL }, /* 1230 */
+  { 0x00354278UL, 0xa684185dUL }, /* 1231 */
+  { 0x00353766UL, 0x5cebab48UL }, /* 1232 */
+  { 0x00352c58UL, 0xacbbb49bUL }, /* 1233 */
+  { 0x0035214fUL, 0x931720cdUL }, /* 1234 */
+  { 0x0035164bUL, 0x0d233c6cUL }, /* 1235 */
+  { 0x00350b4bUL, 0x1807b1a2UL }, /* 1236 */
+  { 0x0035004fUL, 0xb0ee85c5UL }, /* 1237 */
+  { 0x0034f558UL, 0xd50416e3UL }, /* 1238 */
+  { 0x0034ea66UL, 0x8177195cUL }, /* 1239 */
+  { 0x0034df78UL, 0xb378956fUL }, /* 1240 */
+  { 0x0034d48fUL, 0x683be4deUL }, /* 1241 */
+  { 0x0034c9aaUL, 0x9cf6b07fUL }, /* 1242 */
+  { 0x0034becaUL, 0x4ee0ede3UL }, /* 1243 */
+  { 0x0034b3eeUL, 0x7b34dcf5UL }, /* 1244 */
+  { 0x0034a917UL, 0x1f2f05a0UL }, /* 1245 */
+  { 0x00349e44UL, 0x380e3576UL }, /* 1246 */
+  { 0x00349375UL, 0xc3137d58UL }, /* 1247 */
+  { 0x003488abUL, 0xbd822f2aUL }, /* 1248 */
+  { 0x00347de6UL, 0x249fdb7eUL }, /* 1249 */
+  { 0x00347324UL, 0xf5b44f4bUL }, /* 1250 */
+  { 0x00346868UL, 0x2e09919eUL }, /* 1251 */
+  { 0x00345dafUL, 0xcaebe159UL }, /* 1252 */
+  { 0x003452fbUL, 0xc9a9b2eaUL }, /* 1253 */
+  { 0x0034484cUL, 0x2793ae0eUL }, /* 1254 */
+  { 0x00343da0UL, 0xe1fcab8dUL }, /* 1255 */
+  { 0x003432f9UL, 0xf639b301UL }, /* 1256 */
+  { 0x00342857UL, 0x61a1f89eUL }, /* 1257 */
+  { 0x00341db9UL, 0x218edaf8UL }, /* 1258 */
+  { 0x0034131fUL, 0x335be0d2UL }, /* 1259 */
+  { 0x00340889UL, 0x9466b6ebUL }, /* 1260 */
+  { 0x0033fdf8UL, 0x420f2dd1UL }, /* 1261 */
+  { 0x0033f36bUL, 0x39b737b4UL }, /* 1262 */
+  { 0x0033e8e2UL, 0x78c2e63dUL }, /* 1263 */
+  { 0x0033de5dUL, 0xfc986869UL }, /* 1264 */
+  { 0x0033d3ddUL, 0xc2a00863UL }, /* 1265 */
+  { 0x0033c961UL, 0xc8442961UL }, /* 1266 */
+  { 0x0033beeaUL, 0x0af1458cUL }, /* 1267 */
+  { 0x0033b476UL, 0x8815ebdcUL }, /* 1268 */
+  { 0x0033aa07UL, 0x3d22be03UL }, /* 1269 */
+  { 0x00339f9cUL, 0x278a6e54UL }, /* 1270 */
+  { 0x00339535UL, 0x44c1bdafUL }, /* 1271 */
+  { 0x00338ad2UL, 0x923f7971UL }, /* 1272 */
+  { 0x00338074UL, 0x0d7c7960UL }, /* 1273 */
+  { 0x00337619UL, 0xb3f39da1UL }, /* 1274 */
+  { 0x00336bc3UL, 0x8321ccacUL }, /* 1275 */
+  { 0x00336171UL, 0x7885f146UL }, /* 1276 */
+  { 0x00335723UL, 0x91a0f878UL }, /* 1277 */
+  { 0x00334cd9UL, 0xcbf5cf91UL }, /* 1278 */
+  { 0x00334294UL, 0x2509621cUL }, /* 1279 */
+  { 0x00333852UL, 0x9a6297edUL }, /* 1280 */
+  { 0x00332e15UL, 0x298a531cUL }, /* 1281 */
+  { 0x003323dbUL, 0xd00b6e0eUL }, /* 1282 */
+  { 0x003319a6UL, 0x8b72b980UL }, /* 1283 */
+  { 0x00330f75UL, 0x594efa90UL }, /* 1284 */
+  { 0x00330548UL, 0x3730e8c9UL }, /* 1285 */
+  { 0x0032fb1fUL, 0x22ab2c35UL }, /* 1286 */
+  { 0x0032f0faUL, 0x19525b70UL }, /* 1287 */
+  { 0x0032e6d9UL, 0x18bcf9b7UL }, /* 1288 */
+  { 0x0032dcbcUL, 0x1e837506UL }, /* 1289 */
+  { 0x0032d2a3UL, 0x2840242bUL }, /* 1290 */
+  { 0x0032c88eUL, 0x338f44e2UL }, /* 1291 */
+  { 0x0032be7dUL, 0x3e0ef9f7UL }, /* 1292 */
+  { 0x0032b470UL, 0x455f4960UL }, /* 1293 */
+  { 0x0032aa67UL, 0x47221a61UL }, /* 1294 */
+  { 0x0032a062UL, 0x40fb33b1UL }, /* 1295 */
+  { 0x00329661UL, 0x309039a0UL }, /* 1296 */
+  { 0x00328c64UL, 0x1388ac3dUL }, /* 1297 */
+  { 0x0032826aUL, 0xe78de585UL }, /* 1298 */
+  { 0x00327875UL, 0xaa4b178dUL }, /* 1299 */
+  { 0x00326e84UL, 0x596d4aafUL }, /* 1300 */
+  { 0x00326496UL, 0xf2a35bc1UL }, /* 1301 */
+  { 0x00325aadUL, 0x739dfa43UL }, /* 1302 */
+  { 0x003250c7UL, 0xda0fa697UL }, /* 1303 */
+  { 0x003246e6UL, 0x23acb037UL }, /* 1304 */
+  { 0x00323d08UL, 0x4e2b33f0UL }, /* 1305 */
+  { 0x0032332eUL, 0x57431a1dUL }, /* 1306 */
+  { 0x00322958UL, 0x3cae14e4UL }, /* 1307 */
+  { 0x00321f85UL, 0xfc279e79UL }, /* 1308 */
+  { 0x003215b7UL, 0x936cf75aUL }, /* 1309 */
+  { 0x00320bedUL, 0x003d249aUL }, /* 1310 */
+  { 0x00320226UL, 0x4058ee21UL }, /* 1311 */
+  { 0x0031f863UL, 0x5182dcf7UL }, /* 1312 */
+  { 0x0031eea4UL, 0x317f398eUL }, /* 1313 */
+  { 0x0031e4e8UL, 0xde140a0eUL }, /* 1314 */
+  { 0x0031db31UL, 0x550910a0UL }, /* 1315 */
+  { 0x0031d17dUL, 0x9427c9c3UL }, /* 1316 */
+  { 0x0031c7cdUL, 0x993b6a9aUL }, /* 1317 */
+  { 0x0031be21UL, 0x6210df41UL }, /* 1318 */
+  { 0x0031b478UL, 0xec76c923UL }, /* 1319 */
+  { 0x0031aad4UL, 0x363d7d54UL }, /* 1320 */
+  { 0x0031a133UL, 0x3d3702e6UL }, /* 1321 */
+  { 0x00319795UL, 0xff371148UL }, /* 1322 */
+  { 0x00318dfcUL, 0x7a130ea3UL }, /* 1323 */
+  { 0x00318466UL, 0xaba20e38UL }, /* 1324 */
+  { 0x00317ad4UL, 0x91bccec5UL }, /* 1325 */
+  { 0x00317146UL, 0x2a3db8e4UL }, /* 1326 */
+  { 0x003167bbUL, 0x7300dd70UL }, /* 1327 */
+  { 0x00315e34UL, 0x69e3f3f1UL }, /* 1328 */
+  { 0x003154b1UL, 0x0cc658ffUL }, /* 1329 */
+  { 0x00314b31UL, 0x59890cb0UL }, /* 1330 */
+  { 0x003141b5UL, 0x4e0eb104UL }, /* 1331 */
+  { 0x0031383cUL, 0xe83b8851UL }, /* 1332 */
+  { 0x00312ec8UL, 0x25f573b7UL }, /* 1333 */
+  { 0x00312557UL, 0x0523f18dUL }, /* 1334 */
+  { 0x00311be9UL, 0x83b01bd9UL }, /* 1335 */
+  { 0x0031127fUL, 0x9f84a6c4UL }, /* 1336 */
+  { 0x00310919UL, 0x568ddf10UL }, /* 1337 */
+  { 0x0030ffb6UL, 0xa6b9a891UL }, /* 1338 */
+  { 0x0030f657UL, 0x8df77cacUL }, /* 1339 */
+  { 0x0030ecfcUL, 0x0a3868ccUL }, /* 1340 */
+  { 0x0030e3a4UL, 0x196f0ce6UL }, /* 1341 */
+  { 0x0030da4fUL, 0xb98f99f8UL }, /* 1342 */
+  { 0x0030d0feUL, 0xe88fd089UL }, /* 1343 */
+  { 0x0030c7b1UL, 0xa466ff2cUL }, /* 1344 */
+  { 0x0030be67UL, 0xeb0e0109UL }, /* 1345 */
+  { 0x0030b521UL, 0xba7f3c5dUL }, /* 1346 */
+  { 0x0030abdfUL, 0x10b6a10bUL }, /* 1347 */
+  { 0x0030a29fUL, 0xebb1a71eUL }, /* 1348 */
+  { 0x00309964UL, 0x496f4d59UL }, /* 1349 */
+  { 0x0030902cUL, 0x27f017c4UL }, /* 1350 */
+  { 0x003086f7UL, 0x85360e3aUL }, /* 1351 */
+  { 0x00307dc6UL, 0x5f44bafcUL }, /* 1352 */
+  { 0x00307498UL, 0xb421293fUL }, /* 1353 */
+  { 0x00306b6eUL, 0x81d1e3c5UL }, /* 1354 */
+  { 0x00306247UL, 0xc65ef36fUL }, /* 1355 */
+  { 0x00305924UL, 0x7fd1ddd5UL }, /* 1356 */
+  { 0x00305004UL, 0xac35a3e0UL }, /* 1357 */
+  { 0x003046e8UL, 0x4996c063UL }, /* 1358 */
+  { 0x00303dcfUL, 0x560326b7UL }, /* 1359 */
+  { 0x003034b9UL, 0xcf8a4159UL }, /* 1360 */
+  { 0x00302ba7UL, 0xb43cf08aUL }, /* 1361 */
+  { 0x00302299UL, 0x022d88ecUL }, /* 1362 */
+  { 0x0030198dUL, 0xb76fd229UL }, /* 1363 */
+  { 0x00301085UL, 0xd2190594UL }, /* 1364 */
+  { 0x00300781UL, 0x503fccccUL }, /* 1365 */
+  { 0x002ffe80UL, 0x2ffc406aUL }, /* 1366 */
+  { 0x002ff582UL, 0x6f67e69fUL }, /* 1367 */
+  { 0x002fec88UL, 0x0c9db1e9UL }, /* 1368 */
+  { 0x002fe391UL, 0x05b9ffb5UL }, /* 1369 */
+  { 0x002fda9dUL, 0x58da9711UL }, /* 1370 */
+  { 0x002fd1adUL, 0x041ea756UL }, /* 1371 */
+  { 0x002fc8c0UL, 0x05a6c6dfUL }, /* 1372 */
+  { 0x002fbfd6UL, 0x5b94f1b3UL }, /* 1373 */
+  { 0x002fb6f0UL, 0x040c8839UL }, /* 1374 */
+  { 0x002fae0cUL, 0xfd324defUL }, /* 1375 */
+  { 0x002fa52dUL, 0x452c681fUL }, /* 1376 */
+  { 0x002f9c50UL, 0xda225c94UL }, /* 1377 */
+  { 0x002f9377UL, 0xba3d1052UL }, /* 1378 */
+  { 0x002f8aa1UL, 0xe3a6c653UL }, /* 1379 */
+  { 0x002f81cfUL, 0x548b1e41UL }, /* 1380 */
+  { 0x002f7900UL, 0x0b171331UL }, /* 1381 */
+  { 0x002f7034UL, 0x0578fa62UL }, /* 1382 */
+  { 0x002f676bUL, 0x41e081ffUL }, /* 1383 */
+  { 0x002f5ea5UL, 0xbe7eafdcUL }, /* 1384 */
+  { 0x002f55e3UL, 0x7985e03bUL }, /* 1385 */
+  { 0x002f4d24UL, 0x7129c48eUL }, /* 1386 */
+  { 0x002f4468UL, 0xa39f623cUL }, /* 1387 */
+  { 0x002f3bb0UL, 0x0f1d116bUL }, /* 1388 */
+  { 0x002f32faUL, 0xb1da7bc2UL }, /* 1389 */
+  { 0x002f2a48UL, 0x8a109b36UL }, /* 1390 */
+  { 0x002f2199UL, 0x95f9b8d3UL }, /* 1391 */
+  { 0x002f18edUL, 0xd3d16b88UL }, /* 1392 */
+  { 0x002f1045UL, 0x41d496f6UL }, /* 1393 */
+  { 0x002f079fUL, 0xde416a39UL }, /* 1394 */
+  { 0x002efefdUL, 0xa7575ebfUL }, /* 1395 */
+  { 0x002ef65eUL, 0x9b573713UL }, /* 1396 */
+  { 0x002eedc2UL, 0xb882fdb2UL }, /* 1397 */
+  { 0x002ee529UL, 0xfd1e03e0UL }, /* 1398 */
+  { 0x002edc94UL, 0x676ce079UL }, /* 1399 */
+  { 0x002ed401UL, 0xf5b56eccUL }, /* 1400 */
+  { 0x002ecb72UL, 0xa63ecd6cUL }, /* 1401 */
+  { 0x002ec2e6UL, 0x77515d10UL }, /* 1402 */
+  { 0x002eba5dUL, 0x6736bf69UL }, /* 1403 */
+  { 0x002eb1d7UL, 0x7439d5fdUL }, /* 1404 */
+  { 0x002ea954UL, 0x9ca6c106UL }, /* 1405 */
+  { 0x002ea0d4UL, 0xdecade4cUL }, /* 1406 */
+  { 0x002e9858UL, 0x38f4c809UL }, /* 1407 */
+  { 0x002e8fdeUL, 0xa97453c3UL }, /* 1408 */
+  { 0x002e8768UL, 0x2e9a9133UL }, /* 1409 */
+  { 0x002e7ef4UL, 0xc6b9c927UL }, /* 1410 */
+  { 0x002e7684UL, 0x70257c61UL }, /* 1411 */
+  { 0x002e6e17UL, 0x29326281UL }, /* 1412 */
+  { 0x002e65acUL, 0xf03668ecUL }, /* 1413 */
+  { 0x002e5d45UL, 0xc388b1afUL }, /* 1414 */
+  { 0x002e54e1UL, 0xa1819269UL }, /* 1415 */
+  { 0x002e4c80UL, 0x887a9339UL }, /* 1416 */
+  { 0x002e4422UL, 0x76ce6da4UL }, /* 1417 */
+  { 0x002e3bc7UL, 0x6ad90b82UL }, /* 1418 */
+  { 0x002e336fUL, 0x62f785f1UL }, /* 1419 */
+  { 0x002e2b1aUL, 0x5d882439UL }, /* 1420 */
+  { 0x002e22c8UL, 0x58ea5ac8UL }, /* 1421 */
+  { 0x002e1a79UL, 0x537eca17UL }, /* 1422 */
+  { 0x002e122dUL, 0x4ba73da5UL }, /* 1423 */
+  { 0x002e09e4UL, 0x3fc6aae7UL }, /* 1424 */
+  { 0x002e019eUL, 0x2e413039UL }, /* 1425 */
+  { 0x002df95bUL, 0x157c13dbUL }, /* 1426 */
+  { 0x002df11aUL, 0xf3ddc2dfUL }, /* 1427 */
+  { 0x002de8ddUL, 0xc7cdd025UL }, /* 1428 */
+  { 0x002de0a3UL, 0x8fb4f356UL }, /* 1429 */
+  { 0x002dd86cUL, 0x49fd07d9UL }, /* 1430 */
+  { 0x002dd037UL, 0xf5110bd0UL }, /* 1431 */
+  { 0x002dc806UL, 0x8f5d1f15UL }, /* 1432 */
+  { 0x002dbfd8UL, 0x174e8235UL }, /* 1433 */
+  { 0x002db7acUL, 0x8b539572UL }, /* 1434 */
+  { 0x002daf83UL, 0xe9dbd7bdUL }, /* 1435 */
+  { 0x002da75eUL, 0x3157e5bbUL }, /* 1436 */
+  { 0x002d9f3bUL, 0x603978c3UL }, /* 1437 */
+  { 0x002d971bUL, 0x74f365e3UL }, /* 1438 */
+  { 0x002d8efeUL, 0x6df99ce3UL }, /* 1439 */
+  { 0x002d86e4UL, 0x49c12748UL }, /* 1440 */
+  { 0x002d7ecdUL, 0x06c0275cUL }, /* 1441 */
+  { 0x002d76b8UL, 0xa36dd733UL }, /* 1442 */
+  { 0x002d6ea7UL, 0x1e4287b3UL }, /* 1443 */
+  { 0x002d6698UL, 0x75b79f9dUL }, /* 1444 */
+  { 0x002d5e8cUL, 0xa8479a98UL }, /* 1445 */
+  { 0x002d5683UL, 0xb46e0839UL }, /* 1446 */
+  { 0x002d4e7dUL, 0x98a78b11UL }, /* 1447 */
+  { 0x002d467aUL, 0x5371d7baUL }, /* 1448 */
+  { 0x002d3e79UL, 0xe34bb3e3UL }, /* 1449 */
+  { 0x002d367cUL, 0x46b4f561UL }, /* 1450 */
+  { 0x002d2e81UL, 0x7c2e813eUL }, /* 1451 */
+  { 0x002d2689UL, 0x823a4ac7UL }, /* 1452 */
+  { 0x002d1e94UL, 0x575b52a4UL }, /* 1453 */
+  { 0x002d16a1UL, 0xfa15a5e6UL }, /* 1454 */
+  { 0x002d0eb2UL, 0x68ee5d1bUL }, /* 1455 */
+  { 0x002d06c5UL, 0xa26b9b65UL }, /* 1456 */
+  { 0x002cfedbUL, 0xa5148d8eUL }, /* 1457 */
+  { 0x002cf6f4UL, 0x6f71691fUL }, /* 1458 */
+  { 0x002cef10UL, 0x000b6b7aUL }, /* 1459 */
+  { 0x002ce72eUL, 0x556cd8eeUL }, /* 1460 */
+  { 0x002cdf4fUL, 0x6e20fbd4UL }, /* 1461 */
+  { 0x002cd773UL, 0x48b423a8UL }, /* 1462 */
+  { 0x002ccf99UL, 0xe3b3a427UL }, /* 1463 */
+  { 0x002cc7c3UL, 0x3dadd468UL }, /* 1464 */
+  { 0x002cbfefUL, 0x55320df9UL }, /* 1465 */
+  { 0x002cb81eUL, 0x28d0ac03UL }, /* 1466 */
+  { 0x002cb04fUL, 0xb71b0a62UL }, /* 1467 */
+  { 0x002ca883UL, 0xfea384c8UL }, /* 1468 */
+  { 0x002ca0baUL, 0xfdfd75e2UL }, /* 1469 */
+  { 0x002c98f4UL, 0xb3bd3672UL }, /* 1470 */
+  { 0x002c9131UL, 0x1e781c77UL }, /* 1471 */
+  { 0x002c8970UL, 0x3cc47a52UL }, /* 1472 */
+  { 0x002c81b2UL, 0x0d399de5UL }, /* 1473 */
+  { 0x002c79f6UL, 0x8e6fcfbfUL }, /* 1474 */
+  { 0x002c723dUL, 0xbf00523cUL }, /* 1475 */
+  { 0x002c6a87UL, 0x9d8560b2UL }, /* 1476 */
+  { 0x002c62d4UL, 0x289a2e95UL }, /* 1477 */
+  { 0x002c5b23UL, 0x5edae6a4UL }, /* 1478 */
+  { 0x002c5375UL, 0x3ee4aa0fUL }, /* 1479 */
+  { 0x002c4bc9UL, 0xc7558fa3UL }, /* 1480 */
+  { 0x002c4420UL, 0xf6cca2f7UL }, /* 1481 */
+  { 0x002c3c7aUL, 0xcbe9e397UL }, /* 1482 */
+  { 0x002c34d7UL, 0x454e4432UL }, /* 1483 */
+  { 0x002c2d36UL, 0x619ba9c9UL }, /* 1484 */
+  { 0x002c2598UL, 0x1f74eaddUL }, /* 1485 */
+  { 0x002c1dfcUL, 0x7d7dce9eUL }, /* 1486 */
+  { 0x002c1663UL, 0x7a5b0c1eUL }, /* 1487 */
+  { 0x002c0ecdUL, 0x14b24981UL }, /* 1488 */
+  { 0x002c0739UL, 0x4b2a1b30UL }, /* 1489 */
+  { 0x002bffa8UL, 0x1c6a030dUL }, /* 1490 */
+  { 0x002bf819UL, 0x871a6fa4UL }, /* 1491 */
+  { 0x002bf08dUL, 0x89e4bb63UL }, /* 1492 */
+  { 0x002be904UL, 0x23732bd1UL }, /* 1493 */
+  { 0x002be17dUL, 0x5270f0c0UL }, /* 1494 */
+  { 0x002bd9f9UL, 0x158a2386UL }, /* 1495 */
+  { 0x002bd277UL, 0x6b6bc637UL }, /* 1496 */
+  { 0x002bcaf8UL, 0x52c3c2deUL }, /* 1497 */
+  { 0x002bc37bUL, 0xca40eab3UL }, /* 1498 */
+  { 0x002bbc01UL, 0xd092f559UL }, /* 1499 */
+  { 0x002bb48aUL, 0x646a8018UL }, /* 1500 */
+  { 0x002bad15UL, 0x84790d1bUL }, /* 1501 */
+  { 0x002ba5a3UL, 0x2f7102a7UL }, /* 1502 */
+  { 0x002b9e33UL, 0x6405aa63UL }, /* 1503 */
+  { 0x002b96c6UL, 0x20eb308aUL }, /* 1504 */
+  { 0x002b8f5bUL, 0x64d6a336UL }, /* 1505 */
+  { 0x002b87f3UL, 0x2e7df197UL }, /* 1506 */
+  { 0x002b808dUL, 0x7c97eb39UL }, /* 1507 */
+  { 0x002b792aUL, 0x4ddc3f43UL }, /* 1508 */
+  { 0x002b71c9UL, 0xa1037bbaUL }, /* 1509 */
+  { 0x002b6a6bUL, 0x74c70cc5UL }, /* 1510 */
+  { 0x002b630fUL, 0xc7e13befUL }, /* 1511 */
+  { 0x002b5bb6UL, 0x990d2f6cUL }, /* 1512 */
+  { 0x002b545fUL, 0xe706e960UL }, /* 1513 */
+  { 0x002b4d0bUL, 0xb08b4722UL }, /* 1514 */
+  { 0x002b45b9UL, 0xf4580085UL }, /* 1515 */
+  { 0x002b3e6aUL, 0xb12ba720UL }, /* 1516 */
+  { 0x002b371dUL, 0xe5c5a594UL }, /* 1517 */
+  { 0x002b2fd3UL, 0x90e63ed4UL }, /* 1518 */
+  { 0x002b288bUL, 0xb14e8d74UL }, /* 1519 */
+  { 0x002b2146UL, 0x45c082eeUL }, /* 1520 */
+  { 0x002b1a03UL, 0x4cfee6f0UL }, /* 1521 */
+  { 0x002b12c2UL, 0xc5cd56a5UL }, /* 1522 */
+  { 0x002b0b84UL, 0xaef04406UL }, /* 1523 */
+  { 0x002b0449UL, 0x072cf522UL }, /* 1524 */
+  { 0x002afd0fUL, 0xcd498370UL }, /* 1525 */
+  { 0x002af5d9UL, 0x000cdb1dUL }, /* 1526 */
+  { 0x002aeea4UL, 0x9e3eba57UL }, /* 1527 */
+  { 0x002ae772UL, 0xa6a7b0a5UL }, /* 1528 */
+  { 0x002ae043UL, 0x18111e2fUL }, /* 1529 */
+  { 0x002ad915UL, 0xf1453316UL }, /* 1530 */
+  { 0x002ad1ebUL, 0x310eeec2UL }, /* 1531 */
+  { 0x002acac2UL, 0xd63a1f39UL }, /* 1532 */
+  { 0x002ac39cUL, 0xdf93606dUL }, /* 1533 */
+  { 0x002abc79UL, 0x4be81b94UL }, /* 1534 */
+};
+
+/*****************************************************************************/
+
+static void
+norm_mul32 (unsigned long a, unsigned long b,
+            unsigned long *hi, unsigned long *lo)
+{
+#if ULONG_MAX > 0xffffffffUL && !defined(NORM_FORCE_32BIT_MUL)
+  unsigned long product = a * b;
+
+  *hi = (product >> 32) & 0xffffffffUL;
+  *lo = product & 0xffffffffUL;
+#else
+  unsigned long a0 = a & 0xffffUL;
+  unsigned long a1 = (a >> 16) & 0xffffUL;
+  unsigned long b0 = b & 0xffffUL;
+  unsigned long b1 = (b >> 16) & 0xffffUL;
+  unsigned long p0 = a0 * b0;
+  unsigned long p1 = a0 * b1;
+  unsigned long p2 = a1 * b0;
+  unsigned long p3 = a1 * b1;
+  unsigned long low, part, carry1, carry2;
+
+  low = p0;
+  part = (p1 & 0xffffUL) << 16;
+  carry1 = part > 0xffffffffUL - low ? 1UL : 0UL;
+  low += part;
+  low &= 0xffffffffUL;
+  part = (p2 & 0xffffUL) << 16;
+  carry2 = part > 0xffffffffUL - low ? 1UL : 0UL;
+  low += part;
+  low &= 0xffffffffUL;
+
+  *lo = low;
+  *hi = p3 + (p1 >> 16) + (p2 >> 16) + carry1 + carry2;
+#endif
+}
+
+/*****************************************************************************/
+
+static void
+norm_ticket_cost (const NormTicket *ticket, const unsigned int *counts,
+                  NormTicketCost *cost)
+{
+  unsigned long p0_hi, p0_lo, p1_hi, p1_lo, middle;
+  unsigned long count = counts[ticket->symbol];
+  const NormLogQ64 *log_value = &norm_log_q64[ticket->j];
+
+  norm_mul32 (count, log_value->lo, &p0_hi, &p0_lo);
+  norm_mul32 (count, log_value->hi, &p1_hi, &p1_lo);
+  middle = (p0_hi + p1_lo) & 0xffffffffUL;
+  cost->hi = (unsigned int)(p1_hi + (middle < p0_hi ? 1UL : 0UL));
+  cost->mid = (unsigned int)middle;
+  cost->lo = (unsigned int)p0_lo;
+}
+
+/*****************************************************************************/
+
+static LZ9_INLINE int
+norm_ticket_compare (const NormTicket *a, const NormTicket *b)
+{
+  if (a->cost_hi != b->cost_hi)
+    {
+      return a->cost_hi < b->cost_hi ? -1 : 1;
+    }
+
+  if (a->cost_mid != b->cost_mid)
+    {
+      return a->cost_mid < b->cost_mid ? -1 : 1;
+    }
+
+  if (a->cost_lo != b->cost_lo)
+    {
+      return a->cost_lo < b->cost_lo ? -1 : 1;
+    }
+
+  return 0;
+}
+
+/*****************************************************************************/
+
+#if defined(NORM_KL_BFPRT)
+static LZ9_INLINE int
+norm_ticket_compare_total (const NormTicket *a, const NormTicket *b)
+{
+  int cmp = norm_ticket_compare (a, b);
+
+  if (cmp)
+    {
+      return cmp;
+    }
+
+  if (a->symbol != b->symbol)
+    {
+      return a->symbol < b->symbol ? -1 : 1;
+    }
+
+  if (a->j != b->j)
+    {
+      return a->j > b->j ? -1 : 1;
+    }
+
+  return 0;
+}
+#endif /* if defined(NORM_KL_BFPRT) */
+
+/*****************************************************************************/
+
+#if defined(NORM_KL_BFPRT)
+static void
+norm_ticket_sort_small (NormTicket *tickets, unsigned int n)
+{
+  unsigned int i;
+
+  for (i = 1U; i < n; ++i)
+    {
+      NormTicket value = tickets[i];
+      unsigned int j = i;
+
+      while (j && norm_ticket_compare_total (&value, &tickets[j - 1U]) < 0)
+        {
+          tickets[j] = tickets[j - 1U];
+          --j;
+        }
+
+      tickets[j] = value;
+    }
+}
+
+/*****************************************************************************/
+
+static NormTicket
+norm_ticket_select_bfprt (NormTicket *tickets, unsigned int n,
+                          unsigned int kth)
+{
+  while (n > 5U)
+    {
+      unsigned int i, groups = 0U, lt, gt;
+      NormTicket pivot;
+
+      for (i = 0U; i < n; i += 5U)
+        {
+          unsigned int group_n = n - i;
+          unsigned int median;
+          NormTicket tmp;
+
+          if (group_n > 5U)
+            {
+              group_n = 5U;
+            }
+
+          norm_ticket_sort_small (tickets + i, group_n);
+          median = i + group_n / 2U;
+          tmp = tickets[groups];
+          tickets[groups] = tickets[median];
+          tickets[median] = tmp;
+          ++groups;
+        }
+
+      pivot = norm_ticket_select_bfprt (tickets, groups, groups / 2U);
+      lt = 0U;
+      gt = n;
+      i = 0U;
+
+      while (i < gt)
+        {
+          int cmp = norm_ticket_compare_total (&tickets[i], &pivot);
+
+          if (cmp < 0)
+            {
+              NormTicket tmp = tickets[lt];
+
+              tickets[lt] = tickets[i];
+              tickets[i] = tmp;
+              ++lt;
+              ++i;
+            }
+          else if (cmp > 0)
+            {
+              NormTicket tmp;
+
+              --gt;
+              tmp = tickets[gt];
+              tickets[gt] = tickets[i];
+              tickets[i] = tmp;
+            }
+          else
+            {
+              ++i;
+            }
+        }
+
+      if (kth < lt)
+        {
+          n = lt;
+        }
+      else if (kth < gt)
+        {
+          return pivot;
+        }
+      else
+        {
+          tickets += gt;
+          kth -= gt;
+          n -= gt;
+        }
+    }
+
+  norm_ticket_sort_small (tickets, n);
+
+  return tickets[kth];
+}
+#endif /* if defined(NORM_KL_BFPRT) */
+
+/*****************************************************************************/
+
+#if !defined(NORM_KL_BFPRT)
+static unsigned int
+norm_ticket_key_byte (const NormTicket *ticket, unsigned int pass)
+{
+  unsigned int value, shift;
+
+  if (pass < 3U)
+    {
+      value = ticket->cost_hi;
+      shift = (2U - pass) * 8U;
+    }
+  else if (pass < 7U)
+    {
+      value = ticket->cost_mid;
+      shift = (6U - pass) * 8U;
+    }
+  else
+    {
+      value = ticket->cost_lo;
+      shift = (10U - pass) * 8U;
+    }
+
+  return (value >> shift) & 255U;
+}
+
+/*****************************************************************************/
+
+static NormTicket
+norm_ticket_select (const NormTicket *tickets, unsigned int n,
+                    unsigned int kth, unsigned short *equal_idx,
+                    unsigned int *equal_selected)
+{
+  unsigned int i, pass, max_hi = 0U, first_pass = 0U;
+
+  for (i = 0U; i < n; ++i)
+    {
+      equal_idx[i] = (unsigned short)i;
+
+      if (tickets[i].cost_hi > max_hi)
+        {
+          max_hi = tickets[i].cost_hi;
+        }
+    }
+
+  if (max_hi < 0x00010000U)
+    {
+      first_pass = 1U;
+    }
+
+  if (max_hi < 0x00000100U)
+    {
+      first_pass = max_hi ? 2U : 3U;
+    }
+
+  for (pass = first_pass; pass < 11U; ++pass)
+    {
+      unsigned int histogram[256];
+      unsigned int bucket, below = 0U, out = 0U;
+
+      (void)memset (histogram, 0, sizeof (histogram));
+
+      for (i = 0U; i < n; ++i)
+        {
+          ++histogram[norm_ticket_key_byte (&tickets[equal_idx[i]], pass)];
+        }
+
+      for (bucket = 0U; bucket < 256U; ++bucket)
+        {
+          if (kth < below + histogram[bucket])
+            {
+              break;
+            }
+
+          below += histogram[bucket];
+        }
+
+      if (bucket >= 256U || !histogram[bucket])
+        {
+          *equal_selected = 0U;
+
+          return tickets[equal_idx[0]];
+        }
+
+      kth -= below;
+
+      for (i = 0U; i < n; ++i)
+        {
+          unsigned short index = equal_idx[i];
+
+          if (norm_ticket_key_byte (&tickets[index], pass) == bucket)
+            {
+              equal_idx[out++] = index;
+            }
+        }
+
+      n = out;
+
+      if (n == 1U)
+        {
+          *equal_selected = 1U;
+
+          return tickets[equal_idx[0]];
+        }
+    }
+
+  *equal_selected = kth + 1U;
+
+  return tickets[equal_idx[0]];
+}
+#endif /* if !defined(NORM_KL_BFPRT) */
+
+/*****************************************************************************/
+
+static unsigned int
+norm_muldiv_small (unsigned int a, unsigned int b, unsigned int divisor,
+                   unsigned int reciprocal, unsigned int *remainder)
+{
+#if ULONG_MAX > 0xffffffffUL && !defined(NORM_FORCE_32BIT_MULDIV)
+  unsigned long product = (unsigned long)a * b;
+  unsigned long scaled = product * reciprocal;
+  unsigned int q = (unsigned int)(scaled >> 32);
+  unsigned long r = product - (unsigned long)q * divisor;
+
+  while (r >= divisor)
+    {
+      ++q;
+      r -= divisor;
+    }
+
+  *remainder = (unsigned int)r;
+
+  return q;
+#else
+  unsigned int q = 0U, r = 0U;
+  unsigned int bit = 1024U;
+
+  (void)reciprocal;
+
+  while (bit)
+    {
+      unsigned int value = r * 2U;
+
+      if (b & bit)
+        {
+          value += a;
+        }
+
+      q = q * 2U + value / divisor;
+      r = value % divisor;
+      bit >>= 1;
+    }
+
+  *remainder = r;
+
+  return q;
+#endif
+}
+
+/*****************************************************************************/
+
+static unsigned int
+norm_reciprocal (unsigned int divisor)
+{
+  unsigned int q = UINT_MAX / divisor;
+  unsigned int r = UINT_MAX % divisor;
+
+  if (r + 1U >= divisor)
+    {
+      ++q;
+    }
+
+  return q;
+}
+
+/*****************************************************************************/
+
+static int
+norm_active_kl (const unsigned int *counts, const unsigned int *idx,
+                unsigned int active, unsigned int total,
+                unsigned short *freq)
+{
+  NormTicket tickets[NORM_TICKET_MAX];
+  unsigned int k, ticket_n = 0U, upper_sum = 0U;
+  unsigned int reciprocal, decrement_n;
+
+  if (active < 2U || active > 512U || total < active
+      || total > 0x3fffffU)
+    {
+      return 0;
+    }
+
+  reciprocal = norm_reciprocal (total);
+
+  for (k = 0U; k < active; ++k)
+    {
+      unsigned int symbol = idx[k];
+      unsigned int count = counts[symbol];
+      unsigned int rem, lower_q, upper_q;
+      unsigned int lower, upper, span, j;
+
+      if (!count || count > total)
+        {
+          return 0;
+        }
+
+      lower_q = norm_muldiv_small (count, TABLE_N - active + 2U,
+                                   total, reciprocal, &rem);
+      lower = rem ? lower_q : lower_q - 1U;
+
+      if (lower < 1U)
+        {
+          lower = 1U;
+        }
+
+      upper_q = norm_muldiv_small (count, TABLE_N + active - 2U,
+                                   total, reciprocal, &rem);
+      upper = upper_q + 1U;
+
+      if (upper > NORM_TICKET_MAX_J || upper < lower)
+        {
+          return 0;
+        }
+
+      span = upper - lower;
+
+      if (span > NORM_TICKET_MAX
+          || upper_sum > 0x7fffffffU - upper
+          || ticket_n > NORM_TICKET_MAX - span)
+        {
+          return 0;
+        }
+
+      freq[symbol] = (unsigned short)upper;
+      upper_sum += upper;
+
+      for (j = lower + 1U; j <= upper; ++j)
+        {
+          NormTicketCost cost;
+
+          tickets[ticket_n].symbol = (unsigned short)symbol;
+          tickets[ticket_n].j = (unsigned short)j;
+          norm_ticket_cost (&tickets[ticket_n], counts, &cost);
+
+          if (cost.hi >= 0x01000000U)
+            {
+              return 0;
+            }
+
+          tickets[ticket_n].cost_hi = cost.hi;
+          tickets[ticket_n].cost_mid = cost.mid;
+          tickets[ticket_n].cost_lo = cost.lo;
+          ++ticket_n;
+        }
+    }
+
+  if (upper_sum < TABLE_N)
+    {
+      return 0;
+    }
+
+  decrement_n = upper_sum - TABLE_N;
+
+  if (decrement_n > ticket_n)
+    {
+      return 0;
+    }
+
+  if (decrement_n)
+    {
+#if defined(NORM_KL_BFPRT)
+      NormTicket threshold
+          = norm_ticket_select_bfprt (tickets, ticket_n, decrement_n - 1U);
+
+      for (k = 0U; k < ticket_n; ++k)
+        {
+          if (norm_ticket_compare_total (&tickets[k], &threshold) <= 0)
+            {
+              unsigned int symbol = tickets[k].symbol;
+
+              if (freq[symbol] <= 1U)
+                {
+                  return 0;
+                }
+
+              --freq[symbol];
+            }
+        }
+#else
+      unsigned short equal_idx[NORM_TICKET_MAX];
+      unsigned int equal_selected, selected = 0U;
+      NormTicket threshold
+          = norm_ticket_select (tickets, ticket_n, decrement_n - 1U,
+                                equal_idx, &equal_selected);
+
+      for (k = 0U; k < ticket_n; ++k)
+        {
+          if (norm_ticket_compare (&tickets[k], &threshold) < 0)
+            {
+              unsigned int symbol = tickets[k].symbol;
+
+              if (freq[symbol] <= 1U)
+                {
+                  return 0;
+                }
+
+              --freq[symbol];
+              ++selected;
+            }
+        }
+
+      if (!equal_selected || selected + equal_selected != decrement_n)
+        {
+          return 0;
+        }
+
+      for (k = 0U; k < equal_selected; ++k)
+        {
+          unsigned int symbol = tickets[equal_idx[k]].symbol;
+
+          if (freq[symbol] <= 1U)
+            {
+              return 0;
+            }
+
+          --freq[symbol];
+        }
+#endif
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+norm_active (const unsigned int *counts, const unsigned int *idx,
+             unsigned int active, unsigned int total, unsigned short *freq)
+{
+  return norm_active_kl (counts, idx, active, total, freq);
 }
 
 /*****************************************************************************/
