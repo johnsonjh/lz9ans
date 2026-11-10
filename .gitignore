@@ -7,6 +7,7 @@
 /*.bak
 /.build-config
 /compile_commands.json
+/compile_commands.tmp
 /corpus/*.csv
 /corpus/obj/
 /corpus/*.txt
