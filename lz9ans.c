@@ -5855,11 +5855,11 @@ estimate_one_stream (Encoder *e, unsigned int kind)
         }
     }
 
-  if (used == 1)
+  if (used == 1 && total)
     {
       invariant_cost = (unsigned int)((24UL * COST_SCALE) / total);
     }
-  else if (use_tans)
+  else if (use_tans && total)
     {
       invariant_cost
           = (unsigned int)((header * 8UL * COST_SCALE) / total);
