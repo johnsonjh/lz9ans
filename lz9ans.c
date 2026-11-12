@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.15-dev (2026-11-12)"
+#define LZ9VER "v0.9.15 (2026-11-12)"
 
 /*****************************************************************************/
 
@@ -263,8 +263,10 @@ clamp_thread_limit (unsigned int limit)
 
 #if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
 # define LZ9_INLINE __inline__
+# define LZ9_ALWAYS_INLINE __inline__ __attribute__ ((always_inline))
 #else
 # define LZ9_INLINE
+# define LZ9_ALWAYS_INLINE LZ9_INLINE
 #endif /* if defined(__GNUC__) && !defined(__CPPCHECK__)
           && !defined(__LINT__)  */
 
@@ -636,6 +638,7 @@ typedef struct
 typedef struct
 {
   unsigned short *ring;
+  unsigned char *ring8;
   unsigned int distance_flags;
   unsigned int window_n;
   unsigned int of_alphabet;
@@ -1265,6 +1268,36 @@ pack8_symbols (const unsigned short *v, unsigned char *p)
   p[6] = (unsigned char)(((v[5] & 63U) << 2) | (v[6] >> 7));
   p[7] = (unsigned char)(((v[6] & 127U) << 1) | (v[7] >> 8));
   p[8] = (unsigned char)v[7];
+#endif /* if defined(__GNUC__) && (defined(__x86_64__)
+          || defined(__amd64__)) */
+}
+
+/*****************************************************************************/
+
+static HOT LZ9_INLINE void
+pack8_bytes (const unsigned char *v, unsigned char *p)
+{
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__))
+  lz9_u64 w0, w1, hi, hi_be;
+
+  w0 = ((lz9_u64)v[0] << 27) | ((lz9_u64)v[1] << 18) | ((lz9_u64)v[2] << 9)
+       | (lz9_u64)v[3];
+  w1 = ((lz9_u64)v[4] << 27) | ((lz9_u64)v[5] << 18) | ((lz9_u64)v[6] << 9)
+       | (lz9_u64)v[7];
+  hi = (w0 << 28) | (w1 >> 8);
+  hi_be = __builtin_bswap64 (hi);
+  (void)memcpy (p, &hi_be, 8);
+  p[8] = (unsigned char)w1;
+#else
+  p[0] = (unsigned char)(v[0] >> 1);
+  p[1] = (unsigned char)(((v[0] & 1U) << 7) | (v[1] >> 2));
+  p[2] = (unsigned char)(((v[1] & 3U) << 6) | (v[2] >> 3));
+  p[3] = (unsigned char)(((v[2] & 7U) << 5) | (v[3] >> 4));
+  p[4] = (unsigned char)(((v[3] & 15U) << 4) | (v[4] >> 5));
+  p[5] = (unsigned char)(((v[4] & 31U) << 3) | (v[5] >> 6));
+  p[6] = (unsigned char)(((v[5] & 63U) << 2) | (v[6] >> 7));
+  p[7] = (unsigned char)((v[6] & 127U) << 1);
+  p[8] = v[7];
 #endif /* if defined(__GNUC__) && (defined(__x86_64__)
           || defined(__amd64__)) */
 }
@@ -7552,10 +7585,27 @@ extra_end (ExtraReader *x)
 
 /*****************************************************************************/
 
-static LZ9_INLINE int
-store_symbol (Output *o, unsigned int v)
+static HOT LZ9_INLINE int
+store_symbol8 (Output *o, unsigned int v)
 {
-  if (v > 511U || (o->out_mode == 8 && v > 255U))
+  if (v > 255U)
+    {
+      return 0;
+    }
+
+  o->ring8[o->produced & (o->window_n - 1U)] = (unsigned char)v;
+  ++o->produced;
+  ++o->in_block;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static HOT LZ9_INLINE int
+store_symbol9 (Output *o, unsigned int v)
+{
+  if (v > 511U)
     {
       return 0;
     }
@@ -7565,6 +7615,14 @@ store_symbol (Output *o, unsigned int v)
   ++o->in_block;
 
   return 1;
+}
+
+/*****************************************************************************/
+
+static HOT LZ9_ALWAYS_INLINE int
+store_symbol (Output *o, unsigned int v)
+{
+  return o->out_mode == 8 ? store_symbol8 (o, v) : store_symbol9 (o, v);
 }
 
 /*****************************************************************************/
@@ -7586,16 +7644,28 @@ store_stored_symbols (Output *o, const unsigned char *data, unsigned int n,
           first = n;
         }
 
-      while (i < first)
+      if (o->out_mode == 8)
         {
-          o->ring[start + i] = data[i];
-          ++i;
-        }
+          (void)memcpy (o->ring8 + start, data, first);
 
-      while (i < n)
+          if (n > first)
+            {
+              (void)memcpy (o->ring8, data + first, n - first);
+            }
+        }
+      else
         {
-          o->ring[i - first] = data[i];
-          ++i;
+          while (i < first)
+            {
+              o->ring[start + i] = data[i];
+              ++i;
+            }
+
+          while (i < n)
+            {
+              o->ring[i - first] = data[i];
+              ++i;
+            }
         }
     }
   else
@@ -7638,16 +7708,28 @@ store_stored_symbols (Output *o, const unsigned char *data, unsigned int n,
               v[7] = (unsigned int)p[6] & 0x7fU;
             }
 
-          for (j = 0; j < 8U; ++j)
+          if (o->out_mode == 8)
             {
-              unsigned int at = (start + i + j) & mask;
-
-              if (o->out_mode == 8 && v[j] > 255U)
+              for (j = 0; j < 8U; ++j)
                 {
-                  return 0;
-                }
+                  unsigned int at = (start + i + j) & mask;
 
-              o->ring[at] = (unsigned short)v[j];
+                  if (v[j] > 255U)
+                    {
+                      return 0;
+                    }
+
+                  o->ring8[at] = (unsigned char)v[j];
+                }
+            }
+          else
+            {
+              for (j = 0; j < 8U; ++j)
+                {
+                  unsigned int at = (start + i + j) & mask;
+
+                  o->ring[at] = (unsigned short)v[j];
+                }
             }
 
           i += 8U;
@@ -7671,7 +7753,15 @@ store_stored_symbols (Output *o, const unsigned char *data, unsigned int n,
                   return 0;
                 }
 
-              o->ring[(start + i) & mask] = (unsigned short)v;
+              if (o->out_mode == 8)
+                {
+                  o->ring8[(start + i) & mask] = (unsigned char)v;
+                }
+              else
+                {
+                  o->ring[(start + i) & mask] = (unsigned short)v;
+                }
+
               ++i;
             }
 
@@ -7722,6 +7812,37 @@ copy_ring_range (unsigned short *ring, unsigned int window_n,
 
 /*****************************************************************************/
 
+static LZ9_INLINE void
+copy_ring_range8 (unsigned char *ring, unsigned int window_n,
+                  unsigned int dst, unsigned int src, unsigned int count)
+{
+  const unsigned int mask = window_n - 1U;
+
+  while (count)
+    {
+      unsigned int chunk = count;
+      unsigned int src_left = window_n - src;
+      unsigned int dst_left = window_n - dst;
+
+      if (chunk > src_left)
+        {
+          chunk = src_left;
+        }
+
+      if (chunk > dst_left)
+        {
+          chunk = dst_left;
+        }
+
+      (void)memcpy (ring + dst, ring + src, (size_t)chunk);
+      src = (src + chunk) & mask;
+      dst = (dst + chunk) & mask;
+      count -= chunk;
+    }
+}
+
+/*****************************************************************************/
+
 static void
 store_match (Output *o, unsigned int d, unsigned int ml)
 {
@@ -7729,6 +7850,92 @@ store_match (Output *o, unsigned int d, unsigned int ml)
   unsigned short * const ring = o->ring;
   const unsigned long prod = o->produced;
   unsigned int src, dst;
+
+  if (o->out_mode == 8)
+    {
+      unsigned char * const ring8 = o->ring8;
+
+      src = (unsigned int)((prod - d) & mask);
+      dst = (unsigned int)(prod & mask);
+
+      if (d >= ml && d <= o->window_n - ml)
+        {
+          if (dst + ml <= o->window_n && src + ml <= o->window_n)
+            {
+              (void)memcpy (ring8 + dst, ring8 + src, (size_t)ml);
+            }
+          else
+            {
+              copy_ring_range8 (ring8, o->window_n, dst, src, ml);
+            }
+        }
+      else if (d == 1U)
+        {
+          unsigned char v = ring8[src];
+          unsigned int remaining = ml;
+
+          while (remaining)
+            {
+              unsigned int count = remaining;
+              unsigned int dst_left = o->window_n - dst;
+
+              if (count > dst_left)
+                {
+                  count = dst_left;
+                }
+
+              (void)memset (ring8 + dst, v, count);
+              dst = (dst + count) & mask;
+              remaining -= count;
+            }
+        }
+      else if (d < ml && d <= o->window_n / 2U && ml >= 8U)
+        {
+          unsigned int copied = d;
+
+          copy_ring_range8 (ring8, o->window_n, dst, src, d);
+
+          while (copied < ml)
+            {
+              unsigned int count = ml - copied;
+
+              if (count > copied)
+                {
+                  count = copied;
+                }
+
+              copy_ring_range8 (ring8, o->window_n, (dst + copied) & mask,
+                                dst, count);
+              copied += count;
+            }
+        }
+      else if (dst + ml <= o->window_n && src + ml <= o->window_n)
+        {
+          unsigned int i;
+
+          for (i = 0; i < ml; ++i)
+            {
+              ring8[dst + i] = ring8[src + i];
+            }
+        }
+      else
+        {
+          unsigned int i;
+
+          for (i = 0; i < ml; ++i)
+            {
+              unsigned char v = ring8[src];
+
+              ring8[dst] = v;
+              src = (src + 1U) & mask;
+              dst = (dst + 1U) & mask;
+            }
+        }
+
+      o->produced += ml;
+      o->in_block += ml;
+      return;
+    }
 
   src = (unsigned int)((prod - d) & mask);
   dst = (unsigned int)(prod & mask);
@@ -7957,27 +8164,22 @@ output_decoded_block (Output *o, unsigned long start, unsigned int n)
       while (n)
         {
           unsigned int seg = o->window_n - at;
-          const unsigned short *src;
+          const unsigned char *src;
 
           if (seg > n)
             {
               seg = n;
             }
 
-          src = o->ring + at;
+          src = o->ring8 + at;
 
           while (seg)
             {
               unsigned int avail
                   = (unsigned int)(sizeof (o->outbuf) - o->out_used);
               unsigned int chunk = seg < avail ? seg : avail;
-              unsigned int k;
 
-              for (k = 0; k < chunk; ++k)
-                {
-                  o->outbuf[o->out_used + k] = (unsigned char)src[k];
-                }
-
+              (void)memcpy (o->outbuf + o->out_used, src, chunk);
               o->out_used += chunk;
               src += chunk;
               seg -= chunk;
@@ -8059,11 +8261,98 @@ block_begin (Output *o)
 /*****************************************************************************/
 
 static int
+block_crc_end8 (Output *o, unsigned int n, unsigned long expected)
+{
+  unsigned long start, crc = 0UL;
+  unsigned int i = 0, used = 0;
+  const unsigned int mask = o->window_n - 1U;
+
+  if (o->in_block != n || o->produced < n)
+    {
+      return 0;
+    }
+
+  start = o->produced - n;
+
+  while (n - i >= 8U)
+    {
+      unsigned int at = (unsigned int)((start + i) & mask);
+      unsigned char values[8];
+      const unsigned char *source;
+
+      if (used > CRC_BUFFER_N - 9U)
+        {
+          crc = crc_update (crc, o->crc_buf, used);
+          used = 0;
+        }
+
+      if (at <= mask - 7U)
+        {
+          source = o->ring8 + at;
+        }
+      else
+        {
+          unsigned int j;
+
+          for (j = 0; j < 8U; ++j)
+            {
+              values[j] = o->ring8[(at + j) & mask];
+            }
+
+          source = values;
+        }
+
+      pack8_bytes (source, o->crc_buf + used);
+      used += 9U;
+      i += 8U;
+    }
+
+  if (i < n)
+    {
+      unsigned int tail = n - i;
+      unsigned short values[7] = { 0U };
+      unsigned int j, at = (unsigned int)((start + i) & mask);
+
+      if (used > CRC_BUFFER_N - 8U)
+        {
+          crc = crc_update (crc, o->crc_buf, used);
+          used = 0;
+        }
+
+      for (j = 0; j < tail; ++j)
+        {
+          values[j] = o->ring8[(at + j) & mask];
+        }
+
+      used += pack9_tail (values, tail, o->crc_buf + used);
+    }
+
+  if (used)
+    {
+      crc = crc_update (crc, o->crc_buf, used);
+    }
+
+  if (crc != expected)
+    {
+      return 0;
+    }
+
+  return output_decoded_block (o, start, n);
+}
+
+/*****************************************************************************/
+
+static int
 block_crc_end (Output *o, unsigned int n, unsigned long expected)
 {
   unsigned long start, crc = 0UL;
   unsigned int i = 0, used = 0;
   const unsigned int mask = o->window_n - 1U;
+
+  if (o->out_mode == 8)
+    {
+      return block_crc_end8 (o, n, expected);
+    }
 
   if (o->in_block != n || o->produced < n)
     {
@@ -9908,11 +10197,24 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
   o->min_match = (feature_flags & FEATURE_MIN_MATCH_2) ? MIN_MATCH_SHORT
                                                        : MIN_MATCH_DEFAULT;
   o->phased = (feature_flags & FEATURE_PHASED_TABLES) != 0U;
-  o->ring = (unsigned short *)calloc (window_n, sizeof (unsigned short));
 
-  if (!o->ring)
+  if (o->out_mode == 8)
     {
-      goto cleanup;
+      o->ring8 = (unsigned char *)malloc (window_n * sizeof (unsigned char));
+
+      if (!o->ring8)
+        {
+          goto cleanup;
+        }
+    }
+  else
+    {
+      o->ring = (unsigned short *)calloc (window_n, sizeof (unsigned short));
+
+      if (!o->ring)
+        {
+          goto cleanup;
+        }
     }
 
   if (unknown_count)
@@ -10021,6 +10323,7 @@ cleanup:
   if (o)
     {
       free (o->ring);
+      free (o->ring8);
     }
 
   free (o);
@@ -10454,7 +10757,7 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
 {
   unsigned long enc_fixed, enc, enc_levels_1_5;
   unsigned long enc_seq_max, enc_seq_levels_1_5;
-  unsigned long dec_base, dec, dec_phase;
+  unsigned long dec_base, dec, dec_base8, dec8, dec_phase;
 
   enc_seq_max = (unsigned long)sequence_capacity (MIN_MATCH_SHORT)
                 * sizeof (Sequence);
@@ -10477,8 +10780,14 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
              + STAGE_MAX + DESC_MAX
              + (unsigned long)DEC_BASE_TABLE_COUNT * sizeof (DecTable)
              + (unsigned long)ENTROPY_STREAM_COUNT * sizeof (Stream);
+  dec_base8 = (unsigned long)sizeof (Output)
+              + (unsigned long)window_n * sizeof (unsigned char)
+              + STAGE_MAX + DESC_MAX
+              + (unsigned long)DEC_BASE_TABLE_COUNT * sizeof (DecTable)
+              + (unsigned long)ENTROPY_STREAM_COUNT * sizeof (Stream);
   dec_phase = (unsigned long)DEC_PHASE_TABLE_COUNT * sizeof (DecTable);
   dec = dec_base + dec_phase;
+  dec8 = dec_base8 + dec_phase;
 
   (void)printf ("window: %u symbols\n", window_n);
   (void)printf ("static CRC lookup table: %lu bytes\n",
@@ -10490,8 +10799,10 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
   (void)printf ("decoder base allocated state: %lu bytes"
                 " (without phased tables)\n", dec_base);
   (void)printf ("decoder maximum allocated state: %lu bytes"
-                " (including %lu bytes of lazily allocated phased tables)\n",
-                dec, dec_phase);
+                " (9-bit output; including %lu bytes of lazily allocated"
+                " phased tables)\n", dec, dec_phase);
+  (void)printf ("decoder maximum allocated state for 8-bit output: %lu"
+                " bytes (including phased tables)\n", dec8);
 
 #if defined(LZ9ANS_PTHREADS)
   {
