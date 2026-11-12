@@ -3,8 +3,10 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS
 
-> “Entropy is a figure of speech, then… a metaphor.”<br>
-> &nbsp;&nbsp;—&nbsp;John Nefastis (Pynchon, *The Crying of Lot 49*)
+<div align="center">
+“Entropy is a figure of speech, then… a metaphor.”<br>
+&nbsp;&nbsp;—&nbsp;John Nefastis (Pynchon, *The Crying of Lot 49*)
+</div>
 
 ## Overview
 
