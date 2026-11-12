@@ -5,7 +5,7 @@
 
 <div align="center">
 “Entropy is a figure of speech, then… a metaphor.”<br>
-&nbsp;&nbsp;—&nbsp;John Nefastis (Pynchon, *The Crying of Lot 49*)
+&nbsp;&nbsp;—&nbsp;John Nefastis (Pynchon, <i>The Crying of Lot 49</i>)
 </div>
 
 ## Overview
