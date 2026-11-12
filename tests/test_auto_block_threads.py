@@ -297,6 +297,10 @@ def check_options(serial, threaded, cpu_count):
         serial_report = run([str(serial), "--memory"]).stdout
         assert b"pthread build" not in serial_report
         assert b"parallel-block encoder state" not in serial_report
+        assert b"encoder maximum allocated state" in serial_report
+        assert b"encoder allocated state at levels 1-5" in serial_report
+        assert b"decoder base allocated state" in serial_report
+        assert b"decoder maximum allocated state" in serial_report
 
         one = run([str(threaded), "--memory", "--threads=1"]).stdout
         two = run([str(threaded), "--memory", "--threads=2"]).stdout
@@ -323,8 +327,12 @@ def check_options(serial, threaded, cpu_count):
         assert b"compression participants: " in two
         assert (b"compression mode: independent blocks" in two) == (cpu_count > 1)
         assert (b"parallel-block encoder state" in two) == (cpu_count > 1)
+        assert (b"parallel-block encoder state at levels 1-5" in two) == (cpu_count > 1)
         assert (b"compression mode: independent blocks" in auto) == (cpu_count > 1)
         assert b"window: 32768 symbols" in auto
+        assert b"decompression symbol buffers: 49152 bytes maximum" in auto
+        assert b"32766 bytes at levels 1-5" in auto
+        assert b"decompression thread-pool allocations" in auto
 
 
 def read_cpu_count(threaded):

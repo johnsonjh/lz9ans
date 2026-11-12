@@ -150,8 +150,16 @@ def check_options(serial, threaded):
         threaded_help = run([str(threaded)], expected=2).stderr
         assert b"--threads" not in serial_help
         assert b"--threads=N" in threaded_help
-        assert b"pthread build" not in run([str(serial), "--memory"]).stdout
-        assert b"pthread build" in run([str(threaded), "--memory"]).stdout
+        serial_memory = run([str(serial), "--memory"]).stdout
+        threaded_memory = run([str(threaded), "--memory"]).stdout
+        assert b"pthread build" not in serial_memory
+        assert b"pthread build" in threaded_memory
+        assert b"encoder maximum allocated state" in serial_memory
+        assert b"encoder allocated state at levels 1-5" in serial_memory
+        assert b"decoder base allocated state" in serial_memory
+        assert b"decoder maximum allocated state" in serial_memory
+        assert b"decompression symbol buffers: 49152 bytes maximum" in threaded_memory
+        assert b"32766 bytes at levels 1-5" in threaded_memory
         one = run([str(threaded), "--memory", "--threads=1"]).stdout
         two = run([str(threaded), "--memory", "--threads=2"]).stdout
         many = run([str(threaded), "--memory-64k", "--threads=999"]).stdout

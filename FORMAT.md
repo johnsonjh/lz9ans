@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`38`** (2026‑11‑10)
+> Document revision **`39`** (2026‑11‑12)
 
 <!-- toc -->
 
@@ -830,32 +830,54 @@ to know which parser or level was used.
 
 ### 7.1. Reference implementation memory usage
 
-The non‑pthread UNIX reference implementation's explicitly allocated state on
-a standard Linux x86_64 system for the default 32K window size reports
-**678,678 octets of encoder state** and **213,596 octets of decoder state**,
-which can be verified with `./lz9ans --memory`.  The 32K encoder remains below
-**664&nbsp;KiB**.
+The non–pthread UNIX reference implementation's explicitly allocated state on
+standard Linux x86_64 for the default 32K window size is **678,686 octets of
+maximum encoder state** (levels 6–9), **634,990 octets of encoder state at
+levels 1–5**, and **213,596 octets of maximum decoder state** when phased tables
+are used.  The decoder's base allocation, before any phased descriptor is
+encountered, is **188,996 octets**.  These figures can be verified with
+`./lz9ans --memory`.
 
-For the 64K window size, `./lz9ans --memory-64k` reports **875,286 octets of
-encoder state** and **279,132 octets of decoder state**.  The 64K encoder
-remains below **856&nbsp;KiB**.
+For the 64K window size, `./lz9ans --memory-64k` reports **875,294 octets of
+maximum encoder state** (levels 6–9), **831,598 octets at levels 1–5**, and
+**279,132 octets of maximum decoder state**.  The decoder's 64K base allocation
+is **254,532 octets**.
 
-*These are deliberate memory bounds for the reference implementation.*
+*These figures describe explicitly allocated codec state, not total process
+resident memory.*  The report excludes allocator metadata, C library and I/O
+buffers, and helper stack temporaries.  The static CRC lookup table contains
+8,192 bytes and is reported separately; it is not included in the encoder or
+decoder allocated–state figures.
 
-The software CRC fallback uses a slicing‑by‑8 table containing 8,192 bytes of
-static storage.  (On LP64 this is approximately 6 KiB more static storage than
-the previous implementation which used a 256‑entry `unsigned long` table.)
-This table is shared by both the encoder and decoder and is reported separately
-by `--memory`; it is not included in either allocated‑state figure.  No
-block‑sized decoder allocation is added.  The decoder allocates eleven
-transition tables (four persistent per‑stream tables, six phased group tables,
-and one poison table) at 4,100 octets each.  These tables are included in the
-reported decoder state; the array is allocated regardless of whether a
-particular frame uses phased descriptors.
+Encoder sequence storage is sized from the frame's minimum match length.  The
+maximum allocation is used at levels 6–9, where two–symbol matches are enabled.
+At levels 1–5, where the minimum match length is three, the sequence allocation
+is smaller by 43,696 bytes per encoder context on this platform.  The
+`--memory` reports show both values; the maximum is used for the primary
+encoder–state figure.
 
-The reported values are **not** intended as a proof of native Multics segment
-occupancy: ANSI C89 type widths (8‑bit‑octet size assumed) and Multics PL/I
-word representations are different and must be sized separately.
+The decoder always allocates four persistent per–stream transition tables and
+one poison table.  The six phased–group transition tables (4,100 bytes each on
+this platform) are allocated together, exactly once, when the first actual
+`MODE_PHASED` descriptor is encountered.  They remain allocated for the rest
+of that frame so that phased model reuse across blocks remains available; they
+are not allocated and freed per block.  Thus the report shows both the base
+allocation and the maximum allocation including all six optional tables.
+
+In a pthread build, the report also accounts for the maximum per–participant
+encoder contexts and private block–output buffers, shared history and input
+scratch, thread–pool allocations, and worker–stack budgets when independent
+block encoding is selected.  It reports both the maximum parallel–block encoder
+state (levels 6–9) and the reduced level 1–5 state.  The threaded decoder's
+three LL/ML/OF symbol buffers are allocated together on first use and retained
+until decoding ends.  Their capacity is based on the frame's minimum match
+length: the maximum is 49,152 bytes at levels 6–9, and 32,766 bytes at levels
+1–5.  Thread–pool allocations and the requested/effective worker–stack budgets
+are reported separately from the decoder's base and maximum allocated state.
+
+The reported values are not a proof of native Multics segment occupancy:
+ANSI C89 type widths (8–bit–octet size assumed) and Multics PL/I word
+representations are different and must be sized separately.
 
 ### 7.2. Optional pthread details
 
