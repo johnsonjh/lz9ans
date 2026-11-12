@@ -7569,6 +7569,159 @@ store_symbol (Output *o, unsigned int v)
 
 /*****************************************************************************/
 
+static LZ9_INLINE int
+store_stored_symbols (Output *o, const unsigned char *data, unsigned int n,
+                      unsigned int width)
+{
+  unsigned int mask = o->window_n - 1U;
+  unsigned int start = (unsigned int)(o->produced & mask);
+  unsigned int i = 0;
+
+  if (width == 8U)
+    {
+      unsigned int first = o->window_n - start;
+
+      if (first > n)
+        {
+          first = n;
+        }
+
+      while (i < first)
+        {
+          o->ring[start + i] = data[i];
+          ++i;
+        }
+
+      while (i < n)
+        {
+          o->ring[i - first] = data[i];
+          ++i;
+        }
+    }
+  else
+    {
+      unsigned int group_bytes = width == 9U ? 9U : 7U;
+      unsigned int groups = n / 8U;
+      unsigned int g;
+
+      if (width != 7U && width != 9U)
+        {
+          return 0;
+        }
+
+      for (g = 0; g < groups; ++g)
+        {
+          const unsigned char *p = data + g * group_bytes;
+          unsigned int v[8];
+          unsigned int j;
+
+          if (width == 9U)
+            {
+              v[0] = ((unsigned int)p[0] << 1) | (p[1] >> 7);
+              v[1] = (((unsigned int)p[1] & 0x7fU) << 2) | (p[2] >> 6);
+              v[2] = (((unsigned int)p[2] & 0x3fU) << 3) | (p[3] >> 5);
+              v[3] = (((unsigned int)p[3] & 0x1fU) << 4) | (p[4] >> 4);
+              v[4] = (((unsigned int)p[4] & 0x0fU) << 5) | (p[5] >> 3);
+              v[5] = (((unsigned int)p[5] & 0x07U) << 6) | (p[6] >> 2);
+              v[6] = (((unsigned int)p[6] & 0x03U) << 7) | (p[7] >> 1);
+              v[7] = (((unsigned int)p[7] & 0x01U) << 8) | p[8];
+            }
+          else
+            {
+              v[0] = p[0] >> 1;
+              v[1] = (((unsigned int)p[0] & 0x01U) << 6) | (p[1] >> 2);
+              v[2] = (((unsigned int)p[1] & 0x03U) << 5) | (p[2] >> 3);
+              v[3] = (((unsigned int)p[2] & 0x07U) << 4) | (p[3] >> 4);
+              v[4] = (((unsigned int)p[3] & 0x0fU) << 3) | (p[4] >> 5);
+              v[5] = (((unsigned int)p[4] & 0x1fU) << 2) | (p[5] >> 6);
+              v[6] = (((unsigned int)p[5] & 0x3fU) << 1) | (p[6] >> 7);
+              v[7] = (unsigned int)p[6] & 0x7fU;
+            }
+
+          for (j = 0; j < 8U; ++j)
+            {
+              unsigned int at = (start + i + j) & mask;
+
+              if (o->out_mode == 8 && v[j] > 255U)
+                {
+                  return 0;
+                }
+
+              o->ring[at] = (unsigned short)v[j];
+            }
+
+          i += 8U;
+        }
+
+      if (i < n)
+        {
+          BitReader tail;
+          const unsigned int tail_n = n - i;
+          const unsigned long tail_bits = (unsigned long)tail_n * width;
+          const unsigned int byte_offset = groups * group_bytes;
+
+          br_init (&tail, data + byte_offset, tail_bits, 0);
+
+          while (i < n)
+            {
+              unsigned int v = br_get (&tail, width);
+
+              if (tail.failed || (o->out_mode == 8 && v > 255U))
+                {
+                  return 0;
+                }
+
+              o->ring[(start + i) & mask] = (unsigned short)v;
+              ++i;
+            }
+
+          if (tail.failed || tail.position != tail.bits)
+            {
+              return 0;
+            }
+        }
+    }
+
+  o->produced += n;
+  o->in_block += n;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static LZ9_INLINE void
+copy_ring_range (unsigned short *ring, unsigned int window_n,
+                 unsigned int dst, unsigned int src, unsigned int count)
+{
+  const unsigned int mask = window_n - 1U;
+
+  while (count)
+    {
+      unsigned int chunk = count;
+      unsigned int src_left = window_n - src;
+      unsigned int dst_left = window_n - dst;
+
+      if (chunk > src_left)
+        {
+          chunk = src_left;
+        }
+
+      if (chunk > dst_left)
+        {
+          chunk = dst_left;
+        }
+
+      (void)memcpy (ring + dst, ring + src,
+                    (size_t)chunk * sizeof (unsigned short));
+      src = (src + chunk) & mask;
+      dst = (dst + chunk) & mask;
+      count -= chunk;
+    }
+}
+
+/*****************************************************************************/
+
 static void
 store_match (Output *o, unsigned int d, unsigned int ml)
 {
@@ -7638,6 +7791,26 @@ store_match (Output *o, unsigned int d, unsigned int ml)
 
           dst = (dst + count) & mask;
           remaining -= count;
+        }
+    }
+  else if (d < ml && d <= o->window_n / 2U && ml >= 8U)
+    {
+      unsigned int copied = d;
+
+      copy_ring_range (ring, o->window_n, dst, src, d);
+
+      while (copied < ml)
+        {
+          unsigned int count = ml - copied;
+
+          if (count > copied)
+            {
+              count = copied;
+            }
+
+          copy_ring_range (ring, o->window_n, (dst + copied) & mask,
+                           dst, count);
+          copied += count;
         }
     }
   else if (dst + ml <= o->window_n && src + ml <= o->window_n)
@@ -8186,7 +8359,6 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   if (type == BLOCK_STORED)
     {
       unsigned long stored_bits, stored_bytes;
-      BitReader r;
 
       width = h[0] >> 2;
 
@@ -8225,18 +8397,9 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
         }
 
       block_begin (o);
-      br_init (&r, stage, stored_bits, 0);
 
-      for (i = 0; i < n; ++i)
-        {
-          if (!store_symbol (o, br_get (&r, width)))
-            {
-              return 0;
-            }
-        }
-
-      return !r.failed && r.position == r.bits && o->in_block == n
-             && block_crc_end (o, n, expected);
+      return store_stored_symbols (o, stage, n, width)
+             && o->in_block == n && block_crc_end (o, n, expected);
     }
 
   if (type != BLOCK_LZ

@@ -73,6 +73,8 @@ test: lz9ans
 	./tests/test_phased.py
 	./tests/test_v9_format.py
 	./tests/test_early_stored.py
+	./tests/test_stored_bulk.py
+	./tests/test_overlap_copy.py
 	./tests/test_auto_block_threads.py
 	./tests/test_crc_batch.py
 	env CC="$${CC:-$(CC)}" CFLAGS="$${EXTRA_CFLAGS:-} $(CFLAGS)" \
