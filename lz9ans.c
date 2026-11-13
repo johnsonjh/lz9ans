@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.16 (2026-11-13)"
+#define LZ9VER "v0.9.17 (2026-11-13)"
 
 /*****************************************************************************/
 
@@ -575,29 +575,11 @@ typedef struct
 #if defined(LZ9ANS_PTHREADS)
 typedef struct
 {
-  Encoder encoder;
-  unsigned char *stage;
-  unsigned char *desc;
-  AnsTable *table;
-  AnsTable *gtable;
-  unsigned int kind;
-  int okay;
-} ThreadEncoderWorkspace;
-
-/*****************************************************************************/
-
-typedef struct
-{
   Stream stream;
   unsigned char *symbols;
   unsigned int count;
   int okay;
 } ThreadDecodeWorkspace;
-
-/*****************************************************************************/
-
-#else
-typedef void ThreadEncoderWorkspace;
 #endif /* if defined(LZ9ANS_PTHREADS) */
 
 /*****************************************************************************/
@@ -6000,65 +5982,18 @@ estimate_one_stream (Encoder *e, unsigned int kind,
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
 static void
-estimate_stream_task (void *arg)
-{
-  ThreadEncoderWorkspace *workspace = (ThreadEncoderWorkspace *)arg;
-
-  estimate_one_stream (&workspace->encoder, workspace->kind,
-                       (NormScratch *)(void *)workspace->stage);
-}
-#endif /* if defined(LZ9ANS_PTHREADS) */
-
-/*****************************************************************************/
-
-static void
-estimate_costs (Encoder *e, ThreadPool *pool,
-                ThreadEncoderWorkspace *workspaces,
-                NormScratch *norm_scratch)
+estimate_costs (Encoder *e, NormScratch *norm_scratch)
 {
   unsigned int kind;
 
-#if defined(LZ9ANS_PTHREADS)
-  if (pool && pool->participants > 1U && workspaces)
+  for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
     {
-      ThreadTask tasks[ENTROPY_STREAM_COUNT];
+      NormScratch *scratch = norm_scratch
+                                 ? norm_scratch
+                                 : (NormScratch *)(void *)e->link;
 
-      for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
-        {
-          workspaces[kind].encoder = *e;
-          workspaces[kind].kind = kind;
-          tasks[kind].function = estimate_stream_task;
-          tasks[kind].context = &workspaces[kind];
-        }
-
-      (void)thread_pool_run (pool, tasks, ENTROPY_STREAM_COUNT);
-
-      e->max_literal = workspaces[STREAM_LIT].encoder.max_literal;
-
-      for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
-        {
-          (void)memcpy (e->costs[kind],
-                        workspaces[kind].encoder.costs[kind],
-                        sizeof (e->costs[kind]));
-        }
-    }
-  else
-#endif /* if defined(LZ9ANS_PTHREADS) */
-    {
-#if !defined(LZ9ANS_PTHREADS)
-      (void)pool;
-      (void)workspaces;
-#endif /* if !defined(LZ9ANS_PTHREADS) */
-      for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
-        {
-          NormScratch *scratch = norm_scratch
-                                     ? norm_scratch
-                                     : (NormScratch *)(void *)e->link;
-
-          estimate_one_stream (e, kind, scratch);
-        }
+      estimate_one_stream (e, kind, scratch);
     }
 
   build_cost_prefix (e);
@@ -6752,167 +6687,6 @@ encode_one_stream (Encoder *e, unsigned int kind)
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
-static void
-free_thread_encoder_workspaces (ThreadEncoderWorkspace *workspaces)
-{
-  unsigned int i;
-
-  if (!workspaces)
-    {
-      return;
-    }
-
-  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
-    {
-      free (workspaces[i].stage);
-      free (workspaces[i].desc);
-      free (workspaces[i].table);
-      free (workspaces[i].gtable);
-    }
-
-  free (workspaces);
-}
-
-/*****************************************************************************/
-
-static ThreadEncoderWorkspace *
-allocate_thread_encoder_workspaces (void)
-{
-  unsigned int i;
-  ThreadEncoderWorkspace *workspaces
-      = (ThreadEncoderWorkspace *)calloc (ENTROPY_STREAM_COUNT,
-                                           sizeof (ThreadEncoderWorkspace));
-
-  if (!workspaces)
-    {
-      return (ThreadEncoderWorkspace *)0;
-    }
-
-  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
-    {
-      workspaces[i].stage = (unsigned char *)malloc (STAGE_MAX);
-      workspaces[i].desc = (unsigned char *)malloc (DESC_MAX);
-      workspaces[i].table = (AnsTable *)malloc (sizeof (AnsTable));
-      workspaces[i].gtable
-          = (AnsTable *)malloc (PHASE_GROUPS_MAX * sizeof (AnsTable));
-
-      if (!workspaces[i].stage || !workspaces[i].desc
-          || !workspaces[i].table || !workspaces[i].gtable)
-        {
-          free_thread_encoder_workspaces (workspaces);
-
-          return (ThreadEncoderWorkspace *)0;
-        }
-    }
-
-  return workspaces;
-}
-
-/*****************************************************************************/
-
-static void
-encode_stream_task (void *arg)
-{
-  ThreadEncoderWorkspace *workspace = (ThreadEncoderWorkspace *)arg;
-
-  workspace->okay
-      = encode_one_stream_with_scratch (
-          &workspace->encoder, workspace->kind,
-          (NormScratch *)(void *)workspace->stage);
-}
-
-/*****************************************************************************/
-
-static int
-encode_streams_parallel (Encoder *e, ThreadPool *pool,
-                         ThreadEncoderWorkspace *workspaces)
-{
-  unsigned int kind;
-  ThreadTask tasks[ENTROPY_STREAM_COUNT];
-
-  for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
-    {
-      ThreadEncoderWorkspace *workspace = &workspaces[kind];
-
-      workspace->encoder = *e;
-      workspace->encoder.stage = workspace->stage;
-      workspace->encoder.desc = workspace->desc;
-      workspace->encoder.table = workspace->table;
-      workspace->encoder.gtable = workspace->gtable;
-      workspace->encoder.desc_len = 0UL;
-      workspace->encoder.stage_len = 0UL;
-      workspace->kind = kind;
-      workspace->okay = 0;
-      (void)memcpy (workspace->stage + STAGE_DATA_MAX,
-                    e->stage + STAGE_DATA_MAX, TABLE_CACHE_BYTES);
-      tasks[kind].function = encode_stream_task;
-      tasks[kind].context = workspace;
-    }
-
-  (void)thread_pool_run (pool, tasks, ENTROPY_STREAM_COUNT);
-
-  e->desc_len = 0UL;
-  e->stage_len = 0UL;
-
-  for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
-    {
-      ThreadEncoderWorkspace *workspace = &workspaces[kind];
-      Encoder *worker = &workspace->encoder;
-
-      if (!workspace->okay
-          || e->desc_len > DESC_MAX
-          || worker->desc_len > DESC_MAX - e->desc_len
-          || e->stage_len > STAGE_DATA_MAX
-          || worker->stage_len > STAGE_DATA_MAX - e->stage_len)
-        {
-          return 0;
-        }
-
-      (void)memcpy (e->desc + e->desc_len, worker->desc,
-                    (size_t)worker->desc_len);
-      e->desc_len += worker->desc_len;
-      (void)memcpy (e->stage + e->stage_len, worker->stage,
-                    (size_t)worker->stage_len);
-      e->stage_len += worker->stage_len;
-      e->stream_bits[kind] = worker->stream_bits[kind];
-      e->stream_bytes[kind] = worker->stream_bytes[kind];
-    }
-
-  return 1;
-}
-
-/*****************************************************************************/
-
-static void
-commit_thread_stream_caches (const Encoder *e,
-                             ThreadEncoderWorkspace *workspaces)
-{
-  unsigned int kind;
-
-  for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
-    {
-      unsigned int first = kind;
-      const unsigned char *source = workspaces[kind].stage + STAGE_DATA_MAX;
-      unsigned char *target = e->stage + STAGE_DATA_MAX;
-
-      (void)memcpy (target + first * 512U * sizeof (unsigned short),
-                    source + first * 512U * sizeof (unsigned short),
-                    512U * sizeof (unsigned short));
-
-      if (kind <= STREAM_ML)
-        {
-          first = phase_table_base[kind];
-          (void)memcpy (target + first * 512U * sizeof (unsigned short),
-                        source + first * 512U * sizeof (unsigned short),
-                        2U * 512U * sizeof (unsigned short));
-        }
-    }
-}
-#endif /* if defined(LZ9ANS_PTHREADS) */
-
-/*****************************************************************************/
-
 static void
 extra_parts (const Encoder *e, const Sequence *q, unsigned int values[4],
              unsigned int widths[4])
@@ -7098,9 +6872,8 @@ build_stored_block (Encoder *e, unsigned long crc, unsigned int width,
 /*****************************************************************************/
 
 static int
-encode_block (Encoder *e, ThreadPool *pool,
-              ThreadEncoderWorkspace *workspaces,
-              NormScratch *worker_norm_scratch, BlockOutput *output)
+encode_block (Encoder *e, NormScratch *worker_norm_scratch,
+              BlockOutput *output)
 {
   unsigned long crc = input_crc (e->buffer + e->window_n, e->n, e->stage);
   unsigned int i, width = 7;
@@ -7158,7 +6931,7 @@ encode_block (Encoder *e, ThreadPool *pool,
           return build_stored_block (e, crc, width, output);
         }
 
-      estimate_costs (e, pool, workspaces, worker_norm_scratch);
+      estimate_costs (e, worker_norm_scratch);
       (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
       e->use_cost = 1;
 
@@ -7169,7 +6942,7 @@ encode_block (Encoder *e, ThreadPool *pool,
 
       if (e->level == 9)
         {
-          estimate_costs (e, pool, workspaces, worker_norm_scratch);
+          estimate_costs (e, worker_norm_scratch);
           (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
 
           if (!parse_block (e))
@@ -7194,35 +6967,26 @@ encode_block (Encoder *e, ThreadPool *pool,
   e->desc_len = 0;
   e->stage_len = 0;
 
-#if defined(LZ9ANS_PTHREADS)
-  if (pool && pool->participants > 1U && workspaces)
+  if (worker_norm_scratch)
     {
-      compressed_ok = encode_streams_parallel (e, pool, workspaces);
-    }
-  else
-#endif /* if defined(LZ9ANS_PTHREADS) */
-    {
-      if (worker_norm_scratch)
-        {
-          if (!encode_one_stream_with_scratch (e, STREAM_LIT,
-                                               worker_norm_scratch)
-              || !encode_one_stream_with_scratch (e, STREAM_LL,
-                                                  worker_norm_scratch)
-              || !encode_one_stream_with_scratch (e, STREAM_ML,
-                                                  worker_norm_scratch)
-              || !encode_one_stream_with_scratch (e, STREAM_OF,
-                                                  worker_norm_scratch))
-            {
-              compressed_ok = 0;
-            }
-        }
-      else if (!encode_one_stream (e, STREAM_LIT)
-               || !encode_one_stream (e, STREAM_LL)
-               || !encode_one_stream (e, STREAM_ML)
-               || !encode_one_stream (e, STREAM_OF))
+      if (!encode_one_stream_with_scratch (e, STREAM_LIT,
+                                           worker_norm_scratch)
+          || !encode_one_stream_with_scratch (e, STREAM_LL,
+                                              worker_norm_scratch)
+          || !encode_one_stream_with_scratch (e, STREAM_ML,
+                                              worker_norm_scratch)
+          || !encode_one_stream_with_scratch (e, STREAM_OF,
+                                              worker_norm_scratch))
         {
           compressed_ok = 0;
         }
+    }
+  else if (!encode_one_stream (e, STREAM_LIT)
+           || !encode_one_stream (e, STREAM_LL)
+           || !encode_one_stream (e, STREAM_ML)
+           || !encode_one_stream (e, STREAM_OF))
+    {
+      compressed_ok = 0;
     }
 
   if (compressed_ok && !encode_extras (e))
@@ -7252,13 +7016,6 @@ encode_block (Encoder *e, ThreadPool *pool,
 
       return build_stored_block (e, crc, width, output);
     }
-
-#if defined(LZ9ANS_PTHREADS)
-  if (pool && pool->participants > 1U && workspaces)
-    {
-      commit_thread_stream_caches (e, workspaces);
-    }
-#endif /* if defined(LZ9ANS_PTHREADS) */
 
   make_block_header (h, BLOCK_LZ, e->n, e->sn, e->desc_len,
                      e->stream_bits, crc, block_aligned);
@@ -9118,25 +8875,6 @@ free_encoder (Encoder *e)
 
 /*****************************************************************************/
 
-static int
-cleanup_encode_run (Encoder *e, ThreadPool *pool,
-                    ThreadEncoderWorkspace *workspaces)
-{
-  int okay = thread_pool_destroy (pool);
-
-#if defined(LZ9ANS_PTHREADS)
-  free_thread_encoder_workspaces (workspaces);
-#else
-  (void)workspaces;
-#endif /* if defined(LZ9ANS_PTHREADS) */
-
-  free_encoder (e);
-
-  return okay;
-}
-
-/*****************************************************************************/
-
 #if defined(LZ9ANS_PTHREADS)
 static int
 read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
@@ -9363,8 +9101,7 @@ parallel_block_encode_task (void *arg)
   output.buffer = job->output;
   output.capacity = job->output_capacity;
   output.size = 0U;
-  job->okay = encode_block (&job->encoder, (ThreadPool *)0,
-                            (ThreadEncoderWorkspace *)0,
+  job->okay = encode_block (&job->encoder,
                             (NormScratch *)(void *)job->encoder.link,
                             &output);
   job->output_size = output.size;
@@ -9658,14 +9395,16 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 {
   static const unsigned short depth[9] = { 2, 4, 8, 12, 24, 48, 96, 192, 512 };
   Encoder e;
-  ThreadPool pool;
-  ThreadEncoderWorkspace *workspaces = (ThreadEncoderWorkspace *)0;
   unsigned long done = 0;
   unsigned int acc = 0, nbits = 0;
   unsigned int input_eof = 0;
   unsigned char hdr[FRAME_HEADER_PREFIX_N + 3U + 4U];
   unsigned int header_len = unknown_count ? FRAME_HEADER_PREFIX_N + 7U
                                           : FHEAD_N;
+
+#if !defined(LZ9ANS_PTHREADS)
+  (void)thread_limit;
+#endif /* if !defined(LZ9ANS_PTHREADS) */
 
 #if defined(LZ9ANS_PTHREADS)
   if (compression_participants (thread_limit) > 1U)
@@ -9684,28 +9423,6 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
       return 0;
     }
-
-  if (!thread_pool_init (&pool, thread_limit, ENTROPY_STREAM_COUNT))
-    {
-      free_encoder (&e);
-
-      return 0;
-    }
-
-#if defined(LZ9ANS_PTHREADS)
-  if (pool.participants > 1U)
-    {
-      workspaces = allocate_thread_encoder_workspaces ();
-
-      if (!workspaces)
-        {
-          (void)thread_pool_destroy (&pool);
-          free_encoder (&e);
-
-          return 0;
-        }
-    }
-#endif /* if defined(LZ9ANS_PTHREADS) */
 
   e.search_depth = depth[level - 1];
   e.lazy = level >= 5;
@@ -9740,7 +9457,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
   if (!write_exact (out, hdr, header_len))
     {
-      (void)cleanup_encode_run (&e, &pool, workspaces);
+      free_encoder (&e);
 
       return 0;
     }
@@ -9764,7 +9481,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
             {
               if (!read_some (in, e.stage, BLOCK_N, &input_bytes))
                 {
-                  (void)cleanup_encode_run (&e, &pool, workspaces);
+                  free_encoder (&e);
 
                   return 0;
                 }
@@ -9778,7 +9495,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                 {
                   if (!input_eof)
                     {
-                      (void)cleanup_encode_run (&e, &pool, workspaces);
+                      free_encoder (&e);
 
                       return 0;
                     }
@@ -9798,7 +9515,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
               if (!read_some (in, e.stage, (size_t)target_bytes, &input_bytes))
                 {
-                  (void)cleanup_encode_run (&e, &pool, workspaces);
+                  free_encoder (&e);
 
                   return 0;
                 }
@@ -9828,7 +9545,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                               || (e.stage[input_bytes - 1U]
                                   & ((1U << tail_bits) - 1U)))))
                     {
-                      (void)cleanup_encode_run (&e, &pool, workspaces);
+                      free_encoder (&e);
 
                       return 0;
                     }
@@ -9841,7 +9558,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
                       break;
                     }
 
-                  (void)cleanup_encode_run (&e, &pool, workspaces);
+                  free_encoder (&e);
 
                   return 0;
                 }
@@ -9854,7 +9571,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
       if (done > ULONG_MAX - n)
         {
-          (void)cleanup_encode_run (&e, &pool, workspaces);
+          free_encoder (&e);
 
           return 0;
         }
@@ -9866,7 +9583,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
         {
           if (!unknown_count && !read_exact (in, e.stage, (size_t)n))
             {
-              (void)cleanup_encode_run (&e, &pool, workspaces);
+              free_encoder (&e);
 
               return 0;
             }
@@ -9895,7 +9612,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
             {
               if ((size_t)needed_bytes > input_bytes)
                 {
-                  (void)cleanup_encode_run (&e, &pool, workspaces);
+                  free_encoder (&e);
 
                   return 0;
                 }
@@ -9903,7 +9620,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
           else if (needed_bytes
                    && !read_exact (in, e.stage, (size_t)needed_bytes))
             {
-              (void)cleanup_encode_run (&e, &pool, workspaces);
+              free_encoder (&e);
 
               return 0;
             }
@@ -9991,10 +9708,9 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
         block_output.capacity = 0U;
         block_output.size = 0U;
 
-        if (!encode_block (&e, &pool, workspaces, (NormScratch *)0,
-                           &block_output))
+        if (!encode_block (&e, (NormScratch *)0, &block_output))
           {
-            (void)cleanup_encode_run (&e, &pool, workspaces);
+            free_encoder (&e);
 
             return 0;
           }
@@ -10028,7 +9744,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
   if (mode == 9 && acc != 0)
     {
-      (void)cleanup_encode_run (&e, &pool, workspaces);
+      free_encoder (&e);
 
       return 0;
     }
@@ -10039,26 +9755,28 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
 
       if (!write_exact (out, &end_control, 1U))
         {
-          (void)cleanup_encode_run (&e, &pool, workspaces);
+          free_encoder (&e);
 
           return 0;
         }
     }
   else if (fgetc (in) != EOF)
     {
-      (void)cleanup_encode_run (&e, &pool, workspaces);
+      free_encoder (&e);
 
       return 0;
     }
 
   if (ferror (in) || ferror (out))
     {
-      (void)cleanup_encode_run (&e, &pool, workspaces);
+      free_encoder (&e);
 
       return 0;
     }
 
-  return cleanup_encode_run (&e, &pool, workspaces);
+  free_encoder (&e);
+
+  return 1;
 }
 
 /*****************************************************************************/
