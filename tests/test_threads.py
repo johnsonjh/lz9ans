@@ -166,6 +166,15 @@ def check_options(serial, threaded):
         assert b"compression participants: 1" in one
         assert b"compression mode: sequential" in one
         assert b"parallel-block encoder state" not in one
+        encoder_memory = (
+            b"encoder maximum allocated state:",
+            b"encoder allocated state at levels 1-5:",
+        )
+        assert all(
+            next(line for line in two.splitlines() if line.startswith(prefix))
+            in one.splitlines()
+            for prefix in encoder_memory
+        ), "--threads=1 must retain the base encoder allocation sizes"
         assert b"compression participants: 2" in two
         assert b"compression mode: " in two
         assert b"compression participants: " in many

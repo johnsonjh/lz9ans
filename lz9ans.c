@@ -2094,6 +2094,26 @@ typedef struct
 
 typedef struct
 {
+  NormTicket tickets[NORM_TICKET_MAX];
+#if !defined(NORM_KL_BFPRT)
+  unsigned short equal_idx[NORM_TICKET_MAX];
+#endif /* if !defined(NORM_KL_BFPRT) */
+} NormScratch;
+
+/*****************************************************************************/
+
+typedef char norm_scratch_must_fit_encoder_link_assertion[
+  sizeof (NormScratch) <= WINDOW_DEFAULT * sizeof (int) ? 1 : -1];
+
+/*****************************************************************************/
+
+typedef char norm_scratch_must_fit_thread_stage_assertion[
+  sizeof (NormScratch) <= STAGE_DATA_MAX ? 1 : -1];
+
+/*****************************************************************************/
+
+typedef struct
+{
   unsigned int hi;
   unsigned int mid;
   unsigned int lo;
@@ -4032,11 +4052,12 @@ norm_reciprocal (unsigned int divisor)
 /*****************************************************************************/
 
 static int
-norm_active_kl (const unsigned int *counts, const unsigned int *idx,
-                unsigned int active, unsigned int total,
-                unsigned short *freq)
+norm_active_kl_with_scratch (const unsigned int *counts,
+                             const unsigned int *idx, unsigned int active,
+                             unsigned int total, unsigned short *freq,
+                             NormScratch *scratch)
 {
-  NormTicket tickets[NORM_TICKET_MAX];
+  NormTicket *tickets = scratch->tickets;
   unsigned int k, ticket_n = 0U, upper_sum = 0U;
   unsigned int reciprocal, decrement_n;
 
@@ -4143,11 +4164,10 @@ norm_active_kl (const unsigned int *counts, const unsigned int *idx,
             }
         }
 #else
-      unsigned short equal_idx[NORM_TICKET_MAX];
       unsigned int equal_selected, selected = 0U;
       NormTicket threshold
           = norm_ticket_select (tickets, ticket_n, decrement_n - 1U,
-                                equal_idx, &equal_selected);
+                                scratch->equal_idx, &equal_selected);
 
       for (k = 0U; k < ticket_n; ++k)
         {
@@ -4172,7 +4192,7 @@ norm_active_kl (const unsigned int *counts, const unsigned int *idx,
 
       for (k = 0U; k < equal_selected; ++k)
         {
-          unsigned int symbol = tickets[equal_idx[k]].symbol;
+          unsigned int symbol = tickets[scratch->equal_idx[k]].symbol;
 
           if (freq[symbol] <= 1U)
             {
@@ -4189,18 +4209,37 @@ norm_active_kl (const unsigned int *counts, const unsigned int *idx,
 
 /*****************************************************************************/
 
+#if defined(LZ9ANS_TEST_NORMALIZER)
 static int
-norm_active (const unsigned int *counts, const unsigned int *idx,
-             unsigned int active, unsigned int total, unsigned short *freq)
+norm_active_kl (const unsigned int *counts, const unsigned int *idx,
+                unsigned int active, unsigned int total,
+                unsigned short *freq)
 {
-  return norm_active_kl (counts, idx, active, total, freq);
+  NormScratch scratch;
+
+  return norm_active_kl_with_scratch (counts, idx, active, total, freq,
+                                     &scratch);
+}
+#endif /* if defined(LZ9ANS_TEST_NORMALIZER) */
+
+/*****************************************************************************/
+
+static int
+norm_active_with_scratch (const unsigned int *counts,
+                          const unsigned int *idx, unsigned int active,
+                          unsigned int total, unsigned short *freq,
+                          NormScratch *scratch)
+{
+  return norm_active_kl_with_scratch (counts, idx, active, total, freq,
+                                     scratch);
 }
 
 /*****************************************************************************/
 
 static int
-norm_counts (const unsigned int *counts, unsigned int alphabet,
-             unsigned int total, unsigned short *freq)
+norm_counts_with_scratch (const unsigned int *counts, unsigned int alphabet,
+                          unsigned int total, unsigned short *freq,
+                          NormScratch *scratch)
 {
   unsigned int i, active = 0;
   unsigned int idx[512];
@@ -4220,8 +4259,22 @@ norm_counts (const unsigned int *counts, unsigned int alphabet,
       return 0;
     }
 
-  return norm_active (counts, idx, active, total, freq);
+  return norm_active_with_scratch (counts, idx, active, total, freq,
+                                   scratch);
 }
+
+/*****************************************************************************/
+
+#if LZ9ANS_EARLY_STORED_LITERAL_PERCENT != 0
+static int
+norm_counts (const unsigned int *counts, unsigned int alphabet,
+             unsigned int total, unsigned short *freq)
+{
+  NormScratch scratch;
+
+  return norm_counts_with_scratch (counts, alphabet, total, freq, &scratch);
+}
+#endif /* if LZ9ANS_EARLY_STORED_LITERAL_PERCENT != 0 */
 
 /*****************************************************************************/
 
@@ -5777,11 +5830,13 @@ entropy_cost (unsigned int frequency)
 /*****************************************************************************/
 
 static int
-early_stored_block (Encoder *e, unsigned int stored_width)
+early_stored_block (Encoder *e, unsigned int stored_width,
+                    NormScratch *norm_scratch)
 {
 #if LZ9ANS_EARLY_STORED_LITERAL_PERCENT == 0
   (void)e;
   (void)stored_width;
+  (void)norm_scratch;
 
   return 0;
 #else
@@ -5816,7 +5871,11 @@ early_stored_block (Encoder *e, unsigned int stored_width)
     {
       best = 24UL * COST_SCALE;
     }
-  else if (used >= 2U && norm_counts (e->counts, 512U, total, freq))
+  else if (used >= 2U
+           && (norm_scratch
+                   ? norm_counts_with_scratch (e->counts, 512U, total, freq,
+                                               norm_scratch)
+                   : norm_counts (e->counts, 512U, total, freq)))
     {
       unsigned int prev = 0;
       unsigned long predicted = 0, header = 2;
@@ -5850,7 +5909,8 @@ early_stored_block (Encoder *e, unsigned int stored_width)
 /*****************************************************************************/
 
 static void
-estimate_one_stream (Encoder *e, unsigned int kind)
+estimate_one_stream (Encoder *e, unsigned int kind,
+                     NormScratch *norm_scratch)
 {
   unsigned int i;
   unsigned short freq[512];
@@ -5874,7 +5934,9 @@ estimate_one_stream (Encoder *e, unsigned int kind)
 
   raw = (unsigned long)total * width * COST_SCALE;
 
-  if (used >= 2 && norm_counts (e->counts, alphabet, total, freq))
+  if (used >= 2
+      && norm_counts_with_scratch (e->counts, alphabet, total, freq,
+                                   norm_scratch))
     {
       unsigned int prev = 0;
       unsigned long predicted = 0;
@@ -5943,7 +6005,8 @@ estimate_stream_task (void *arg)
 {
   ThreadEncoderWorkspace *workspace = (ThreadEncoderWorkspace *)arg;
 
-  estimate_one_stream (&workspace->encoder, workspace->kind);
+  estimate_one_stream (&workspace->encoder, workspace->kind,
+                       (NormScratch *)(void *)workspace->stage);
 }
 #endif /* if defined(LZ9ANS_PTHREADS) */
 
@@ -5951,7 +6014,8 @@ estimate_stream_task (void *arg)
 
 static void
 estimate_costs (Encoder *e, ThreadPool *pool,
-                ThreadEncoderWorkspace *workspaces)
+                ThreadEncoderWorkspace *workspaces,
+                NormScratch *norm_scratch)
 {
   unsigned int kind;
 
@@ -5988,7 +6052,11 @@ estimate_costs (Encoder *e, ThreadPool *pool,
 #endif /* if !defined(LZ9ANS_PTHREADS) */
       for (kind = 0; kind < ENTROPY_STREAM_COUNT; ++kind)
         {
-          estimate_one_stream (e, kind);
+          NormScratch *scratch = norm_scratch
+                                     ? norm_scratch
+                                     : (NormScratch *)(void *)e->link;
+
+          estimate_one_stream (e, kind, scratch);
         }
     }
 
@@ -6101,7 +6169,8 @@ static unsigned long
 phase_group_eval (unsigned int kind, unsigned int alphabet,
                   const unsigned int *hist, const unsigned short *slot,
                   unsigned short *freq, unsigned char *is_empty,
-                  unsigned char *is_reuse, unsigned long *desc_bytes)
+                  unsigned char *is_reuse, unsigned long *desc_bytes,
+                  NormScratch *norm_scratch)
 {
   unsigned int i, k, total = 0, used = 0, slot_sum = 0;
   unsigned int idx[512];
@@ -6141,14 +6210,16 @@ phase_group_eval (unsigned int kind, unsigned int alphabet,
       idx[0] = only < dummy ? only : dummy;
       idx[1] = only < dummy ? dummy : only;
 
-      if (!norm_active (tmp, idx, 2U, total + 1U, freq))
+      if (!norm_active_with_scratch (tmp, idx, 2U, total + 1U, freq,
+                                     norm_scratch))
         {
           return ~0UL;
         }
 
       used = 2U;
     }
-  else if (!norm_active (hist, idx, used, total, freq))
+  else if (!norm_active_with_scratch (hist, idx, used, total, freq,
+                                      norm_scratch))
     {
       return ~0UL;
     }
@@ -6201,7 +6272,8 @@ choose_phased (const Encoder *e, unsigned int kind, unsigned int alphabet,
                unsigned long best_bits, unsigned int *pid_out,
                unsigned short freqs[PHASE_GROUPS_MAX][512],
                unsigned char *empty_out, unsigned char *reuse_out,
-               unsigned long *desc_bytes_out)
+               unsigned long *desc_bytes_out,
+               NormScratch *norm_scratch)
 {
   unsigned int pid, g, ph, i;
   int found = 0;
@@ -6237,7 +6309,8 @@ choose_phased (const Encoder *e, unsigned int kind, unsigned int alphabet,
 
           gb = phase_group_eval (kind, alphabet, hist[g],
                                  table_cache (e, phase_table_base[kind] + g),
-                                 tf[g], &tmp_empty[g], &tmp_reuse[g], &db);
+                                 tf[g], &tmp_empty[g], &tmp_reuse[g], &db,
+                                 norm_scratch);
 
           if (gb == ~0UL)
             {
@@ -6423,7 +6496,8 @@ table_cache_covers (const Encoder *e, unsigned int kind,
 /*****************************************************************************/
 
 static int
-encode_one_stream (Encoder *e, unsigned int kind)
+encode_one_stream_with_scratch (Encoder *e, unsigned int kind,
+                                NormScratch *norm_scratch)
 {
   unsigned int i, total, single = 0,
                          alphabet = stream_alphabet (kind, e->of_alphabet);
@@ -6479,7 +6553,8 @@ encode_one_stream (Encoder *e, unsigned int kind)
 
   if (mode == MODE_RAW)
     {
-      if (norm_counts (e->counts, alphabet, total, freq))
+      if (norm_counts_with_scratch (e->counts, alphabet, total, freq,
+                                    norm_scratch))
         {
           unsigned long fresh_cost = compact_tans_desc_size (e, kind,
                                                              alphabet, freq);
@@ -6560,7 +6635,8 @@ encode_one_stream (Encoder *e, unsigned int kind)
 
               if (phase_ok && total >= PHASE_MIN_SYMBOLS
                   && choose_phased (e, kind, alphabet, best_bits, &pid,
-                                    pfreq, pempty, preuse, &phased_bytes))
+                                    pfreq, pempty, preuse, &phased_bytes,
+                                    norm_scratch))
                 {
                   choice = CHOICE_PHASED;
                   desc_cost = phased_bytes;
@@ -6665,6 +6741,16 @@ encode_one_stream (Encoder *e, unsigned int kind)
 
 /*****************************************************************************/
 
+static int
+encode_one_stream (Encoder *e, unsigned int kind)
+{
+  NormScratch scratch;
+
+  return encode_one_stream_with_scratch (e, kind, &scratch);
+}
+
+/*****************************************************************************/
+
 #if defined(LZ9ANS_PTHREADS)
 static void
 free_thread_encoder_workspaces (ThreadEncoderWorkspace *workspaces)
@@ -6729,7 +6815,10 @@ encode_stream_task (void *arg)
 {
   ThreadEncoderWorkspace *workspace = (ThreadEncoderWorkspace *)arg;
 
-  workspace->okay = encode_one_stream (&workspace->encoder, workspace->kind);
+  workspace->okay
+      = encode_one_stream_with_scratch (
+          &workspace->encoder, workspace->kind,
+          (NormScratch *)(void *)workspace->stage);
 }
 
 /*****************************************************************************/
@@ -7009,7 +7098,8 @@ build_stored_block (Encoder *e, unsigned long crc, unsigned int width,
 
 static int
 encode_block (Encoder *e, ThreadPool *pool,
-              ThreadEncoderWorkspace *workspaces, BlockOutput *output)
+              ThreadEncoderWorkspace *workspaces,
+              NormScratch *worker_norm_scratch, BlockOutput *output)
 {
   unsigned long crc = input_crc (e->buffer + e->window_n, e->n, e->stage);
   unsigned int i, width = 7;
@@ -7060,14 +7150,14 @@ encode_block (Encoder *e, ThreadPool *pool,
 
   if (e->level >= 4)
     {
-      if (early_stored_block (e, width))
+      if (early_stored_block (e, width, worker_norm_scratch))
         {
           (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
 
           return build_stored_block (e, crc, width, output);
         }
 
-      estimate_costs (e, pool, workspaces);
+      estimate_costs (e, pool, workspaces, worker_norm_scratch);
       (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
       e->use_cost = 1;
 
@@ -7078,7 +7168,7 @@ encode_block (Encoder *e, ThreadPool *pool,
 
       if (e->level == 9)
         {
-          estimate_costs (e, pool, workspaces);
+          estimate_costs (e, pool, workspaces, worker_norm_scratch);
           (void)memcpy (e->reps, saved_reps, sizeof (saved_reps));
 
           if (!parse_block (e))
@@ -7111,10 +7201,24 @@ encode_block (Encoder *e, ThreadPool *pool,
   else
 #endif /* if defined(LZ9ANS_PTHREADS) */
     {
-      if (!encode_one_stream (e, STREAM_LIT)
-          || !encode_one_stream (e, STREAM_LL)
-          || !encode_one_stream (e, STREAM_ML)
-          || !encode_one_stream (e, STREAM_OF))
+      if (worker_norm_scratch)
+        {
+          if (!encode_one_stream_with_scratch (e, STREAM_LIT,
+                                               worker_norm_scratch)
+              || !encode_one_stream_with_scratch (e, STREAM_LL,
+                                                  worker_norm_scratch)
+              || !encode_one_stream_with_scratch (e, STREAM_ML,
+                                                  worker_norm_scratch)
+              || !encode_one_stream_with_scratch (e, STREAM_OF,
+                                                  worker_norm_scratch))
+            {
+              compressed_ok = 0;
+            }
+        }
+      else if (!encode_one_stream (e, STREAM_LIT)
+               || !encode_one_stream (e, STREAM_LL)
+               || !encode_one_stream (e, STREAM_ML)
+               || !encode_one_stream (e, STREAM_OF))
         {
           compressed_ok = 0;
         }
@@ -9259,7 +9363,9 @@ parallel_block_encode_task (void *arg)
   output.capacity = job->output_capacity;
   output.size = 0U;
   job->okay = encode_block (&job->encoder, (ThreadPool *)0,
-                            (ThreadEncoderWorkspace *)0, &output);
+                            (ThreadEncoderWorkspace *)0,
+                            (NormScratch *)(void *)job->encoder.link,
+                            &output);
   job->output_size = output.size;
 }
 
@@ -9271,7 +9377,6 @@ block_thread_capacity (unsigned long elements, int unknown_count,
 {
   unsigned int capacity = compression_participants (thread_limit);
 
-  /* A known short input cannot use more workers than it has blocks. */
   if (!unknown_count)
     {
       unsigned long blocks = elements / BLOCK_N
@@ -9885,7 +9990,8 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
         block_output.capacity = 0U;
         block_output.size = 0U;
 
-        if (!encode_block (&e, &pool, workspaces, &block_output))
+        if (!encode_block (&e, &pool, workspaces, (NormScratch *)0,
+                           &block_output))
           {
             (void)cleanup_encode_run (&e, &pool, workspaces);
 
@@ -10623,7 +10729,6 @@ input_count (FILE *in, unsigned int mode, unsigned long *count)
         }
     }
 
-  /* v9 frame header stores the symbol count in an unsigned 32-bit field */
   if (symbols > (LZ9FileSize)0xffffffffUL)
     {
       return 0;
