@@ -4211,7 +4211,8 @@ norm_active_kl_with_scratch (const unsigned int *counts,
 
 #if defined(LZ9ANS_TEST_NORMALIZER)
 static int
-norm_active_kl (const unsigned int *counts, const unsigned int *idx,
+norm_active_kl ( /*cppcheck-suppress unusedFunction */
+                const unsigned int *counts, const unsigned int *idx,
                 unsigned int active, unsigned int total,
                 unsigned short *freq)
 {
