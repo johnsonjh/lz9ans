@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.15 (2026-11-12)"
+#define LZ9VER "v0.9.16-dev (2026-11-13)"
 
 /*****************************************************************************/
 
@@ -1144,7 +1144,7 @@ static unsigned int crc_table[8][256];
 
 /*****************************************************************************/
 
-typedef char crc_slice_table_needs_32_bit_unsigned_int_compile_time_assertion[
+typedef char crc_slice_needs_32_bit_unsigned_int_compile_time_assertion[
   UINT_MAX >= 0xffffffffUL ? 1 : -1];
 
 /*****************************************************************************/
