@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.17 (2026-11-13)"
+#define LZ9VER "v0.9.18 (2026-11-13)"
 
 /*****************************************************************************/
 
@@ -595,13 +595,20 @@ typedef struct
 /*****************************************************************************/
 
 #if defined(LZ9ANS_PTHREADS)
+typedef struct ParallelBlockContext ParallelBlockContext;
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS)
 typedef struct
 {
   Encoder encoder;
   unsigned char *output;
   size_t output_capacity;
   size_t output_size;
-  int okay;
+  unsigned long sequence;
+  ParallelBlockContext *context;
 } ThreadBlockJob;
 #endif /* if defined(LZ9ANS_PTHREADS) */
 
@@ -614,6 +621,33 @@ typedef struct
   size_t capacity;
   size_t size;
 } BlockOutput;
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS)
+struct ParallelBlockContext
+{
+  ThreadPool *pool;
+  FILE *in;
+  FILE *out;
+  unsigned short *history;
+  unsigned char *raw;
+  unsigned int mode;
+  unsigned int window_n;
+  unsigned long elements;
+  unsigned long done;
+  unsigned long next_input_sequence;
+  unsigned long next_output_sequence;
+  unsigned int history_n;
+  unsigned int acc;
+  unsigned int nbits;
+  unsigned int input_eof;
+  int unknown_count;
+  int input_busy;
+  int input_finished;
+  int failed;
+};
+#endif /* if defined(LZ9ANS_PTHREADS) */
 
 /*****************************************************************************/
 
@@ -965,6 +999,71 @@ thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
     {
       tasks[i].function (tasks[i].context);
     }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+thread_pool_run_main_first (ThreadPool *pool, const ThreadTask *tasks,
+                             unsigned int task_count)
+{
+  unsigned int i;
+
+  if (!pool || !tasks || !task_count || task_count > pool->task_capacity)
+    {
+      return 0;
+    }
+
+  if (!pool->worker_count)
+    {
+      if (task_count != 1U)
+        {
+          return 0;
+        }
+
+      tasks[0].function (tasks[0].context);
+
+      return 1;
+    }
+
+  if (task_count != pool->worker_count + 1U)
+    {
+      return 0;
+    }
+
+  (void)pthread_mutex_lock (&pool->mutex);
+
+  for (i = 0; i < task_count; ++i)
+    {
+      pool->tasks[i] = tasks[i];
+    }
+
+  pool->task_count = task_count;
+  pool->next_task = 1U;
+  pool->pending = task_count;
+  ++pool->generation;
+  (void)pthread_cond_broadcast (&pool->work_ready);
+  (void)pthread_mutex_unlock (&pool->mutex);
+
+  tasks[0].function (tasks[0].context);
+
+  (void)pthread_mutex_lock (&pool->mutex);
+
+  --pool->pending; /* Cannot underflow since task is still pending. */
+
+  if (!pool->pending)
+    {
+      (void)pthread_cond_broadcast (&pool->work_done);
+    }
+
+  while (pool->pending)
+    {
+      (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+    }
+
+  (void)pthread_mutex_unlock (&pool->mutex);
 
   return 1;
 }
@@ -8930,6 +9029,13 @@ read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
     {
       unsigned int byte_pos = 0U;
 
+# if defined(__clang_analyzer__)
+      if (*nbits > 7U)
+        {
+          return -1;
+        }
+# endif
+
       if (unknown_count)
         {
           unsigned int target_bits = BLOCK_N * 9U;
@@ -9090,21 +9196,285 @@ read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
 
 /*****************************************************************************/
 
+static LZ9_ALWAYS_INLINE int
+parallel_block_finish_input_read (ParallelBlockContext *context)
+{
+  ThreadPool *pool = context->pool;
+
+  (void)pthread_mutex_lock (&pool->mutex);
+  context->input_busy = 0;
+
+  if (context->failed)
+    {
+      (void)pthread_cond_broadcast (&pool->work_done);
+      (void)pthread_mutex_unlock (&pool->mutex);
+
+      return 0;
+    }
+
+  return 1; /* //-V1020 */
+}
+
+/*****************************************************************************/
+
+static int
+parallel_block_prepare (ThreadBlockJob *job)
+{
+  ParallelBlockContext *context = job->context;
+  ThreadPool *pool = context->pool;
+  Encoder *e = &job->encoder;
+  unsigned int n = 0U;
+  int read_status;
+  int synchronized = pool->worker_count != 0U;
+
+  if (synchronized)
+    {
+      (void)pthread_mutex_lock (&pool->mutex);
+
+      while (context->input_busy && !context->failed)
+        {
+          (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+        }
+
+      if (context->failed || context->input_finished)
+        {
+          (void)pthread_mutex_unlock (&pool->mutex);
+
+          return 0;
+        }
+
+      context->input_busy = 1;
+      (void)pthread_mutex_unlock (&pool->mutex);
+    }
+  else if (context->failed || context->input_finished)
+    {
+      return 0;
+    }
+
+  read_status = read_next_input_block (context->in, context->mode,
+                                       context->elements,
+                                       context->unknown_count, context->done,
+                                       &context->acc, &context->nbits,
+                                       &context->input_eof, context->raw,
+                                       e->buffer + context->window_n, &n);
+
+  if (synchronized && !parallel_block_finish_input_read (context))
+    {
+      return 0;
+    }
+
+  if (read_status <= 0)
+    {
+      if (read_status < 0)
+        {
+          context->failed = 1;
+        }
+      else
+        {
+          context->input_finished = 1;
+        }
+
+      if (synchronized)
+        {
+          (void)pthread_cond_broadcast (&pool->work_done);
+          (void)pthread_mutex_unlock (&pool->mutex);
+        }
+
+      return 0;
+    }
+
+  if (context->done > ULONG_MAX - n)
+    {
+      context->failed = 1;
+
+      if (synchronized)
+        {
+          (void)pthread_cond_broadcast (&pool->work_done);
+          (void)pthread_mutex_unlock (&pool->mutex);
+        }
+
+      return 0;
+    }
+
+  if (context->history_n)
+    {
+      (void)memcpy (e->buffer + context->window_n - context->history_n,
+                    context->history,
+                    context->history_n * sizeof (unsigned short));
+    }
+
+  e->n = n;
+  e->hlen = context->history_n;
+  e->base = 0U;
+  e->chain_state = 0;
+  e->frame_pos = context->done;
+  e->distance_flags = 0U;
+  e->use_cost = 0;
+  e->sn = 0U;
+  e->lit_count = 0U;
+  e->last_lit = 0U;
+  e->max_literal = 0U;
+  e->desc_len = 0UL;
+  e->stage_len = 0UL;
+  (void)memset (e->reps, 0, sizeof (e->reps));
+  (void)memset (e->stream_bits, 0, sizeof (e->stream_bits));
+  (void)memset (e->stream_bytes, 0, sizeof (e->stream_bytes));
+  (void)memset (e->stage + STAGE_DATA_MAX, 0, TABLE_CACHE_BYTES);
+
+  if (n >= context->window_n)
+    {
+      (void)memcpy (context->history, e->buffer + n,
+                    context->window_n * sizeof (unsigned short));
+      context->history_n = context->window_n;
+    }
+  else
+    {
+      unsigned int keep = context->history_n;
+
+      if (keep + n > context->window_n)
+        {
+          unsigned int drop = keep + n - context->window_n;
+
+          (void)memmove (context->history, context->history + drop,
+                         (keep - drop) * sizeof (unsigned short));
+          keep -= drop;
+        }
+
+      (void)memcpy (context->history + keep, e->buffer + context->window_n,
+                    n * sizeof (unsigned short));
+      context->history_n = keep + n;
+    }
+
+  job->sequence = context->next_input_sequence++;
+  context->done += n;
+
+  if (synchronized)
+    {
+      (void)pthread_cond_broadcast (&pool->work_done);
+      (void)pthread_mutex_unlock (&pool->mutex);
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static void
+parallel_block_fail (ParallelBlockContext *context)
+{
+  ThreadPool *pool = context->pool;
+
+  if (pool->worker_count)
+    {
+      (void)pthread_mutex_lock (&pool->mutex);
+    }
+
+  context->failed = 1;
+
+  if (pool->worker_count)
+    {
+      (void)pthread_cond_broadcast (&pool->work_done);
+      (void)pthread_mutex_unlock (&pool->mutex);
+    }
+}
+
+/*****************************************************************************/
+
+static int
+parallel_block_write (ThreadBlockJob *job)
+{
+  ParallelBlockContext *context = job->context;
+  ThreadPool *pool = context->pool;
+  int synchronized = pool->worker_count != 0U;
+  int okay;
+
+  if (synchronized)
+    {
+      (void)pthread_mutex_lock (&pool->mutex);
+
+      while (!context->failed
+             && job->sequence != context->next_output_sequence)
+        {
+          (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+        }
+
+      if (context->failed)
+        {
+          (void)pthread_mutex_unlock (&pool->mutex);
+
+          return 0;
+        }
+
+      (void)pthread_mutex_unlock (&pool->mutex);
+    }
+  else if (context->failed
+           || job->sequence != context->next_output_sequence)
+    {
+      return 0;
+    }
+
+  okay = write_exact (context->out, job->output, job->output_size);
+
+  if (synchronized)
+    {
+      (void)pthread_mutex_lock (&pool->mutex);
+    }
+
+  if (okay)
+    {
+      ++context->next_output_sequence;
+    }
+  else
+    {
+      context->failed = 1;
+    }
+
+  if (synchronized)
+    {
+      (void)pthread_cond_broadcast (&pool->work_done);
+      (void)pthread_mutex_unlock (&pool->mutex);
+    }
+
+  return okay;
+}
+
+/*****************************************************************************/
+
 static void
 parallel_block_encode_task (void *arg)
 {
   ThreadBlockJob *job = (ThreadBlockJob *)arg;
+  ParallelBlockContext *context = job->context;
 
-  BlockOutput output;
+  for (;;)
+    {
+      BlockOutput output;
 
-  output.file = (FILE *)0;
-  output.buffer = job->output;
-  output.capacity = job->output_capacity;
-  output.size = 0U;
-  job->okay = encode_block (&job->encoder,
-                            (NormScratch *)(void *)job->encoder.link,
-                            &output);
-  job->output_size = output.size;
+      if (!parallel_block_prepare (job))
+        {
+          return;
+        }
+
+      output.file = (FILE *)0;
+      output.buffer = job->output;
+      output.capacity = job->output_capacity;
+      output.size = 0U;
+
+      if (!encode_block (&job->encoder,
+                         (NormScratch *)(void *)job->encoder.link, &output))
+        {
+          parallel_block_fail (context);
+
+          return;
+        }
+
+      job->output_size = output.size;
+
+      if (!parallel_block_write (job))
+        {
+          return;
+        }
+    }
 }
 
 /*****************************************************************************/
@@ -9144,14 +9514,14 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
   ThreadTask *tasks = (ThreadTask *)0;
   unsigned short *history = (unsigned short *)0;
   unsigned char *raw = (unsigned char *)0;
-  unsigned int history_n = 0U;
-  unsigned long done = 0UL;
-  unsigned int acc = 0U, nbits = 0U, input_eof = 0U;
+  ParallelBlockContext context;
   unsigned char hdr[FRAME_HEADER_PREFIX_N + 3U + 4U];
   unsigned int header_len = unknown_count ? FRAME_HEADER_PREFIX_N + 7U
                                           : FHEAD_N;
   unsigned int participants, i;
   int okay = 0, pool_ready = 0;
+
+  (void)memset (&context, 0, sizeof (context));
 
   if (!thread_pool_init (&pool, thread_limit,
                          block_thread_capacity (elements, unknown_count,
@@ -9172,6 +9542,16 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
       goto cleanup;
     }
 
+  context.pool = &pool;
+  context.in = in;
+  context.out = out;
+  context.history = history;
+  context.raw = raw;
+  context.mode = mode;
+  context.window_n = window_n;
+  context.elements = elements;
+  context.unknown_count = unknown_count;
+
   for (i = 0; i < participants; ++i)
     {
       Encoder *e = &jobs[i].encoder;
@@ -9185,6 +9565,7 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
 
       jobs[i].output = (unsigned char *)malloc ((size_t)BLOCK_OUTPUT_MAX);
       jobs[i].output_capacity = (size_t)BLOCK_OUTPUT_MAX;
+      jobs[i].context = &context;
 
       if (!jobs[i].output)
         {
@@ -9232,111 +9613,14 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
       goto cleanup;
     }
 
-  for (;;)
+  if (!thread_pool_run_main_first (&pool, tasks, participants)
+      || context.failed
+      || context.next_input_sequence != context.next_output_sequence)
     {
-      unsigned int batch_count = 0U;
-      int read_status = 1;
-
-      while (batch_count < participants && read_status > 0)
-        {
-          ThreadBlockJob *job = &jobs[batch_count];
-          Encoder *e = &job->encoder;
-          unsigned int n = 0U;
-
-          read_status = read_next_input_block (in, mode, elements,
-                                               unknown_count, done, &acc,
-                                               &nbits, &input_eof, raw,
-                                               e->buffer + window_n, &n);
-
-          if (read_status < 0)
-            {
-              goto cleanup;
-            }
-
-          if (read_status == 0)
-            {
-              break;
-            }
-
-          if (done > ULONG_MAX - n)
-            {
-              goto cleanup;
-            }
-
-          if (history_n)
-            {
-              (void)memcpy (e->buffer + window_n - history_n, history,
-                            history_n * sizeof (unsigned short));
-            }
-
-          e->n = n;
-          e->hlen = history_n;
-          e->base = 0U;
-          e->chain_state = 0;
-          e->frame_pos = done;
-          e->distance_flags = 0U;
-          e->use_cost = 0;
-          e->sn = 0U;
-          e->lit_count = 0U;
-          e->last_lit = 0U;
-          e->max_literal = 0U;
-          e->desc_len = 0UL;
-          e->stage_len = 0UL;
-          (void)memset (e->reps, 0, sizeof (e->reps));
-          (void)memset (e->stream_bits, 0, sizeof (e->stream_bits));
-          (void)memset (e->stream_bytes, 0, sizeof (e->stream_bytes));
-          (void)memset (e->stage + STAGE_DATA_MAX, 0, TABLE_CACHE_BYTES);
-
-          if (n >= window_n)
-            {
-              (void)memcpy (history, e->buffer + window_n + n - window_n,
-                            window_n * sizeof (unsigned short));
-              history_n = window_n;
-            }
-          else
-            {
-              unsigned int keep = history_n;
-
-              if (keep + n > window_n)
-                {
-                  unsigned int drop = keep + n - window_n;
-
-                  (void)memmove (history, history + drop,
-                                 (keep - drop) * sizeof (unsigned short));
-                  keep -= drop;
-                }
-
-              (void)memcpy (history + keep, e->buffer + window_n,
-                            n * sizeof (unsigned short));
-              history_n = keep + n;
-            }
-
-          done += n;
-          ++batch_count;
-        }
-
-      if (!batch_count)
-        {
-          break;
-        }
-
-      if (read_status < 0
-          || !thread_pool_run (&pool, tasks, batch_count))
-        {
-          goto cleanup;
-        }
-
-      for (i = 0; i < batch_count; ++i)
-        {
-          if (!jobs[i].okay
-              || !write_exact (out, jobs[i].output, jobs[i].output_size))
-            {
-              goto cleanup;
-            }
-        }
+      goto cleanup;
     }
 
-  if (mode == 9U && acc != 0U)
+  if (mode == 9U && context.acc != 0U)
     {
       goto cleanup;
     }
