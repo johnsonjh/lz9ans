@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.18 (2026-11-13)"
+#define LZ9VER "v0.9.19 (2026-11-13)"
 
 /*****************************************************************************/
 
@@ -29,7 +29,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 /*****************************************************************************/
 
@@ -10998,7 +10997,6 @@ main (int argc, char **argv)
   int output_is_same_file = 0;
   unsigned int window_n = WINDOW_DEFAULT;
   unsigned int features, thread_limit = 0U;
-  clock_t start, finish;
 
   if (argc >= 2
       && (!strcmp (argv[1], "--memory")
@@ -11248,7 +11246,6 @@ main (int argc, char **argv)
   features = default_features (level);
   init_crc ();
   init_costs ();
-  start = clock ();
 
   if (mode)
     {
@@ -11259,8 +11256,6 @@ main (int argc, char **argv)
     {
       okay = decode_file (in, out, thread_limit);
     }
-
-  finish = clock ();
 
   if (output_is_stdio || verbose)
     {
@@ -11292,10 +11287,6 @@ main (int argc, char **argv)
 
       return 1;
     }
-
-  (void)fprintf (stderr, "LZ9ANS %s: %.3f CPU seconds\n",
-                 mode ? "compress" : "decompress",
-                 (double)(finish - start) / (double)CLOCKS_PER_SEC);
 
   if (verbose && size_reporting)
     {
