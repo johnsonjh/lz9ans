@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`40`** (2026‑11‑12)
+> Document revision **`41`** (2026‑11‑13)
 
 <!-- toc -->
 
@@ -769,7 +769,7 @@ the possible one‑count decrements.  For a symbol with observed count
 `c_i`, decrementing its current frequency from `j` to `j-1` has marginal cost
 proportional to `c_i * ln(j/(j-1))`.  The encoder selects the least‑cost
 decrements needed to make the frequency sum exactly 1024.  The implementation
-compares these costs using precomputed Q64 fixed‑point logarithms and a bounded
+compares these costs using pre‑computed Q64 fixed‑point logarithms and a bounded
 integer selection procedure.
 
 This is a deterministic fixed‑precision approximation to the KL‑optimal
