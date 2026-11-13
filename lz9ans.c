@@ -1336,16 +1336,9 @@ static unsigned long
 input_crc (const unsigned short *v, unsigned int n, unsigned char *packed)
 {
   unsigned int i = 0, used = 0;
-  unsigned long crc = 0UL;
 
   while (n - i >= 8U)
     {
-      if (used > CRC_BUFFER_N - 9U)
-        {
-          crc = crc_update (crc, packed, used);
-          used = 0;
-        }
-
       pack8_symbols (v + i, packed + used);
       used += 9U;
       i += 8U;
@@ -1353,21 +1346,10 @@ input_crc (const unsigned short *v, unsigned int n, unsigned char *packed)
 
   if (i < n)
     {
-      if (used > CRC_BUFFER_N - 8U)
-        {
-          crc = crc_update (crc, packed, used);
-          used = 0;
-        }
-
       used += pack9_tail (v + i, n - i, packed + used);
     }
 
-  if (used)
-    {
-      crc = crc_update (crc, packed, used);
-    }
-
-  return crc;
+  return used ? crc_update (0UL, packed, used) : 0UL;
 }
 
 /*****************************************************************************/
