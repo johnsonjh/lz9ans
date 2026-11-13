@@ -78,7 +78,7 @@ settings), as well as **LZ9ANS** operating in 8‑bit mode:
 
 |      Utility | Algorithm              | Compressed bits | Memory           | Performance      |
 |-------------:|:-----------------------|:---------------:|-----------------:|-----------------:|
-| `lzfx`       | LZF&nbsp;(LZSS)        |  `281,115,248`  |      70&nbsp;KiB | 108%&nbsp;larger |
+| `lzfx`       | LZF                    |  `281,115,248`  |      70&nbsp;KiB | 108%&nbsp;larger |
 | `compress`   | LZW                    |  `279,608,608`  |     400&nbsp;KiB | 107%&nbsp;larger |
 | `lz4`        | LZ77+VLE               |  `221,797,064`  |     512&nbsp;KiB |  64%&nbsp;larger |
 | `lzop`       | LZO1X&nbsp;(LZ77+BC)   |  `212,130,184`  |      70&nbsp;KiB |  57%&nbsp;larger |
