@@ -2,6 +2,7 @@
 # Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
+# scspell-id: 1442d142-df72-11f1-a55c-80ee73e9b8e7
 
 """Check 64-bit input-size discovery and 32-bit stream-count limits."""
 

@@ -1,6 +1,7 @@
 # Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
+# scspell-id: d5429bb2-df71-11f1-9c9e-80ee73e9b8e7
 ##############################################################################
 
 CC ?= cc
@@ -139,6 +140,7 @@ oracle: lz9ans.c crc32_hw.h
 ##############################################################################
 
 lint: lz9ans.c crc32_hw.h
+	editorconfig-checker
 	cppi -ac ./lz9ans.c ./crc32_hw.h
 	reuse lint -q || reuse lint
 	flawfinder --quiet --dataonly --omittime --error-level=3 --context -m3 .

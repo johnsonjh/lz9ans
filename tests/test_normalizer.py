@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# Copyright (c) 2025-2026 Jeffrey H. Johnson
+# Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
+# Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
+# scspell-id: 24389794-df72-11f1-8fe3-80ee73e9b8e7
+
 """Exercise the reference and KL-optimal tANS frequency normalisers."""
 
 import decimal

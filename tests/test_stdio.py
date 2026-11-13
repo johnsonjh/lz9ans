@@ -2,6 +2,7 @@
 # Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
+# scspell-id: 3073bc28-df72-11f1-9573-80ee73e9b8e7
 
 """Exercise the CLI's file, stdin, and stdout paths for both input modes."""
 

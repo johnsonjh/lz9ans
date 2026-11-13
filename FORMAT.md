@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com> -->
 <!-- Copyright (c) 2025-2026 The DPS8M Development Team -->
 <!-- SPDX-License-Identifier: MIT -->
+<!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
 > Document revision **`40`** (2026‑11‑12)

@@ -2,6 +2,7 @@
 # Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
+# scspell-id: 1ff1d7c2-df72-11f1-8095-80ee73e9b8e7
 
 import os
 from pathlib import Path

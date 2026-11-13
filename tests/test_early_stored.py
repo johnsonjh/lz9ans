@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
+# Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
+# scspell-id: 07f0793a-df72-11f1-bc91-80ee73e9b8e7
 
 from pathlib import Path
 import os
