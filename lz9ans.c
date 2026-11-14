@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.19 (2026-11-13)"
+#define LZ9VER "v0.9.20-dev (2026-11-14)"
 
 /*****************************************************************************/
 
@@ -817,8 +817,7 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
     pool->threads = (pthread_t *)calloc (desired - 1U, sizeof (pthread_t));
     pool->workers = (ThreadWorker *)calloc (desired - 1U,
                                              sizeof (ThreadWorker));
-    pool->tasks = (ThreadTask *)calloc (max_participants,
-                                        sizeof (ThreadTask));
+    pool->tasks = (ThreadTask *)calloc (max_participants, sizeof (ThreadTask));
 
     if (!pool->threads || !pool->workers || !pool->tasks)
       {
@@ -1094,14 +1093,12 @@ thread_pool_destroy (ThreadPool *pool)
         }
     }
 
-  if (pool->work_done_ready
-      && pthread_cond_destroy (&pool->work_done) != 0)
+  if (pool->work_done_ready && pthread_cond_destroy (&pool->work_done) != 0)
     {
       okay = 0;
     }
 
-  if (pool->work_ready_ready
-      && pthread_cond_destroy (&pool->work_ready) != 0)
+  if (pool->work_ready_ready && pthread_cond_destroy (&pool->work_ready) != 0)
     {
       okay = 0;
     }
@@ -1162,9 +1159,8 @@ static LZ9_INLINE unsigned int extra_get (ExtraReader *x, unsigned int n);
 static unsigned short *
 table_cache (const Encoder *e, unsigned int kind)
 {
-  return (unsigned short *)(void *)(e->stage + STAGE_DATA_MAX
-                                    + kind * 512U
-                                      * sizeof (unsigned short));
+  return (unsigned short *)(void *)(e->stage + STAGE_DATA_MAX + kind * 512U
+                                    * sizeof (unsigned short));
 }
 
 /*****************************************************************************/
@@ -1252,8 +1248,7 @@ init_crc (void)
         {
           unsigned int v = crc_table[j - 1U][i];
 
-          crc_table[j][i]
-              = crc_table[0][v & 255U] ^ (v >> 8);
+          crc_table[j][i] = crc_table[0][v & 255U] ^ (v >> 8);
         }
     }
 }
@@ -5294,9 +5289,8 @@ match_done:
               = (long)literal_price (e, pos_rel, pos_rel + length_here)
                 - (long)(base_cost + ml_price (e, length_here));
 
-          if (saving > *best_gain
-              || (saving == *best_gain && saving > 0
-                  && length_here > *best))
+          if (saving > *best_gain || (saving == *best_gain && saving > 0
+                                      && length_here > *best))
             {
               *best_gain = saving;
               *best = length_here;
@@ -7146,9 +7140,8 @@ parse_tans_model (DecTable *t, unsigned int kind, unsigned int alphabet,
   bitmap = p + *offset;
   *offset += bitmap_bytes;
 
-  if ((alphabet & 7U)
-      && (bitmap[bitmap_bytes - 1U]
-          & ((1U << (8U - (alphabet & 7U))) - 1U)))
+  if ((alphabet & 7U) && (bitmap[bitmap_bytes - 1U]
+                          & ((1U << (8U - (alphabet & 7U))) - 1U)))
     {
       return 0;
     }
@@ -7240,8 +7233,7 @@ parse_tans_model (DecTable *t, unsigned int kind, unsigned int alphabet,
     }
 
   {
-    unsigned int padding = (unsigned int)((8UL - (r.position & 7UL))
-                                           & 7UL);
+    unsigned int padding = (unsigned int)((8UL - (r.position & 7UL)) & 7UL);
 
     if (padding && br_get (&r, padding) != 0U)
       {
@@ -9505,8 +9497,7 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
                              int level, unsigned int window_n,
                              unsigned int features, unsigned int thread_limit)
 {
-  static const unsigned short depth[9]
-      = { 2, 4, 8, 12, 24, 48, 96, 192, 512 };
+  static const unsigned short depth[9] = { 2, 4, 8, 12, 24, 48, 96, 192, 512 };
   ThreadPool pool;
   ThreadBlockJob *jobs = (ThreadBlockJob *)0;
   ThreadTask *tasks = (ThreadTask *)0;
@@ -9578,7 +9569,7 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
       e->input_mode = mode;
       e->features = features;
       e->min_match = (features & FEATURE_MIN_MATCH_2) ? MIN_MATCH_SHORT
-                                                     : MIN_MATCH_DEFAULT;
+                                                      : MIN_MATCH_DEFAULT;
       tasks[i].function = parallel_block_encode_task;
       tasks[i].context = &jobs[i];
     }
@@ -10524,8 +10515,7 @@ open_output_file (FILE *input, const char *path, int check_input,
       {
         if (check_input)
           {
-            HANDLE input_handle
-                = (HANDLE)_get_osfhandle (_fileno (input));
+            HANDLE input_handle = (HANDLE)_get_osfhandle (_fileno (input));
             DWORD input_type;
 
             if (input_handle == INVALID_HANDLE_VALUE)
@@ -10539,8 +10529,7 @@ open_output_file (FILE *input, const char *path, int check_input,
             SetLastError (NO_ERROR);
             input_type = GetFileType (input_handle);
 
-            if (input_type == FILE_TYPE_UNKNOWN
-                && GetLastError () != NO_ERROR)
+            if (input_type == FILE_TYPE_UNKNOWN && GetLastError () != NO_ERROR)
               {
                 (void)CloseHandle (output_handle);
                 errno = EIO;
@@ -10719,10 +10708,8 @@ input_count (FILE *in, unsigned int mode, unsigned long *count)
        * count can occupy more than 4 GiB!
        */
 
-      symbols = (bytes / 9U) * 8U
-                + ((bytes % 9U) * 8U) / 9U;
-      check = (symbols / 8U) * 9U
-              + (((symbols % 8U) * 9U + 7U) / 8U);
+      symbols = (bytes / 9U) * 8U + ((bytes % 9U) * 8U) / 9U;
+      check = (symbols / 8U) * 9U + (((symbols % 8U) * 9U + 7U) / 8U);
 
       if (check != bytes)
         {
@@ -11119,9 +11106,8 @@ main (int argc, char **argv)
 
           verbose = 1;
         }
-      else if (argv[1][0] == 'c'
-               && (!strcmp (argv[i], "--window=64k")
-                   || !strcmp (argv[i], "--window=32k")))
+      else if (argv[1][0] == 'c' && (!strcmp (argv[i], "--window=64k")
+                                     || !strcmp (argv[i], "--window=32k")))
         {
           if (window_seen)
             {
@@ -11217,10 +11203,9 @@ main (int argc, char **argv)
       return 2;
     }
 
-  out = output_is_stdio
-            ? stdout
-            : open_output_file (in, argv[3], !input_is_stdio,
-                                &output_is_same_file);
+  out = output_is_stdio ? stdout
+                        : open_output_file (in, argv[3], !input_is_stdio,
+                                            &output_is_same_file);
 
   if (!out)
     {
