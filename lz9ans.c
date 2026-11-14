@@ -267,7 +267,7 @@ clamp_thread_limit (unsigned int limit)
 # define LZ9_INLINE
 # define LZ9_ALWAYS_INLINE LZ9_INLINE
 #endif /* if defined(__GNUC__) && !defined(__CPPCHECK__)
-          && !defined(__LINT__)  */
+          && !defined(__LINT__) */
 
 /*****************************************************************************/
 
@@ -277,7 +277,7 @@ clamp_thread_limit (unsigned int limit)
 #else
 # define HAS_ATTRIBUTE(atr) 0
 #endif /* if defined __has_attribute && (defined(__clang__)
-          || defined(__GNUC__))  */
+          || defined(__GNUC__)) */
 
 /*****************************************************************************/
 
