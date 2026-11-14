@@ -5,8 +5,7 @@
 ##############################################################################
 
 CC ?= cc
-CFLAGS = -D_ALL_SOURCE -D_GNU_SOURCE -O3 -ansi -pedantic -Wall -Wextra \
-	-Werror
+CFLAGS = -D_ALL_SOURCE -D_GNU_SOURCE -O3
 THREADS ?= none
 
 ##############################################################################
