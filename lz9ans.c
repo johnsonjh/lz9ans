@@ -581,6 +581,38 @@ typedef struct
   unsigned int count;
   int okay;
 } ThreadDecodeWorkspace;
+
+typedef struct ThreadDecodeBlock ThreadDecodeBlock;
+typedef struct
+{
+  ThreadDecodeWorkspace *workspace;
+  ThreadDecodeBlock *block;
+  ThreadPool *pool;
+} ThreadDecodeAsyncTask;
+
+struct ThreadDecodeBlock
+{
+  unsigned char *stage;
+  DecTable *table_snapshot;
+  unsigned char *symbols[ENTROPY_STREAM_COUNT - 1U];
+  Stream streams[ENTROPY_STREAM_COUNT];
+  BitReader raw_extra;
+  ExtraReader extra;
+  ThreadDecodeWorkspace workspaces[ENTROPY_STREAM_COUNT - 1U];
+  ThreadDecodeAsyncTask async_tasks[ENTROPY_STREAM_COUNT - 1U];
+  unsigned int n;
+  unsigned int q;
+  unsigned int type;
+  unsigned int width;
+  unsigned int aligned_distances;
+  unsigned int parallel_codes;
+  unsigned int pending;
+  unsigned long expected;
+};
+
+# define DECODER_PIPELINE_BLOCK_CAPACITY THREAD_LIMIT_64BIT
+# define DECODER_PIPELINE_TASK_CAPACITY \
+    (DECODER_PIPELINE_BLOCK_CAPACITY * (ENTROPY_STREAM_COUNT - 1U))
 #endif /* if defined(LZ9ANS_PTHREADS) */
 
 /*****************************************************************************/
@@ -770,13 +802,19 @@ thread_worker_main (void *arg)
 
 static int
 thread_pool_init (ThreadPool *pool, unsigned int limit,
-                  unsigned int max_participants)
+                  unsigned int max_participants,
+                  unsigned int task_capacity)
 {
   (void)memset (pool, 0, sizeof (*pool));
 
   if (!max_participants)
     {
       max_participants = 1U;
+    }
+
+  if (!task_capacity)
+    {
+      task_capacity = 1U;
     }
 
 #if defined(LZ9ANS_PTHREADS)
@@ -809,7 +847,7 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
       }
 
     pool->participants = desired;
-    pool->task_capacity = max_participants;
+    pool->task_capacity = task_capacity;
 
     if (desired == 1U)
       {
@@ -819,7 +857,7 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
     pool->threads = (pthread_t *)calloc (desired - 1U, sizeof (pthread_t));
     pool->workers = (ThreadWorker *)calloc (desired - 1U,
                                              sizeof (ThreadWorker));
-    pool->tasks = (ThreadTask *)calloc (max_participants, sizeof (ThreadTask));
+    pool->tasks = (ThreadTask *)calloc (task_capacity, sizeof (ThreadTask));
 
     if (!pool->threads || !pool->workers || !pool->tasks)
       {
@@ -934,7 +972,7 @@ init_failed:
 #else
   (void)limit;
   pool->participants = 1U;
-  pool->task_capacity = max_participants;
+  pool->task_capacity = task_capacity;
 
   return 1;
 #endif /* if defined(LZ9ANS_PTHREADS) */
@@ -1001,6 +1039,83 @@ thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
     }
 
   return 1;
+}
+
+/*****************************************************************************/
+
+static int
+thread_pool_submit_async (ThreadPool *pool, const ThreadTask *tasks,
+                          unsigned int task_count)
+{
+  unsigned int i;
+
+  if (!pool || !tasks || !task_count
+      || task_count > pool->task_capacity || !pool->worker_count)
+    {
+      return 0;
+    }
+
+  (void)pthread_mutex_lock (&pool->mutex);
+
+  if (pool->pending)
+    {
+      (void)pthread_mutex_unlock (&pool->mutex);
+      return 0;
+    }
+
+  for (i = 0; i < task_count; ++i)
+    {
+      pool->tasks[i] = tasks[i];
+    }
+
+  pool->task_count = task_count;
+  pool->next_task = 0U;
+  pool->pending = task_count;
+  ++pool->generation;
+  (void)pthread_cond_broadcast (&pool->work_ready);
+  (void)pthread_mutex_unlock (&pool->mutex);
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static void
+thread_pool_wait_group (ThreadPool *pool, const unsigned int *pending)
+{
+  if (!pool || !pending)
+    {
+      return;
+    }
+
+  (void)pthread_mutex_lock (&pool->mutex);
+
+  while (*pending)
+    {
+      (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+    }
+
+  (void)pthread_mutex_unlock (&pool->mutex);
+}
+
+/*****************************************************************************/
+
+static void
+thread_pool_wait_all (ThreadPool *pool)
+{
+  if (!pool)
+    {
+      return;
+    }
+
+  (void)pthread_mutex_lock (&pool->mutex);
+
+  while (pool->pending)
+    {
+      (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+    }
+
+  (void)pthread_mutex_unlock (&pool->mutex);
 }
 
 /*****************************************************************************/
@@ -8494,6 +8609,28 @@ decode_stream_task (void *arg)
 
 /*****************************************************************************/
 
+static void
+decode_stream_task_async (void *arg)
+{
+  ThreadDecodeAsyncTask *task = (ThreadDecodeAsyncTask *)arg;
+  ThreadPool *pool = task->pool;
+  ThreadDecodeBlock *block = task->block;
+
+  decode_stream_task (task->workspace);
+
+  (void)pthread_mutex_lock (&pool->mutex);
+
+  if (block->pending)
+    {
+      --block->pending;
+    }
+
+  (void)pthread_cond_broadcast (&pool->work_done);
+  (void)pthread_mutex_unlock (&pool->mutex);
+}
+
+/*****************************************************************************/
+
 static int
 decode_streams_parallel (Stream streams[ENTROPY_STREAM_COUNT],
                          unsigned int count, unsigned int min_match,
@@ -8904,6 +9041,656 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
   return o->in_block == n && block_crc_end (o, n, expected);
 }
+
+#if defined(LZ9ANS_PTHREADS)
+static ThreadDecodeBlock *
+thread_decode_block_create (void)
+{
+  ThreadDecodeBlock *block;
+
+  block = (ThreadDecodeBlock *)calloc (1U, sizeof (ThreadDecodeBlock));
+
+  if (!block)
+    {
+      return (ThreadDecodeBlock *)0;
+    }
+
+  block->stage = (unsigned char *)malloc (STAGE_MAX);
+
+  if (!block->stage)
+    {
+      free (block);
+      return (ThreadDecodeBlock *)0;
+    }
+
+  return block;
+}
+
+/*****************************************************************************/
+
+static void
+thread_decode_block_free (ThreadDecodeBlock *block)
+{
+  unsigned int i;
+
+  if (!block)
+    {
+      return;
+    }
+
+  free (block->stage);
+  free (block->table_snapshot);
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT - 1U; ++i)
+    {
+      free (block->symbols[i]);
+    }
+
+  free (block);
+}
+
+/*****************************************************************************/
+
+static int
+thread_decode_block_snapshot_tables (ThreadDecodeBlock *block,
+                                     DecTable *tables,
+                                     DecTable **phase_tables)
+{
+  DecTable *phase = *phase_tables;
+  unsigned int i, ph;
+  unsigned int snapshot_count
+      = DEC_BASE_TABLE_COUNT + (phase ? DEC_PHASE_TABLE_COUNT : 0U);
+
+  block->table_snapshot
+      = (DecTable *)malloc ((size_t)snapshot_count * sizeof (DecTable));
+
+  if (!block->table_snapshot)
+    {
+      return 0;
+    }
+
+  (void)memcpy (block->table_snapshot, tables,
+                DEC_BASE_TABLE_COUNT * sizeof (DecTable));
+
+  if (phase)
+    {
+      (void)memcpy (block->table_snapshot + DEC_BASE_TABLE_COUNT, phase,
+                    DEC_PHASE_TABLE_COUNT * sizeof (DecTable));
+    }
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      block->streams[i].table = block->table_snapshot + i;
+
+      if (block->streams[i].mode == MODE_PHASED)
+        {
+          for (ph = 0; ph < 4U; ++ph)
+            {
+              const DecTable *source = block->streams[i].ptab[ph];
+              unsigned int index;
+              int found = 0;
+
+              if (source == tables + DEC_POISON_SLOT)
+                {
+                  block->streams[i].ptab[ph]
+                      = block->table_snapshot + DEC_POISON_SLOT;
+                  found = 1;
+                }
+              else if (phase)
+                {
+                  for (index = 0; index < DEC_PHASE_TABLE_COUNT; ++index)
+                    {
+                      if (source == phase + index)
+                        {
+                          block->streams[i].ptab[ph]
+                              = block->table_snapshot
+                                + DEC_BASE_TABLE_COUNT + index;
+                          found = 1;
+                          break;
+                        }
+                    }
+                }
+
+              if (!found)
+                {
+                  return 0;
+                }
+            }
+        }
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+decode_block_prepare_pipeline (FILE *in, Output *o,
+                                unsigned long frame_produced,
+                                unsigned int max_n, unsigned char *desc,
+                                DecTable *tables, DecTable **phase_tables,
+                                ThreadPool *pool, ThreadDecodeBlock *block)
+{
+  unsigned char h[LZ_BLOCK_HEADER_N];
+  unsigned long bitlen[STREAM_COUNT], lengths[STREAM_COUNT], total = 0;
+  unsigned long desc_len, off = 0, pos = 0;
+  unsigned int i, n, q, type, width, padding;
+  int aligned_distances;
+
+  if (!read_exact (in, h, BLOCK_PREFIX_N))
+    {
+      return 0;
+    }
+
+  type = h[0] & 3U;
+  block->type = type;
+
+  if (type == BLOCK_STORED)
+    {
+      unsigned long stored_bits, stored_bytes;
+
+      width = h[0] >> 2;
+
+      if ((width != 7U && width != 8U && width != 9U)
+          || !read_exact (in, h + BLOCK_PREFIX_N,
+                          STORED_BLOCK_HEADER_N - BLOCK_PREFIX_N))
+        {
+          return 0;
+        }
+
+      n = load16 (h + 1);
+      block->expected = load32 (h + 3);
+
+      if (!n || n > max_n || n > BLOCK_N
+          || frame_produced > ULONG_MAX - n)
+        {
+          return 0;
+        }
+
+      stored_bits = (unsigned long)n * width;
+      stored_bytes = (stored_bits + 7UL) / 8UL;
+
+      if (!read_exact (in, block->stage, (size_t)stored_bytes))
+        {
+          return 0;
+        }
+
+      if ((stored_bits & 7UL)
+          && (block->stage[stored_bytes - 1UL]
+              & ((1U << (8U - (stored_bits & 7UL))) - 1U)))
+        {
+          return 0;
+        }
+
+      block->n = n;
+      block->width = width;
+
+      return 1;
+    }
+
+  if (type != BLOCK_LZ
+      || !read_exact (in, h + BLOCK_PREFIX_N,
+                      LZ_BLOCK_HEADER_N - BLOCK_PREFIX_N))
+    {
+      return 0;
+    }
+
+  width = (h[0] >> 2) & 3U;
+  aligned_distances
+      = OUTPUT_AUTO_ALIGNED_DISTANCES (o)
+            ? ((h[0] & BLOCK_FLAG_ALIGNED_DISTANCES) != 0U)
+            : OUTPUT_ALIGNED_DISTANCES (o);
+  n = load16 (h + 1);
+  q = load16 (h + 3);
+  desc_len = load16 (h + 5);
+  padding = load16 (h + 17);
+  block->expected = load32 (h + 19);
+
+  if ((h[0] & 0xe0U)
+      || ((h[0] & BLOCK_FLAG_ALIGNED_DISTANCES)
+          && !OUTPUT_AUTO_ALIGNED_DISTANCES (o))
+      || width != 0U || !n || n > max_n || n > BLOCK_N
+      || frame_produced > ULONG_MAX - n || q > n / o->min_match
+      || desc_len > DESC_MAX || (padding & 0x8000U))
+    {
+      return 0;
+    }
+
+  for (i = 0; i < STREAM_COUNT; ++i)
+    {
+      unsigned int pad = (padding >> (3U * i)) & 7U;
+      unsigned long max_bits;
+
+      lengths[i] = load16 (h + 7 + 2U * i);
+
+      if ((!lengths[i] && pad) || pad > lengths[i] * 8UL)
+        {
+          return 0;
+        }
+
+      bitlen[i] = lengths[i] * 8UL - pad;
+
+      if (i == STREAM_LIT)
+        {
+          max_bits = (unsigned long)BLOCK_N * 10UL + TABLE_LOG;
+        }
+      else if (i < STREAM_EXTRA)
+        {
+          max_bits = (unsigned long)(BLOCK_N / o->min_match) * 10UL
+                     + TABLE_LOG;
+        }
+      else
+        {
+          max_bits = (unsigned long)(BLOCK_N / o->min_match) * 46UL;
+        }
+
+      if (bitlen[i] > max_bits || total + lengths[i] > STAGE_MAX)
+        {
+          return 0;
+        }
+
+      total += lengths[i];
+    }
+
+  if (total > STAGE_MAX
+      || !read_exact (in, desc, (size_t)desc_len)
+      || !read_exact (in, block->stage, (size_t)total))
+    {
+      return 0;
+    }
+
+  for (i = 0; i < STREAM_COUNT; ++i)
+    {
+      unsigned int pad = (padding >> (3U * i)) & 7U;
+
+      if (pad && lengths[i]
+          && (block->stage[pos + lengths[i] - 1UL] & ((1U << pad) - 1U)))
+        {
+          return 0;
+        }
+
+      pos += lengths[i];
+    }
+
+  pos = 0;
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      if (!parse_descriptor (&block->streams[i], tables, phase_tables, i,
+                             o->of_alphabet, o->phased, desc, &off,
+                             desc_len))
+        {
+          return 0;
+        }
+
+      if (i != STREAM_LIT
+          && ((block->streams[i].mode == MODE_EMPTY) != (q == 0U)))
+        {
+          return 0;
+        }
+    }
+
+  if (off != desc_len)
+    {
+      return 0;
+    }
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      if (!stream_begin (&block->streams[i], bitlen[i],
+                         block->stage + pos))
+        {
+          return 0;
+        }
+
+      pos += lengths[i];
+    }
+
+  br_init (&block->raw_extra, block->stage + pos, bitlen[STREAM_EXTRA], 0);
+  block->extra.raw = &block->raw_extra;
+  block->extra.failed = 0;
+  block->n = n;
+  block->q = q;
+  block->aligned_distances = (unsigned int)aligned_distances;
+
+  if (!thread_decode_block_snapshot_tables (block, tables, phase_tables))
+    {
+      return 0;
+    }
+
+  if (q && pool->participants > 1U
+      && block->streams[STREAM_LL].mode != MODE_PHASED
+      && block->streams[STREAM_ML].mode != MODE_PHASED)
+    {
+      for (i = 0; i < ENTROPY_STREAM_COUNT - 1U; ++i)
+        {
+          block->symbols[i] = (unsigned char *)malloc (q);
+
+          if (!block->symbols[i])
+            {
+              return 0;
+            }
+
+          block->workspaces[i].stream = block->streams[i + STREAM_LL];
+          block->workspaces[i].symbols = block->symbols[i];
+          block->workspaces[i].count = q;
+          block->workspaces[i].okay = 0;
+          block->async_tasks[i].workspace = &block->workspaces[i];
+          block->async_tasks[i].block = block;
+          block->async_tasks[i].pool = pool;
+        }
+
+      block->parallel_codes = 1U;
+    }
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
+decode_block_finish_pipeline (Output *o, ThreadDecodeBlock *block,
+                               ThreadPool *pool)
+{
+  Stream *s = block->streams;
+  ExtraReader extra = block->extra;
+  unsigned int i, n = block->n, q = block->q;
+  unsigned int min_match = o->min_match;
+
+  if (block->parallel_codes)
+    {
+      /* Always wait, even if the workers finished before we got here.  The
+         pending count is protected by the pool mutex and the worker streams
+         must be copied back in either case. */
+      thread_pool_wait_group (pool, &block->pending);
+
+      for (i = STREAM_LL; i <= STREAM_OF; ++i)
+        {
+          if (!block->workspaces[i - STREAM_LL].okay)
+            {
+              return 0;
+            }
+
+          s[i] = block->workspaces[i - STREAM_LL].stream;
+        }
+    }
+
+  block_begin (o);
+
+  if (block->type == BLOCK_STORED)
+    {
+      return store_stored_symbols (o, block->stage, n, block->width)
+             && o->in_block == n
+             && block_crc_end (o, n, block->expected);
+    }
+
+  {
+    unsigned int produced = 0, literals = 0;
+
+    for (i = 0; i < q; ++i)
+      {
+        unsigned int j, lr, ml, d, code;
+
+        code = block->parallel_codes
+                   ? block->symbols[STREAM_LL - STREAM_LL][i]
+                   : stream_get_ph (&s[STREAM_LL],
+                                    (unsigned int)o->produced & 3U);
+        lr = decode_len (code, 0, &extra);
+
+        if (extra.failed || lr > n - produced)
+          {
+            return 0;
+          }
+
+        if (s[STREAM_LIT].mode == MODE_PHASED)
+          {
+            if (!decode_phased_literals (o, &s[STREAM_LIT], lr))
+              {
+                return 0;
+              }
+          }
+        else if (stream_is_tans (s[STREAM_LIT].mode))
+          {
+            for (j = 0; j < lr; ++j)
+              {
+                unsigned int v = ans_get (&s[STREAM_LIT]);
+
+                if (!store_symbol (o, v))
+                  {
+                    return 0;
+                  }
+              }
+          }
+        else
+          {
+            for (j = 0; j < lr; ++j)
+              {
+                unsigned int v = stream_get (&s[STREAM_LIT]);
+
+                if (v >= 512 || !store_symbol (o, v))
+                  {
+                    return 0;
+                  }
+              }
+          }
+
+        produced += lr;
+        literals += lr;
+        code = block->parallel_codes
+                   ? block->symbols[STREAM_ML - STREAM_LL][i]
+                   : stream_get_ph (&s[STREAM_ML],
+                                    (unsigned int)o->produced & 3U);
+        ml = decode_len (code, min_match, &extra);
+        code = block->parallel_codes
+                   ? block->symbols[STREAM_OF - STREAM_LL][i]
+                   : stream_get (&s[STREAM_OF]);
+        d = decode_dist (code, &extra, o->reps, o->window_n,
+                         o->of_alphabet, (int)block->aligned_distances);
+
+        {
+          unsigned int max_d
+              = (o->produced < o->window_n) ? (unsigned int)o->produced
+                                            : o->window_n;
+
+          if (extra.failed || ml < min_match || ml > n - produced
+              || (d - 1U) >= max_d)
+            {
+              return 0;
+            }
+        }
+
+        store_match (o, d, ml);
+        produced += ml;
+      }
+
+    if (s[STREAM_LIT].mode == MODE_PHASED)
+      {
+        unsigned long rest = n - produced;
+
+        if (!decode_phased_literals (o, &s[STREAM_LIT], rest))
+          {
+            return 0;
+          }
+
+        literals += rest;
+      }
+    else if (stream_is_tans (s[STREAM_LIT].mode))
+      {
+        while (produced < n)
+          {
+            unsigned int v = ans_get (&s[STREAM_LIT]);
+
+            if (!store_symbol (o, v))
+              {
+                return 0;
+              }
+
+            ++produced;
+            ++literals;
+          }
+      }
+    else
+      {
+        while (produced < n)
+          {
+            unsigned int v = stream_get (&s[STREAM_LIT]);
+
+            if (v >= 512 || !store_symbol (o, v))
+              {
+                return 0;
+              }
+
+            ++produced;
+            ++literals;
+          }
+      }
+
+    if ((s[STREAM_LIT].mode == MODE_EMPTY) != (literals == 0U)
+        || !extra_end (&extra))
+      {
+        return 0;
+      }
+  }
+
+  for (i = 0; i < ENTROPY_STREAM_COUNT; ++i)
+    {
+      if (!stream_end (&s[i]))
+        {
+          return 0;
+        }
+    }
+
+  return o->in_block == n && block_crc_end (o, n, block->expected);
+}
+
+/*****************************************************************************/
+
+static int
+decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
+                        unsigned long *done, unsigned char *desc,
+                        DecTable *tables, DecTable **phase_tables,
+                        ThreadPool *pool)
+{
+  ThreadDecodeBlock *blocks[DECODER_PIPELINE_BLOCK_CAPACITY];
+  ThreadTask tasks[DECODER_PIPELINE_TASK_CAPACITY];
+  unsigned int batch_capacity, batch_count, task_count, i, kind;
+  unsigned long parsed;
+  int okay = 1;
+
+  /* Keep at least one block queued beyond the block being reconstructed.
+     This permits the worker threads to decode later blocks while the caller
+     performs the ordered LZ reconstruction of the current block. */
+  batch_capacity = pool->participants;
+
+  if (!batch_capacity)
+    {
+      batch_capacity = 1U;
+    }
+
+  if (batch_capacity > DECODER_PIPELINE_BLOCK_CAPACITY)
+    {
+      batch_capacity = DECODER_PIPELINE_BLOCK_CAPACITY;
+    }
+
+  while (*done < total)
+    {
+      batch_count = 0U;
+      task_count = 0U;
+      parsed = *done;
+
+      while (batch_count < batch_capacity && parsed < total)
+        {
+          unsigned long left = total - parsed;
+          unsigned int remaining
+              = (unsigned int)(left > BLOCK_N ? BLOCK_N : left);
+          ThreadDecodeBlock *block = thread_decode_block_create ();
+
+          if (!block)
+            {
+              okay = 0;
+              break;
+            }
+
+          blocks[batch_count++] = block;
+
+          if (!decode_block_prepare_pipeline (in, o, parsed, remaining, desc,
+                                              tables, phase_tables, pool,
+                                              block))
+            {
+              okay = 0;
+              break;
+            }
+
+          parsed += block->n;
+
+          if (block->parallel_codes)
+            {
+              block->pending = ENTROPY_STREAM_COUNT - 1U;
+
+              for (kind = STREAM_LL; kind <= STREAM_OF; ++kind)
+                {
+                  ThreadDecodeAsyncTask *async
+                      = &block->async_tasks[kind - STREAM_LL];
+
+                  tasks[task_count].function = decode_stream_task_async;
+                  tasks[task_count].context = async;
+                  ++task_count;
+                }
+            }
+        }
+
+      if (!okay)
+        {
+          for (i = 0; i < batch_count; ++i)
+            {
+              thread_decode_block_free (blocks[i]);
+            }
+
+          return 0;
+        }
+
+      if (task_count
+          && !thread_pool_submit_async (pool, tasks, task_count))
+        {
+          for (i = 0; i < batch_count; ++i)
+            {
+              thread_decode_block_free (blocks[i]);
+            }
+
+          return 0;
+        }
+
+      for (i = 0; i < batch_count; ++i)
+        {
+          ThreadDecodeBlock *block = blocks[i];
+
+          if (!decode_block_finish_pipeline (o, block, pool))
+            {
+              okay = 0;
+              break;
+            }
+
+          *done += block->n;
+        }
+
+      thread_pool_wait_all (pool);
+
+      for (i = 0; i < batch_count; ++i)
+        {
+          thread_decode_block_free (blocks[i]);
+        }
+
+      if (!okay)
+        {
+          return 0;
+        }
+    }
+
+  return 1;
+}
+#endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
 
 /*****************************************************************************/
 
@@ -9514,12 +10301,15 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
 
   (void)memset (&context, 0, sizeof (context));
 
-  if (!thread_pool_init (&pool, thread_limit,
-                         block_thread_capacity (elements, unknown_count,
-                                                thread_limit)))
-    {
-      return 0;
-    }
+  {
+    unsigned int capacity
+        = block_thread_capacity (elements, unknown_count, thread_limit);
+
+    if (!thread_pool_init (&pool, thread_limit, capacity, capacity))
+      {
+        return 0;
+      }
+  }
 
   pool_ready = 1;
   participants = pool.participants;
@@ -10242,12 +11032,19 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
     }
 
 #if defined(LZ9ANS_PTHREADS)
-  if (!thread_pool_init (&pool, thread_limit, 3U))
+  if (!thread_pool_init (&pool, thread_limit,
+                         unknown_count ? 3U
+                                       : (total ? thread_limit_maximum ()
+                                                : 1U),
+                         unknown_count ? 3U
+                                       : (total
+                                              ? DECODER_PIPELINE_TASK_CAPACITY
+                                              : 1U)))
     {
       return 0;
     }
 #else
-  (void)thread_pool_init (&pool, thread_limit, 3U);
+  (void)thread_pool_init (&pool, thread_limit, 3U, 3U);
 #endif /* if defined(LZ9ANS_PTHREADS) */
 
   (void)memset (&decoder_buffers, 0, sizeof (decoder_buffers));
@@ -10333,19 +11130,33 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
     }
   else
     {
-      while (done < total)
+#if defined(LZ9ANS_PTHREADS)
+      if (pool.participants > 1U)
         {
-          unsigned long left = total - done;
-          unsigned int remaining
-              = (unsigned int)(left > BLOCK_N ? BLOCK_N : left);
-
-          if (!decode_block (in, o, remaining, stage, desc, tables,
-                             &phase_tables, 0, 0U, &pool, &decoder_buffers))
+          if (!decode_blocks_pipeline (in, o, total, &done, desc, tables,
+                                       &phase_tables, &pool))
             {
               goto cleanup;
             }
+        }
+      else
+#endif /* if defined(LZ9ANS_PTHREADS) */
+        {
+          while (done < total)
+            {
+              unsigned long left = total - done;
+              unsigned int remaining
+                  = (unsigned int)(left > BLOCK_N ? BLOCK_N : left);
 
-          done += o->in_block;
+              if (!decode_block (in, o, remaining, stage, desc, tables,
+                                 &phase_tables, 0, 0U, &pool,
+                                 &decoder_buffers))
+                {
+                  goto cleanup;
+                }
+
+              done += o->in_block;
+            }
         }
     }
 
@@ -10885,7 +11696,12 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
   {
     unsigned int cpus = available_processors ();
     unsigned int cp = compression_participants (thread_limit);
-    unsigned int dp = memory_thread_participants (thread_limit, 3U);
+    unsigned int dp = memory_thread_participants (
+        thread_limit, DECODER_PIPELINE_BLOCK_CAPACITY);
+    unsigned int dp_legacy = memory_thread_participants (thread_limit, 3U);
+    unsigned int decoder_pipeline_blocks = dp > 1U ? dp : 0U;
+    unsigned long decoder_pipeline_block_state = 0UL;
+    unsigned long decoder_pipeline_block_state_levels_1_5 = 0UL;
     unsigned long block_state = 0UL;
     unsigned long block_state_levels_1_5 = 0UL;
     unsigned long block_stack = (unsigned long)(cp - 1U)
@@ -10895,6 +11711,31 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
     unsigned long decoder_pool_state = 0UL;
     unsigned long decoder_stack = (unsigned long)(dp - 1U)
                                   * THREAD_STACK_BYTES;
+
+    if (decoder_pipeline_blocks > DECODER_PIPELINE_BLOCK_CAPACITY)
+      {
+        decoder_pipeline_blocks = DECODER_PIPELINE_BLOCK_CAPACITY;
+      }
+
+    if (dp > 1U)
+      {
+        decoder_pipeline_block_state
+            = (unsigned long)decoder_pipeline_blocks
+              * ((unsigned long)sizeof (ThreadDecodeBlock) + STAGE_MAX
+                 + (unsigned long)(DEC_BASE_TABLE_COUNT
+                                   + DEC_PHASE_TABLE_COUNT)
+                       * sizeof (DecTable)
+                 + (unsigned long)(ENTROPY_STREAM_COUNT - 1U)
+                       * decoder_symbol_capacity (MIN_MATCH_SHORT));
+        decoder_pipeline_block_state_levels_1_5
+            = (unsigned long)decoder_pipeline_blocks
+              * ((unsigned long)sizeof (ThreadDecodeBlock) + STAGE_MAX
+                 + (unsigned long)(DEC_BASE_TABLE_COUNT
+                                   + DEC_PHASE_TABLE_COUNT)
+                       * sizeof (DecTable)
+                 + (unsigned long)(ENTROPY_STREAM_COUNT - 1U)
+                       * decoder_symbol_capacity (MIN_MATCH_DEFAULT));
+      }
 
     if (cp > 1U)
       {
@@ -10922,7 +11763,7 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
                     * (sizeof (pthread_t) + sizeof (ThreadWorker));
       }
 
-    if (dp > 1U)
+    if (dp_legacy > 1U)
       {
         decoder_symbols
             = (unsigned long)(ENTROPY_STREAM_COUNT - 1U)
@@ -10930,10 +11771,15 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
         decoder_symbols_levels_1_5
             = (unsigned long)(ENTROPY_STREAM_COUNT - 1U)
               * decoder_symbol_capacity (MIN_MATCH_DEFAULT);
+      }
+
+    if (dp > 1U)
+      {
         decoder_pool_state
             = (unsigned long)(dp - 1U)
                   * (sizeof (pthread_t) + sizeof (ThreadWorker))
-              + 3UL * sizeof (ThreadTask);
+              + (unsigned long)DECODER_PIPELINE_TASK_CAPACITY
+                    * sizeof (ThreadTask);
       }
 
     (void)printf ("pthread build: %u available logical processors;"
@@ -10953,13 +11799,20 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
       }
     (void)printf ("compression worker-stack budget: %lu bytes\n",
                   block_stack);
-    (void)printf ("decompression participants: %u (main thread included)\n",
-                  dp);
-    (void)printf ("decompression symbol buffers: %lu bytes maximum"
+    (void)printf ("decompression participants: %u (main thread included;"
+                  " known-length frames)\n", dp);
+    (void)printf ("decompression pipeline blocks in flight: %u maximum\n",
+                  decoder_pipeline_blocks);
+    (void)printf ("decompression pipeline block state: %lu bytes maximum"
                   " (levels 6-9); %lu bytes at levels 1-5\n",
+                  decoder_pipeline_block_state,
+                  decoder_pipeline_block_state_levels_1_5);
+    (void)printf ("decompression symbol buffers: %lu bytes maximum"
+                  " (streaming/legacy path; levels 6-9); %lu bytes at"
+                  " levels 1-5\n",
                   decoder_symbols, decoder_symbols_levels_1_5);
-    (void)printf ("decompression thread-pool allocations: %lu bytes\n",
-                  decoder_pool_state);
+    (void)printf ("decompression thread-pool allocations: %lu bytes"
+                  " (known-length pipeline)\n", decoder_pool_state);
     (void)printf ("decompression worker-stack budget: %lu bytes\n",
                   decoder_stack);
     (void)printf ("worker stack size: %lu bytes per pthread\n",

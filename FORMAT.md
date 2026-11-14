@@ -875,12 +875,17 @@ In a pthread build, the report also accounts for the maximum per–participant
 encoder contexts and private block–output buffers, shared history and input
 scratch, thread–pool allocations, and worker–stack budgets when independent
 block encoding is selected.  It reports both the maximum parallel–block encoder
-state (levels 6–9) and the reduced level 1–5 state.  The threaded decoder’s
-three LL/ML/OF symbol buffers are allocated together on first use and retained
-until decoding ends.  Their capacity is based on the frame’s minimum match
-length: the maximum is 49,152 bytes at levels 6–9, and 32,766 bytes at levels
-1–5.  Thread–pool allocations and the requested/effective worker–stack budgets
-are reported separately from the decoder’s base and maximum allocated state.
+state (levels 6–9) and the reduced level 1–5 state.  For known–length frames,
+the threaded decoder additionally allocates a bounded set of up to 128
+in–flight block records (or the effective participant count, if smaller).
+Each record has private compressed staging storage, a snapshot of the
+active base and phased decoder tables, and (for ordinary LL/ML/OF descriptors)
+three decoded symbol arrays.  The report estimates the maximum number and total
+state of these records.  Unknown–length frames retain the streaming decoder and
+its three LL/ML/OF symbol buffers, whose combined capacity is 49,152 bytes at
+levels 6–9 and 32,766 bytes at levels 1–5.  Decoder thread–pool allocations and
+the requested/effective worker–stack budgets are reported separately from the
+base decoder state and pipeline block state.
 
 The reported values are not a proof of native Multics segment occupancy:
 ANSI C89 type widths (8–bit–octet size assumed) and Multics PL/I word
@@ -919,11 +924,29 @@ the compressed bytes.  The independent‑block strategy can produce different
 bytes and ratios from the original sequential encoder, but the result is an
 ordinary V9 frame readable by the existing decoder.
 
-`LL`, `ML`, and `OF` symbols can be decoded concurrently for ordinary
-descriptors, followed by sequential `EXTRA` processing and history
-reconstruction.  If either `LL` or `ML` uses a phased descriptor, the decoder
-uses its sequential path.  A phased `LIT` descriptor alone does not require
-that fallback.
+For known–length frames, the decoder uses a bounded multi–block entropy
+decoding pipeline when more than one participant is available.  The coordinator
+reads and validates a batch of block records in stream order, parses each block’s
+descriptors, and snapshots its active base and phased decoder tables.  Workers
+then decode the ordinary `LL`, `ML`, and `OF` symbol streams for multiple blocks
+concurrently.  The coordinator waits for each block’s entropy results and
+performs `EXTRA` processing, repeat–distance updates, LZ history reconstruction,
+CRC validation, and output in original block order.  Thus the pipeline overlaps
+entropy decoding of later blocks with reconstruction of earlier blocks without
+changing cross–block match semantics.  Table snapshots preserve `MODE_REUSE`
+semantics even while descriptors for later blocks are parsed.  If either `LL`
+or `ML` uses a phased descriptor, that block retains the sequential entropy
+path; a phased `LIT` descriptor alone does not require that fallback.  The
+bounded pipeline does not parallelize LZ reconstruction itself.
+
+Unknown–length frames retain the streaming decoder and its existing per–block
+parallel entropy path, limited to the three `LL`/`ML`/`OF` tasks.  The serial
+build, and a pthread build with `--threads=1`, retain the original sequential
+decoder path.  The `--threads=N` option controls the effective participant
+limit for the known–length pipeline, subject to available logical processors
+and the existing 32/128 architecture cap.  The bounded lookahead is at most
+128 blocks, with three ordinary entropy-stream tasks per eligible block.  No
+change is made to the V9 format.
 
 In a pthread build, `--memory`, `--memory-32k`, and `--memory-64k` accept an
 optional `--threads=N` and report the effective compression/decompression
@@ -1447,9 +1470,11 @@ A pthread build with more than one effective participant uses the same
 block–independent coding algorithm regardless of participant count, so
 thread scheduling does not change the output.  This mode can produce different
 compressed bytes and ratios than the original sequential encoder, but its
-output remains an ordinary V9 frame readable by the existing decoder.  Decoding
-remains sequential or uses the existing Phase 1 stream parallelism; no
-block–parallel decoder is introduced here.
+output remains an ordinary V9 frame readable by the existing decoder.  The
+pthread decoder can additionally overlap entropy decoding across multiple
+known-length blocks as described in section 7.2; LZ reconstruction and output
+remain ordered and sequential.  Neither compression scheduling nor decoder
+scheduling changes the V9 representation.
 
 In a pthread build, the memory report estimates the per–participant encoder
 contexts, private block–output buffers, shared history snapshot and raw–input

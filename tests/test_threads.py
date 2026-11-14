@@ -167,6 +167,8 @@ def check_options(serial, threaded):
         assert b"compression participants: 1" in one
         assert b"compression mode: sequential" in one
         assert b"parallel-block encoder state" not in one
+        assert b"decompression pipeline blocks in flight: 0 maximum" in one
+        assert b"decompression pipeline block state: 0 bytes maximum" in one
         encoder_memory = (
             b"encoder maximum allocated state:",
             b"encoder allocated state at levels 1-5:",
@@ -179,6 +181,9 @@ def check_options(serial, threaded):
         assert b"compression participants: 2" in two
         assert b"compression mode: " in two
         assert b"compression participants: " in many
+        assert b"decompression pipeline blocks in flight: " in many
+        assert b"decompression pipeline block state: " in many
+        assert b"decompression thread-pool allocations: " in many
         assert b"window: 65536 symbols" in many
 
 
@@ -249,6 +254,31 @@ def main():
             ("32k", "64k"),
         )
         print("PASS multi-block cache/fallback equivalence")
+
+        # Exercise the multi-block entropy pipeline at several explicit thread
+        # limits.  The serial binary and the pthread binary with one participant
+        # must retain the original sequential decode path.
+        multi_stream = work / "multi-block-32k-4-serial.lz9a"
+        expected_decoded = multi.read_bytes()
+        for limit in (1, 2, 3, 4, 0):
+            decoded = work / f"multi-block-decode-{limit}.out"
+            run(
+                [
+                    str(threaded),
+                    "d",
+                    str(multi_stream),
+                    str(decoded),
+                    f"--threads={limit}",
+                ]
+            )
+            assert decoded.read_bytes() == expected_decoded, (
+                "multi-block pipeline decode",
+                limit,
+            )
+        serial_decoded = work / "multi-block-decode-serial.out"
+        run([str(serial), "d", str(multi_stream), str(serial_decoded)])
+        assert serial_decoded.read_bytes() == expected_decoded
+        print("PASS multi-block decoder pipeline thread limits")
 
         check_stdio(serial, threaded, work, ROOT / "vectors" / "switch8.input")
         print("PASS threaded stdin/stdout")
