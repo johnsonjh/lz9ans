@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.21 (2026-11-14)"
+#define LZ9VER "v0.9.22 (2026-11-14)"
 
 /*****************************************************************************/
 
@@ -227,7 +227,7 @@ clamp_thread_limit (unsigned int limit)
      !defined(_FORTIFY_SOURCE) || (_FORTIFY_SOURCE <= 0)
 #  undef fwrite
 #  define fwrite(p, s, n, f) fwrite_unlocked(p, s, n, f) /* //-V1059 */
-# endif /* if !defined(__clang__) || !defined(__GLIBC__)
+# endif /* if !defined(__clang__) || !defined(__GLIBC__) \
            || !defined(_FORTIFY_SOURCE) || (_FORTIFY_SOURCE <= 0) */
 # undef fflush
 # define fflush(f) fflush_unlocked(f) /* //-V1059 */
@@ -255,7 +255,7 @@ clamp_thread_limit (unsigned int limit)
 # define fflush(f) _fflush_nolock(f) /* //-V1059 */
 # undef fclose
 # define fclose(f) _fclose_nolock(f) /* //-V1059 */
-#endif /* if !defined(LZ9ANS_PTHREADS) && (defined(_WIN32)
+#endif /* if !defined(LZ9ANS_PTHREADS) && (defined(_WIN32) \
           || defined(_WIN64)) */
 
 /*****************************************************************************/
@@ -266,7 +266,7 @@ clamp_thread_limit (unsigned int limit)
 #else
 # define LZ9_INLINE
 # define LZ9_ALWAYS_INLINE LZ9_INLINE
-#endif /* if defined(__GNUC__) && !defined(__CPPCHECK__)
+#endif /* if defined(__GNUC__) && !defined(__CPPCHECK__) \
           && !defined(__LINT__) */
 
 /*****************************************************************************/
@@ -276,7 +276,7 @@ clamp_thread_limit (unsigned int limit)
 # define HAS_ATTRIBUTE(atr) __has_attribute(atr)
 #else
 # define HAS_ATTRIBUTE(atr) 0
-#endif /* if defined __has_attribute && (defined(__clang__)
+#endif /* if defined __has_attribute && (defined(__clang__) \
           || defined(__GNUC__)) */
 
 /*****************************************************************************/
@@ -301,7 +301,9 @@ clamp_thread_limit (unsigned int limit)
     && !defined(__CPPCHECK__) && !defined(__LINT__) \
     && !defined(LZ9ANS_DISABLE_X86_64_MATCH_FASTPATH)
 # define LZ9ANS_X86_64_MATCH_FASTPATH 1
-#endif /* if defined(__GNUC__) && x86-64 */
+#endif /* if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__)) \
+          && !defined(__CPPCHECK__) && !defined(__LINT__) \
+          && !defined(LZ9ANS_DISABLE_X86_64_MATCH_FASTPATH) */
 
 /*****************************************************************************/
 
@@ -309,7 +311,7 @@ clamp_thread_limit (unsigned int limit)
 __extension__ typedef unsigned long long lz9_u64;
 typedef char lz9_u64_type_must_be_at_least_64_bits_compile_time_assertion[
   sizeof (lz9_u64) * CHAR_BIT >= 64 ? 1 : -1];
-#endif /* if defined(__GNUC__) && !defined(__CPPCHECK__)
+#endif /* if defined(__GNUC__) && !defined(__CPPCHECK__) \
           && !defined(__LINT__) */
 
 /*****************************************************************************/
