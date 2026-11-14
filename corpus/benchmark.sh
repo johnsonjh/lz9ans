@@ -89,8 +89,8 @@ TCSIZE="$(cd obj && wc -c ${CORPUS:?} | grep 'total$' \
 # shellcheck disable=SC2086
 printf 'Corpus : Complete\nSize   : %s bits\n\n' "${TCSIZE:?}"
 
-dobench "--window=32k"
-dobench "--window=64k"
+dobench "--window=32k $*"
+dobench "--window=64k $*"
 
 ###############################################################################
 
@@ -101,8 +101,8 @@ TCSIZE="$(cd obj && wc -c ${CORPUS:?} | grep 'total$' \
 # shellcheck disable=SC2086
 printf 'Corpus : Sources\nSize   : %s bits\n\n' "${TCSIZE:?}"
 
-dobench "--window=32k"
-dobench "--window=64k"
+dobench "--window=32k $*"
+dobench "--window=64k $*"
 
 ###############################################################################
 # vim: expandtab cc=80 :
