@@ -4141,8 +4141,7 @@ norm_active_kl_with_scratch (const unsigned int *counts,
   unsigned int k, ticket_n = 0U, upper_sum = 0U;
   unsigned int reciprocal, decrement_n;
 
-  if (active < 2U || active > 512U || total < active
-      || total > 0x3fffffU)
+  if (active < 2U || active > 512U || total < active || total > 0x3fffffU)
     {
       return 0;
     }
