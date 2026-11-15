@@ -11,6 +11,8 @@
 /compile_commands.tmp
 /corpus/*.csv
 /corpus/obj/
+/corpus/out
+/corpus/t.dat
 /corpus/*.txt
 /*.diff
 *.gcda

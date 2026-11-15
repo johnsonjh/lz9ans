@@ -31,13 +31,13 @@ descriptor encoding, table conventions, and output bitstream representation are
 original and specific to **LZ9ANS**, with frequency normalization based on
 K.&nbsp;Szewczyk’s Linear KL‑Optimal method.
 
-On Multics (and OS2200) systems, an **11%** on‑disk savings can be realized by
-packing the 8‑bit **LZ9ANS** output stream to a more compact (but less
-portable) 9‑bit per character storage representation.
-
 The algorithm may be tuned to favor saving time or space, with the ANSI C89
 reference implementation offering nine different compression profiles: four
 *fast*, four *tight*, and one *maximum*.
+
+**LZ9ANS** supports parallel compression and decompression, and the reference
+implementation includes both single‑threaded and multi‑threaded encoders and
+decoders.
 
 ## Performance
 
