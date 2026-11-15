@@ -1067,6 +1067,7 @@ thread_pool_submit_async (ThreadPool *pool, const ThreadTask *tasks,
   if (pool->pending)
     {
       (void)pthread_mutex_unlock (&pool->mutex);
+
       return 0;
     }
 
