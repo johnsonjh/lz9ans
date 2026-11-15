@@ -816,11 +816,6 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
 {
   (void)memset (pool, 0, sizeof (*pool));
 
-  if (!max_participants)
-    {
-      max_participants = 1U;
-    }
-
   if (!task_capacity)
     {
       task_capacity = 1U;
@@ -828,7 +823,7 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
 
 #if defined(LZ9ANS_PTHREADS)
   {
-    unsigned int desired, cpus, i;
+    unsigned int desired, cpus, i, effective_max;
     pthread_attr_t attr;
     int attr_ready = 0;
 
@@ -845,9 +840,11 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
         desired = cpus;
       }
 
-    if (desired > max_participants)
+    effective_max = max_participants ? max_participants : 1U;
+
+    if (desired > effective_max)
       {
-        desired = max_participants;
+        desired = effective_max;
       }
 
     if (!desired)
@@ -980,6 +977,7 @@ init_failed:
   }
 #else
   (void)limit;
+  (void)max_participants;
   pool->participants = 1U;
   pool->task_capacity = task_capacity;
 
@@ -9138,7 +9136,6 @@ thread_decode_block_snapshot_tables (ThreadDecodeBlock *block,
           for (ph = 0; ph < 4U; ++ph)
             {
               const DecTable *source = block->streams[i].ptab[ph];
-              unsigned int index;
               int found = 0;
 
               if (source == tables + DEC_POISON_SLOT)
@@ -9149,6 +9146,8 @@ thread_decode_block_snapshot_tables (ThreadDecodeBlock *block,
                 }
               else if (phase)
                 {
+                  unsigned int index;
+
                   for (index = 0; index < DEC_PHASE_TABLE_COUNT; ++index)
                     {
                       if (source == phase + index)
@@ -9176,7 +9175,7 @@ thread_decode_block_snapshot_tables (ThreadDecodeBlock *block,
 /*****************************************************************************/
 
 static int
-decode_block_prepare_pipeline (FILE *in, Output *o,
+decode_block_prepare_pipeline (FILE *in, const Output *o,
                                 unsigned long frame_produced,
                                 unsigned int max_n, unsigned char *desc,
                                 DecTable *tables, DecTable **phase_tables,
@@ -9440,7 +9439,7 @@ decode_block_finish_pipeline (Output *o, ThreadDecodeBlock *block,
         unsigned int j, lr, ml, d, code;
 
         code = block->parallel_codes
-                   ? block->symbols[STREAM_LL - STREAM_LL][i]
+                   ? block->symbols[0][i]
                    : stream_get_ph (&s[STREAM_LL],
                                     (unsigned int)o->produced & 3U);
         lr = decode_len (code, 0, &extra);
@@ -9581,8 +9580,7 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
 {
   ThreadDecodeBlock *blocks[DECODER_PIPELINE_BLOCK_CAPACITY];
   ThreadTask tasks[DECODER_PIPELINE_TASK_CAPACITY];
-  unsigned int batch_capacity, batch_count, task_count, i, kind;
-  unsigned long parsed;
+  unsigned int batch_capacity, i, kind;
   int okay = 1;
 
   batch_capacity = pool->participants;
@@ -9599,6 +9597,9 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
 
   while (*done < total)
     {
+      unsigned int batch_count, task_count;
+      unsigned long parsed;
+
       batch_count = 0U;
       task_count = 0U;
       parsed = *done;
@@ -11714,11 +11715,6 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
     unsigned long decoder_pool_state = 0UL;
     unsigned long decoder_stack = (unsigned long)(dp - 1U)
                                   * THREAD_STACK_BYTES;
-
-    if (decoder_pipeline_blocks > DECODER_PIPELINE_BLOCK_CAPACITY)
-      {
-        decoder_pipeline_blocks = DECODER_PIPELINE_BLOCK_CAPACITY;
-      }
 
     if (dp > 1U)
       {
