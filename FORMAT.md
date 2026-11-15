@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`42`** (2026‑11‑15)
+> Document revision **`43`** (2026‑11‑15)
 
 <!-- toc -->
 
@@ -869,8 +869,8 @@ are not allocated and freed per block.  Thus the report shows both the base
 allocation and the maximum allocation including all six optional tables.
 
 For 8–bit output, the history ring uses one byte per symbol instead of the two
-bytes used by the unchanged 9–bit path.  This reduces decoder state by exactly
-32,768 octets for a 32K window or 65,536 octets for a 64K window.
+bytes used by the 9–bit path.  This reduces decoder state by exactly 32,768
+octets for a 32K window or 65,536 octets for a 64K window.
 
 In a pthread build, the report also accounts for the maximum per–participant
 encoder contexts and private block–output buffers, shared history and input
