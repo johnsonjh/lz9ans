@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.22 (2026-11-14)"
+#define LZ9VER "v0.9.23-dev (2026-11-15)"
 
 /*****************************************************************************/
 
@@ -582,13 +582,20 @@ typedef struct
   int okay;
 } ThreadDecodeWorkspace;
 
+/*****************************************************************************/
+
 typedef struct ThreadDecodeBlock ThreadDecodeBlock;
+
+/*****************************************************************************/
+
 typedef struct
 {
   ThreadDecodeWorkspace *workspace;
   ThreadDecodeBlock *block;
   ThreadPool *pool;
 } ThreadDecodeAsyncTask;
+
+/*****************************************************************************/
 
 struct ThreadDecodeBlock
 {
@@ -609,6 +616,8 @@ struct ThreadDecodeBlock
   unsigned int pending;
   unsigned long expected;
 };
+
+/*****************************************************************************/
 
 # define DECODER_PIPELINE_BLOCK_CAPACITY THREAD_LIMIT_64BIT
 # define DECODER_PIPELINE_TASK_CAPACITY \
@@ -9042,6 +9051,8 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   return o->in_block == n && block_crc_end (o, n, expected);
 }
 
+/*****************************************************************************/
+
 #if defined(LZ9ANS_PTHREADS)
 static ThreadDecodeBlock *
 thread_decode_block_create (void)
@@ -9399,9 +9410,6 @@ decode_block_finish_pipeline (Output *o, ThreadDecodeBlock *block,
 
   if (block->parallel_codes)
     {
-      /* Always wait, even if the workers finished before we got here.  The
-         pending count is protected by the pool mutex and the worker streams
-         must be copied back in either case. */
       thread_pool_wait_group (pool, &block->pending);
 
       for (i = STREAM_LL; i <= STREAM_OF; ++i)
@@ -9577,9 +9585,6 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
   unsigned long parsed;
   int okay = 1;
 
-  /* Keep at least one block queued beyond the block being reconstructed.
-     This permits the worker threads to decode later blocks while the caller
-     performs the ordered LZ reconstruction of the current block. */
   batch_capacity = pool->participants;
 
   if (!batch_capacity)
@@ -9689,8 +9694,6 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
   return 1;
 }
 #endif /* if defined(LZ9ANS_PTHREADS) */
-
-/*****************************************************************************/
 
 /*****************************************************************************/
 
