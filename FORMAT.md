@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`45`** (2026‑11‑15)
+> Document revision **`46`** (2026‑11‑15)
 
 <!-- toc -->
 
@@ -1199,7 +1199,7 @@ least‑significant bits to truncate from the final 9‑bit symbol:
 | `0`            | Retain the complete final 9‑bit symbol                   |
 | `1`            | Truncate its least‑significant bit                       |
 | `2`            | Truncate its two least‑significant bits                  |
-| `...`          | `...`                                                    |
+| `…`            | `…`                                                      |
 | `8`            | Retain only the most‑significant bit of the final symbol |
 | `9` or greater | Invalid                                                  |
 
