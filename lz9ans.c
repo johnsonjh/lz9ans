@@ -9070,6 +9070,7 @@ thread_decode_block_create (void)
   if (!block->stage)
     {
       free (block);
+
       return (ThreadDecodeBlock *)0;
     }
 
@@ -9157,6 +9158,7 @@ thread_decode_block_snapshot_tables (ThreadDecodeBlock *block,
                               = block->table_snapshot
                                 + DEC_BASE_TABLE_COUNT + index;
                           found = 1;
+
                           break;
                         }
                     }
@@ -9615,6 +9617,7 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
           if (!block)
             {
               okay = 0;
+
               break;
             }
 
@@ -9625,6 +9628,7 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
                                               block))
             {
               okay = 0;
+
               break;
             }
 
@@ -9674,6 +9678,7 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
           if (!decode_block_finish_pipeline (o, block, pool))
             {
               okay = 0;
+
               break;
             }
 
@@ -11928,6 +11933,7 @@ main (int argc, char **argv)
               "  --threads=N:         limit to N"
               " concurrent threads (default: automatic)\n");
 #endif /* if defined(LZ9ANS_PTHREADS) */
+
       return 2;
     }
 
