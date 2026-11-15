@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`43`** (2026‑11‑15)
+> Document revision **`44`** (2026‑11‑15)
 
 <!-- toc -->
 
@@ -880,13 +880,13 @@ state (levels 6–9) and the reduced level 1–5 state.  For known–length fram
 the threaded decoder additionally allocates a bounded set of up to 128
 in–flight block records (or the effective participant count, if smaller).
 Each record has private compressed staging storage, a snapshot of the
-active base and phased decoder tables, and (for ordinary LL/ML/OF descriptors)
-three decoded symbol arrays.  The report estimates the maximum number and total
-state of these records.  Unknown–length frames retain the streaming decoder and
-its three LL/ML/OF symbol buffers, whose combined capacity is 49,152 bytes at
-levels 6–9 and 32,766 bytes at levels 1–5.  Decoder thread–pool allocations and
-the requested/effective worker–stack budgets are reported separately from the
-base decoder state and pipeline block state.
+active base and phased decoder tables, and (for ordinary `LL`/`ML`/`OF`
+descriptors) three decoded symbol arrays.  The report estimates the maximum
+number and total state of these records.  Unknown–length frames retain the
+streaming decoder and its three `LL`/`ML`/`OF` symbol buffers, whose combined
+capacity is 49,152 bytes at levels 6–9 and 32,766 bytes at levels 1–5.  Decoder
+thread–pool allocations and the requested/effective worker–stack budgets are
+reported separately from the base decoder state and pipeline block state.
 
 The reported values are not a proof of native Multics segment occupancy:
 ANSI C89 type widths (8–bit–octet size assumed) and Multics PL/I word
