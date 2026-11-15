@@ -3893,7 +3893,7 @@ norm_mul32 (unsigned long a, unsigned long b,
 
   *lo = low;
   *hi = p3 + (p1 >> 16) + (p2 >> 16) + carry1 + carry2;
-#endif
+#endif /* if ULONG_MAX > 0xffffffffUL && !defined(NORM_FORCE_32BIT_MUL) */
 }
 
 /*****************************************************************************/
@@ -4229,7 +4229,7 @@ norm_muldiv_small (unsigned int a, unsigned int b, unsigned int divisor,
   *remainder = r;
 
   return q;
-#endif
+#endif /* if ULONG_MAX > 0xffffffffUL && !defined(NORM_FORCE_32BIT_MULDIV) */
 }
 
 /*****************************************************************************/
@@ -4399,7 +4399,7 @@ norm_active_kl_with_scratch (const unsigned int *counts,
 
           --freq[symbol];
         }
-#endif
+#endif /* if defined(NORM_KL_BFPRT) */
     }
 
   return 1;
@@ -9817,7 +9817,7 @@ read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
         {
           return -1;
         }
-# endif
+# endif /* if defined(__clang_analyzer__) */
 
       if (unknown_count)
         {
