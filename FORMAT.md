@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`41`** (2026‑11‑13)
+> Document revision **`42`** (2026‑11‑15)
 
 <!-- toc -->
 
@@ -358,8 +358,8 @@ For each sequence in forward order:
 Once all `q` sequences are emitted, the decoder emits terminal literals until
 the block has produced exactly `n` symbols.  The total literal count is
 `n - sum(ML)`; it is not transmitted in the V9 header.  The output symbol count
-**MUST** be exactly `n`.  No separate end‑of‑block or
-literal‑vs‑match flag exists.  The sequence count supplies framing.
+**MUST** be exactly `n`.  No separate end‑of‑block or literal‑vs‑match flag
+exists.  The sequence count supplies framing.
 
 The dictionary includes preceding decoded blocks in the **same frame**.
 Distances **MUST NOT** reach before the start of the frame (there is no preset
@@ -662,10 +662,11 @@ A conforming V9 decoder **SHOULD** implement the following stages, enforcing
 3.  Read the first control octet.  Type 2 is `END`: validate its control value
     and terminal record as specified in section 10.4; it is mandatory for an
     unknown‑length frame and optional after exactly `N` symbols in a
-    known‑length frame.  Reject type 3.  For type 0 (`STORED`) or type 1 (`LZ`),
-    read the remaining two octets of the data‑block prefix, then the remaining
-    four or 20 octets of the corresponding block header.  For known‑length
-    data blocks, ensure `n` does not exceed the symbols remaining in the frame.
+    known‑length frame.  Reject type 3.  For type 0 (`STORED`) or type 1
+    (`LZ`), read the remaining two octets of the data‑block prefix, then the
+    remaining four or 20 octets of the corresponding block header.  For
+    known‑length data blocks, ensure `n` does not exceed the symbols remaining
+    in the frame.
 4.  For `STORED`, derive the payload bit length as `n * width`, derive its byte
     length by rounding up, validate the final zero padding bits, and read
     exactly that payload.
@@ -769,8 +770,8 @@ the possible one‑count decrements.  For a symbol with observed count
 `c_i`, decrementing its current frequency from `j` to `j-1` has marginal cost
 proportional to `c_i * ln(j/(j-1))`.  The encoder selects the least‑cost
 decrements needed to make the frequency sum exactly 1024.  The implementation
-compares these costs using pre‑computed Q64 fixed‑point logarithms and a bounded
-integer selection procedure.
+compares these costs using pre‑computed Q64 fixed‑point logarithms and a
+bounded integer selection procedure.
 
 This is a deterministic fixed‑precision approximation to the KL‑optimal
 positive integer allocation; it is an implementation detail and it does not
@@ -806,14 +807,14 @@ the encoder’s existing 512‑entry symbol‑count array and does not allocate
 additional block storage.  The compile‑time threshold defaults to 97; setting
 `LZ9ANS_EARLY_STORED_LITERAL_PERCENT=98` selects the 98‑percent variant, and
 setting it to zero disables the heuristic.  The threshold changes only encoder
-selection, not the V9 stream format or decoder requirements.
+selection, not the stream format or decoder requirements.
 
 When lazy matching is enabled (levels 5–9), the encoder may compare a match
 with a match beginning one symbol later.  This lookahead is attempted only when
 the current match length is less than the configured threshold.  The threshold
 is 64 by default, except at level 8, where the compile‑time macro
 `LZ9ANS_L8_LAZY_MAX_LENGTH` controls it and defaults to 32.  The macro must be
-at least 4.  It changes only the level‑8 encoder heuristic, not the V9 stream
+at least 4.  It changes only the level‑8 encoder heuristic, not the stream
 format or decoder requirements.
 
 For each symbol stream the encoder chooses `EMPTY`, `RLE`, `RAW`, or `TANS`,
@@ -906,7 +907,7 @@ automatic sizing is subject to the same cap.  These limits include the main
 thread.  The default serial build accepts and validates this option but ignores
 it; only the pthread‑enabled build advertises it in command help.
 
-Threading is an *implementation detail* and does not alter any V9 frame, block,
+Threading is an *implementation detail* and does not alter any frame, block,
 descriptor, checksum, or entropy‑coding rule.  With more than one effective
 compression participant, the coordinator partitions the input into existing
 V9 blocks and dispatches complete block jobs.  Each block is parsed against a
@@ -926,18 +927,19 @@ ordinary V9 frame readable by the existing decoder.
 
 For known–length frames, the decoder uses a bounded multi–block entropy
 decoding pipeline when more than one participant is available.  The coordinator
-reads and validates a batch of block records in stream order, parses each block’s
-descriptors, and snapshots its active base and phased decoder tables.  Workers
-then decode the ordinary `LL`, `ML`, and `OF` symbol streams for multiple blocks
-concurrently.  The coordinator waits for each block’s entropy results and
-performs `EXTRA` processing, repeat–distance updates, LZ history reconstruction,
-CRC validation, and output in original block order.  Thus the pipeline overlaps
-entropy decoding of later blocks with reconstruction of earlier blocks without
-changing cross–block match semantics.  Table snapshots preserve `MODE_REUSE`
-semantics even while descriptors for later blocks are parsed.  If either `LL`
-or `ML` uses a phased descriptor, that block retains the sequential entropy
-path; a phased `LIT` descriptor alone does not require that fallback.  The
-bounded pipeline does not parallelize LZ reconstruction itself.
+reads and validates a batch of block records in stream order, parses each
+block’s descriptors, and snapshots its active base and phased decoder tables.
+Workers then decode the ordinary `LL`, `ML`, and `OF` symbol streams for
+multiple blocks concurrently.  The coordinator waits for each block’s entropy
+results and performs `EXTRA` processing, repeat–distance updates, LZ history
+reconstruction, CRC validation, and output in original block order.  Thus the
+pipeline overlaps entropy decoding of later blocks with reconstruction of
+earlier blocks without changing cross–block match semantics.  Table snapshots
+preserve `MODE_REUSE` semantics even while descriptors for later blocks are
+parsed.  If either `LL` or `ML` uses a phased descriptor, that block retains
+the sequential entropy path; a phased `LIT` descriptor alone does not require
+that fallback.  The bounded pipeline does not parallelize LZ reconstruction
+itself.
 
 Unknown–length frames retain the streaming decoder and its existing per–block
 parallel entropy path, limited to the three `LL`/`ML`/`OF` tasks.  The serial
@@ -945,8 +947,7 @@ build, and a pthread build with `--threads=1`, retain the original sequential
 decoder path.  The `--threads=N` option controls the effective participant
 limit for the known–length pipeline, subject to available logical processors
 and the existing 32/128 architecture cap.  The bounded lookahead is at most
-128 blocks, with three ordinary entropy-stream tasks per eligible block.  No
-change is made to the V9 format.
+128 blocks, with three ordinary entropy-stream tasks per eligible block.
 
 In a pthread build, `--memory`, `--memory-32k`, and `--memory-64k` accept an
 optional `--threads=N` and report the effective compression/decompression
@@ -1353,10 +1354,10 @@ quarters of each word.  The phase used for each entropy symbol is:
 | `LL`   | the output position at which the sequence starts (before its literals) |
 | `ML`   | the output position of the first symbol of the match                   |
 
-The `LL` phase therefore equals the phase of the first literal of the run (or of
-the match when the run is empty), and the `ML` phase is the `LL` phase plus the
-run length, modulo 4.  Both are known to a decoder before it reads the symbol.
-Terminal literals (after the last sequence) use their own positions.
+The `LL` phase therefore equals the phase of the first literal of the run (or
+of the match when the run is empty), and the `ML` phase is the `LL` phase plus
+the run length, modulo 4.  Both are known to a decoder before it reads the
+symbol.  Terminal literals (after the last sequence) use their own positions.
 
 **Partitions.** A partition maps the four phases to group numbers.  Only the
 following partitions are valid; `pid` is the partition identifier byte.
@@ -1370,8 +1371,8 @@ following partitions are valid; `pid` is the partition identifier byte.
 
 Any other `pid` for the stream is invalid.
 
-**Descriptor.** A phased descriptor is the mode octet `05`, the `pid` octet, and
-then, for group 0 and group 1 in order, one *sub‑descriptor*:
+**Descriptor.** A phased descriptor is the mode octet `05`, the `pid` octet,
+and then, for group 0 and group 1 in order, one *sub‑descriptor*:
 
 | First octet | Meaning                                                                                         |
 |------------:|:------------------------------------------------------------------------------------------------|
@@ -1470,11 +1471,10 @@ A pthread build with more than one effective participant uses the same
 block–independent coding algorithm regardless of participant count, so
 thread scheduling does not change the output.  This mode can produce different
 compressed bytes and ratios than the original sequential encoder, but its
-output remains an ordinary V9 frame readable by the existing decoder.  The
+output remains an ordinary V9 frame readable any existing V9 decoder.  The
 pthread decoder can additionally overlap entropy decoding across multiple
-known-length blocks as described in section 7.2; LZ reconstruction and output
-remain ordered and sequential.  Neither compression scheduling nor decoder
-scheduling changes the V9 representation.
+known‑length blocks as described in section 7.2; `LZ` reconstruction and output
+remain ordered and sequential.
 
 In a pthread build, the memory report estimates the per–participant encoder
 contexts, private block–output buffers, shared history snapshot and raw–input
