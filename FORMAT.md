@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`44`** (2026‑11‑15)
+> Document revision **`45`** (2026‑11‑15)
 
 <!-- toc -->
 
@@ -1446,7 +1446,7 @@ available logical–processor count, capped at 32 participants on 32‑bit build
 and 128 on 64‑bit builds; a positive value caps participants, including the
 coordinator, and requests above the architecture limit are silently clamped.
 `--threads=1`, or a system with only one available logical processor, uses the
-original sequential encoder.  The default non–threaded build never selects
+original sequential encoder.  A non–threaded build never selects
 independent–block encoding and retains the original serial behavior.  There is
 no separate command–line switch for this strategy.
 
