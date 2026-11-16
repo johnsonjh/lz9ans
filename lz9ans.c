@@ -5998,7 +5998,7 @@ raw_width (unsigned int kind, unsigned int maxlit)
  *   frac ~= (f - 2^k) / 2^k  (linear approx in [2^k, 2^(k+1)))
  *
  * Result in Q8: (10 - k) * 256 - frac * 256
- *            = (10 - k) * 256 - ((f - 2^k) * 256) / 2^k
+ *             = (10 - k) * 256 - ((f - 2^k) * 256) / 2^k
  */
 
 static unsigned int
