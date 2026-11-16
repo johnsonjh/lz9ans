@@ -35,9 +35,9 @@ The algorithm may be tuned to favor saving time or space, with the ANSI C89
 reference implementation offering nine different compression profiles: four
 *fast*, four *tight*, and one *maximum*.
 
-**LZ9ANS** supports parallel compression and decompression, and the reference
-implementation includes both single‑threaded and multi‑threaded encoders and
-decoders.
+**LZ9ANS** is capable of highly parallel compression and modestly parallel
+decompression, with the reference implementation providing single‑threaded and
+multi‑threaded encoder and decoder variants.
 
 ## Performance
 
