@@ -95,6 +95,12 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 
 /*****************************************************************************/
 
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+# define POSIX_STDIO_BUFFER_N 32768U
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+
+/*****************************************************************************/
+
 #define BLOCK_N 32768U
 #define WINDOW_DEFAULT 32768U
 #define WINDOW_64K 65536U
@@ -11847,6 +11853,9 @@ int
 main (int argc, char **argv)
 {
   FILE *in, *out;
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+  char *in_buf = (char *)0, *out_buf = (char *)0;
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
   unsigned long count = 0;
   LZ9FileSize input_bytes = 0, output_bytes = 0;
   unsigned int mode = 0;
@@ -12046,6 +12055,19 @@ main (int argc, char **argv)
       return 2;
     }
 
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+  in_buf = (char *)malloc (POSIX_STDIO_BUFFER_N);
+
+  if (in_buf)
+    {
+      if (setvbuf (in, in_buf, _IOFBF, POSIX_STDIO_BUFFER_N) != 0)
+        {
+          free (in_buf);
+          in_buf = (char *)0;
+        }
+    }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+
   if (verbose && (input_is_stdio || output_is_stdio))
     {
       size_reporting = 0;
@@ -12062,6 +12084,18 @@ main (int argc, char **argv)
           (void)fclose (in);
         }
 
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+      if (in_buf)
+        {
+          if (input_is_stdio)
+            {
+              (void)setvbuf (in, (char *)0, _IONBF, 0);
+            }
+
+          free (in_buf);
+        }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+
       return 2;
     }
 
@@ -12073,6 +12107,18 @@ main (int argc, char **argv)
         {
           (void)fclose (in);
         }
+
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+      if (in_buf)
+        {
+          if (input_is_stdio)
+            {
+              (void)setvbuf (in, (char *)0, _IONBF, 0);
+            }
+
+          free (in_buf);
+        }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
       return 2;
     }
@@ -12098,8 +12144,33 @@ main (int argc, char **argv)
           (void)fclose (in);
         }
 
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+      if (in_buf)
+        {
+          if (input_is_stdio)
+            {
+              (void)setvbuf (in, (char *)0, _IONBF, 0);
+            }
+
+          free (in_buf);
+        }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+
       return 2;
     }
+
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+  out_buf = (char *)malloc (POSIX_STDIO_BUFFER_N);
+
+  if (out_buf)
+    {
+      if (setvbuf (out, out_buf, _IOFBF, POSIX_STDIO_BUFFER_N) != 0)
+        {
+          free (out_buf);
+          out_buf = (char *)0;
+        }
+    }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
   features = default_features (level);
   init_crc ();
@@ -12137,6 +12208,28 @@ main (int argc, char **argv)
     {
       okay = 0;
     }
+
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+  if (out_buf)
+    {
+      if (output_is_stdio)
+        {
+          (void)setvbuf (out, (char *)0, _IONBF, 0);
+        }
+
+      free (out_buf);
+    }
+
+  if (in_buf)
+    {
+      if (input_is_stdio)
+        {
+          (void)setvbuf (in, (char *)0, _IONBF, 0);
+        }
+
+      free (in_buf);
+    }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
   if (!okay)
     {
