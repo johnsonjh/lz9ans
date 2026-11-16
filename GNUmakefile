@@ -139,6 +139,7 @@ oracle: lz9ans.c crc32_hw.h
 ##############################################################################
 
 lint: lz9ans.c crc32_hw.h
+	diff LICENSE LICENSES/MIT.txt
 	editorconfig-checker
 	cppi -ac ./lz9ans.c ./crc32_hw.h
 	reuse lint -q || reuse lint
