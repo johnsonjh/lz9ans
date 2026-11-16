@@ -120,7 +120,7 @@ sanitizers: lz9ans.c crc32_hw.h
 ##############################################################################
 
 cppcheck: lz9ans.c crc32_hw.h
-	cppcheck \
+	$${CPPCHECK:-cppcheck} \
 		--enable=warning,style,performance,portability,unusedFunction \
 		--force --check-level=exhaustive --std=c89 --inline-suppr \
 		--inconclusive --error-exitcode=99 -D__CPPCHECK__ -D__LINT__ \
