@@ -55,6 +55,22 @@
 
 /*****************************************************************************/
 
+#if defined(FREE)
+# undef FREE
+#endif /* if defined(FREE) */
+
+static const int never = 0;
+
+#define FREE(p)   \
+  do              \
+    {             \
+      free((p));  \
+      (p) = NULL; \
+    }             \
+  while(never)
+
+/*****************************************************************************/
+
 #if defined(_WIN32) || defined(_WIN64)
 # if defined(_MSC_VER)
 typedef unsigned __int64 LZ9FileSize;
@@ -974,9 +990,9 @@ init_failed:
         (void)pthread_mutex_destroy (&pool->mutex);
       }
 
-    free (pool->threads);
-    free (pool->workers);
-    free (pool->tasks);
+    FREE (pool->threads);
+    FREE (pool->workers);
+    FREE (pool->tasks);
     (void)memset (pool, 0, sizeof (*pool));
 
     return 0;
@@ -1239,9 +1255,9 @@ thread_pool_destroy (ThreadPool *pool)
       okay = 0;
     }
 
-  free (pool->threads);
-  free (pool->workers);
-  free (pool->tasks);
+  FREE (pool->threads);
+  FREE (pool->workers);
+  FREE (pool->tasks);
   (void)memset (pool, 0, sizeof (*pool));
 
   return okay;
@@ -8556,8 +8572,7 @@ free_thread_decoder_buffers (ThreadDecoderBuffers *buffers)
 
   for (i = 0; i < ENTROPY_STREAM_COUNT - 1U; ++i)
     {
-      free (buffers->symbols[i]);
-      buffers->symbols[i] = (unsigned char *)0;
+      FREE (buffers->symbols[i]); /* FREE macro does nullify */
     }
 
   buffers->capacity = 0U;
@@ -8591,7 +8606,7 @@ allocate_thread_decoder_buffers (ThreadDecoderBuffers *buffers,
             {
               if (symbols[j])
                 {
-                  free (symbols[j]);
+                  FREE (symbols[j]);
                 }
             }
 
@@ -8601,7 +8616,7 @@ allocate_thread_decoder_buffers (ThreadDecoderBuffers *buffers,
 
   for (i = 0; i < ENTROPY_STREAM_COUNT - 1U; ++i)
     {
-      free (buffers->symbols[i]);
+      FREE (buffers->symbols[i]);
       buffers->symbols[i] = symbols[i];
     }
 
@@ -9088,7 +9103,7 @@ thread_decode_block_create (void)
 
   if (!block->stage)
     {
-      free (block);
+      FREE (block);
 
       return (ThreadDecodeBlock *)0;
     }
@@ -9108,15 +9123,15 @@ thread_decode_block_free (ThreadDecodeBlock *block)
       return;
     }
 
-  free (block->stage);
-  free (block->table_snapshot);
+  FREE (block->stage);
+  FREE (block->table_snapshot);
 
   for (i = 0; i < ENTROPY_STREAM_COUNT - 1U; ++i)
     {
-      free (block->symbols[i]);
+      FREE (block->symbols[i]);
     }
 
-  free (block);
+  FREE (block);
 }
 
 /*****************************************************************************/
@@ -9767,16 +9782,16 @@ allocated_encoder (Encoder *e, unsigned int window_n,
 static void
 free_encoder (Encoder *e)
 {
-  free (e->buffer);
-  free (e->seq);
-  free (e->head);
-  free (e->link);
-  free (e->stage);
-  free (e->desc);
-  free (e->table);
-  free (e->gtable);
+  FREE (e->buffer);
+  FREE (e->seq);
+  FREE (e->head);
+  FREE (e->link);
+  FREE (e->stage);
+  FREE (e->desc);
+  FREE (e->table);
+  FREE (e->gtable);
 #if defined(LZ9ANS_PTHREADS)
-  free (e->prefix);
+  FREE (e->prefix);
 #endif /* if defined(LZ9ANS_PTHREADS) */
 }
 
@@ -10461,15 +10476,15 @@ cleanup:
     {
       for (i = 0; i < participants; ++i)
         {
-          free (jobs[i].output);
+          FREE (jobs[i].output);
           free_encoder (&jobs[i].encoder);
         }
     }
 
-  free (jobs);
-  free (tasks);
-  free (history);
-  free (raw);
+  FREE (jobs);
+  FREE (tasks);
+  FREE (history);
+  FREE (raw);
 
   if (pool_ready && !thread_pool_destroy (&pool))
     {
@@ -11237,18 +11252,18 @@ cleanup:
 #if defined(LZ9ANS_PTHREADS)
   free_thread_decoder_buffers (&decoder_buffers);
 #endif /* if defined(LZ9ANS_PTHREADS) */
-  free (stage);
-  free (desc);
-  free (tables);
-  free (phase_tables);
+  FREE (stage);
+  FREE (desc);
+  FREE (tables);
+  FREE (phase_tables);
 
   if (o)
     {
-      free (o->ring);
-      free (o->ring8);
+      FREE (o->ring);
+      FREE (o->ring8);
     }
 
-  free (o);
+  FREE (o);
 
   return okay;
 }
@@ -12062,7 +12077,7 @@ main (int argc, char **argv)
     {
       if (setvbuf (in, in_buf, _IOFBF, POSIX_STDIO_BUFFER_N) != 0)
         {
-          free (in_buf);
+          FREE (in_buf);
           in_buf = (char *)0;
         }
     }
@@ -12089,10 +12104,10 @@ main (int argc, char **argv)
         {
           if (input_is_stdio)
             {
-              (void)setvbuf (in, (char *)0, _IONBF, 0);
+              (void)setvbuf (stdin, (char *)0, _IONBF, 0);
             }
 
-          free (in_buf);
+          FREE (in_buf);
         }
 #endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
@@ -12113,10 +12128,10 @@ main (int argc, char **argv)
         {
           if (input_is_stdio)
             {
-              (void)setvbuf (in, (char *)0, _IONBF, 0);
+              (void)setvbuf (stdin, (char *)0, _IONBF, 0);
             }
 
-          free (in_buf);
+          FREE (in_buf);
         }
 #endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
@@ -12149,10 +12164,10 @@ main (int argc, char **argv)
         {
           if (input_is_stdio)
             {
-              (void)setvbuf (in, (char *)0, _IONBF, 0);
+              (void)setvbuf (stdin, (char *)0, _IONBF, 0);
             }
 
-          free (in_buf);
+          FREE (in_buf);
         }
 #endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
@@ -12166,7 +12181,7 @@ main (int argc, char **argv)
     {
       if (setvbuf (out, out_buf, _IOFBF, POSIX_STDIO_BUFFER_N) != 0)
         {
-          free (out_buf);
+          FREE (out_buf);
           out_buf = (char *)0;
         }
     }
@@ -12199,12 +12214,30 @@ main (int argc, char **argv)
       okay = 0;
     }
 
-  if (!output_is_stdio && fclose (out) != 0)
+  if (output_is_stdio)
+    {
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+      if (out_buf)
+        {
+          (void)setvbuf (stdout, (char *)0, _IONBF, 0);
+        }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+    }
+  else if (fclose (out) != 0)
     {
       okay = 0;
     }
 
-  if (!input_is_stdio && fclose (in) != 0)
+  if (input_is_stdio)
+    {
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+      if (in_buf)
+        {
+          (void)setvbuf (stdin, (char *)0, _IONBF, 0);
+        }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+    }
+  else if (fclose (in) != 0)
     {
       okay = 0;
     }
@@ -12212,22 +12245,12 @@ main (int argc, char **argv)
 #if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
   if (out_buf)
     {
-      if (output_is_stdio)
-        {
-          (void)setvbuf (out, (char *)0, _IONBF, 0);
-        }
-
-      free (out_buf);
+      FREE (out_buf);
     }
 
   if (in_buf)
     {
-      if (input_is_stdio)
-        {
-          (void)setvbuf (in, (char *)0, _IONBF, 0);
-        }
-
-      free (in_buf);
+      FREE (in_buf);
     }
 #endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
