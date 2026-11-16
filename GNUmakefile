@@ -142,6 +142,7 @@ lint: lz9ans.c crc32_hw.h
 	diff LICENSE LICENSES/MIT.txt
 	editorconfig-checker
 	cppi -ac ./lz9ans.c ./crc32_hw.h
+	codespell .
 	reuse lint -q || reuse lint
 	flawfinder --quiet --dataonly --omittime --error-level=3 --context -m3 .
 	$(MAKE) clean
