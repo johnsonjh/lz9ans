@@ -285,9 +285,11 @@ clamp_thread_limit (unsigned int limit)
 #if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
 # define LZ9_INLINE __inline__
 # define LZ9_ALWAYS_INLINE __inline__ __attribute__ ((always_inline))
+# define LZ9_BR_CONST_DIRECTION 1 /* requires explicitly guaranteed inlining */
 #else
 # define LZ9_INLINE
 # define LZ9_ALWAYS_INLINE LZ9_INLINE
+# define LZ9_BR_CONST_DIRECTION 0
 #endif /* if defined(__GNUC__) && !defined(__CPPCHECK__) \
           && !defined(__LINT__) */
 
@@ -445,7 +447,9 @@ typedef struct
   unsigned long bits;
   unsigned long size;
   unsigned long position;
+#if !LZ9_BR_CONST_DIRECTION
   int backwards;
+#endif /* if !LZ9_BR_CONST_DIRECTION */
   int failed;
 } BitReader;
 
@@ -1756,14 +1760,23 @@ br_init (BitReader *b, const unsigned char *p, unsigned long bits,
   b->bits = bits;
   b->size = (bits + 7UL) >> 3;
   b->position = 0;
+#if LZ9_BR_CONST_DIRECTION
+  (void)backwards;
+#else
   b->backwards = backwards;
+#endif /* if LZ9_BR_CONST_DIRECTION */
   b->failed = 0;
 }
 
 /*****************************************************************************/
 
+#if LZ9_BR_CONST_DIRECTION
+static HOT LZ9_ALWAYS_INLINE unsigned int
+br_get_mode (BitReader *b, unsigned int n, int backwards)
+#else
 static HOT LZ9_INLINE unsigned int
-br_get (BitReader *b, unsigned int n)
+br_get_mode (BitReader *b, unsigned int n)
+#endif /* if LZ9_BR_CONST_DIRECTION */
 {
   unsigned int v, window, shift;
   unsigned long start, by;
@@ -1781,7 +1794,11 @@ br_get (BitReader *b, unsigned int n)
       return 0;
     }
 
+#if LZ9_BR_CONST_DIRECTION
+  start = backwards ? (b->bits - b->position - n) : b->position;
+#else
   start = b->backwards ? (b->bits - b->position - n) : b->position;
+#endif /* if LZ9_BR_CONST_DIRECTION */
   b->position += n;
 
   if (b->size >= 4UL)
@@ -1821,6 +1838,27 @@ br_get (BitReader *b, unsigned int n)
 
   return v;
 }
+
+/*****************************************************************************/
+
+#if LZ9_BR_CONST_DIRECTION
+static HOT LZ9_ALWAYS_INLINE unsigned int
+br_get_forward (BitReader *b, unsigned int n)
+{
+  return br_get_mode (b, n, 0);
+}
+
+/*****************************************************************************/
+
+static HOT LZ9_ALWAYS_INLINE unsigned int
+br_get_backward (BitReader *b, unsigned int n)
+{
+  return br_get_mode (b, n, 1);
+}
+#else
+# define br_get_forward br_get_mode
+# define br_get_backward br_get_mode
+#endif /* if LZ9_BR_CONST_DIRECTION */
 
 /*****************************************************************************/
 
@@ -2051,7 +2089,7 @@ ans_get_with (Stream *s, const DecTable *t)
   ent = t->e[old];
   nb = (ent >> DEC_NB_SHIFT) & DEC_NB_MASK;
   s->state = (unsigned short)((ent & DEC_BASE_MASK)
-                              + (nb ? br_get (&s->br, nb) : 0U));
+                              + (nb ? br_get_backward (&s->br, nb) : 0U));
 
   return ent >> DEC_SYM_SHIFT;
 }
@@ -5066,7 +5104,7 @@ extra_get (ExtraReader *x, unsigned int n)
       return 0U;
     }
 
-  value = br_get (x->raw, n);
+  value = br_get_forward (x->raw, n);
 
   if (x->raw->failed)
     {
@@ -7336,7 +7374,7 @@ parse_tans_model (DecTable *t, unsigned int kind, unsigned int alphabet,
 
                 do
                   {
-                    bit = br_get (&r, 1U);
+                    bit = br_get_forward (&r, 1U);
 
                     if (r.failed)
                       {
@@ -7355,7 +7393,7 @@ parse_tans_model (DecTable *t, unsigned int kind, unsigned int alphabet,
                   }
                 while (!bit);
 
-                f = (1U << zeros) | br_get (&r, zeros);
+                f = (1U << zeros) | br_get_forward (&r, zeros);
               }
             else
               {
@@ -7365,11 +7403,11 @@ parse_tans_model (DecTable *t, unsigned int kind, unsigned int alphabet,
                 range = TABLE_N - sum - remaining;
                 bits = floor_log2 (range);
                 cutoff = (1U << (bits + 1U)) - range;
-                value = br_get (&r, bits);
+                value = br_get_forward (&r, bits);
 
                 if (value >= cutoff)
                   {
-                    value = (value << 1) | br_get (&r, 1U);
+                    value = (value << 1) | br_get_forward (&r, 1U);
                     value -= cutoff;
                   }
 
@@ -7395,7 +7433,7 @@ parse_tans_model (DecTable *t, unsigned int kind, unsigned int alphabet,
   {
     unsigned int padding = (unsigned int)((8UL - (r.position & 7UL)) & 7UL);
 
-    if (padding && br_get (&r, padding) != 0U)
+    if (padding && br_get_forward (&r, padding) != 0U)
       {
         return 0;
       }
@@ -7584,7 +7622,11 @@ stream_begin (Stream *s, unsigned long bits, const unsigned char *p)
 {
   s->bits = bits;
   s->data = p;
+#if LZ9_BR_CONST_DIRECTION
+  br_init (&s->br, p, bits, 0);
+#else
   br_init (&s->br, p, bits, stream_uses_ans (s->mode));
+#endif /* if LZ9_BR_CONST_DIRECTION */
 
   if (stream_uses_ans (s->mode))
     {
@@ -7593,7 +7635,7 @@ stream_begin (Stream *s, unsigned long bits, const unsigned char *p)
           return 0;
         }
 
-      s->state = (unsigned short)br_get (&s->br, TABLE_LOG);
+      s->state = (unsigned short)br_get_backward (&s->br, TABLE_LOG);
     }
   else if (s->mode == MODE_EMPTY || s->mode == MODE_RLE)
     {
@@ -7619,7 +7661,7 @@ stream_get (Stream *s)
 {
   if (s->mode == MODE_RAW)
     {
-      return br_get (&s->br, s->width);
+      return br_get_forward (&s->br, s->width);
     }
 
   if (s->mode == MODE_RLE)
@@ -7839,7 +7881,7 @@ store_stored_symbols (Output *o, const unsigned char *data, unsigned int n,
 
           while (i < n)
             {
-              unsigned int v = br_get (&tail, width);
+              unsigned int v = br_get_forward (&tail, width);
 
               if (tail.failed || (o->out_mode == 8 && v > 255U))
                 {
