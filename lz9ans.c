@@ -5288,6 +5288,14 @@ ml_price (const Encoder *e, unsigned int ml)
 
 /*****************************************************************************/
 
+static LZ9_INLINE unsigned int
+distance_match_min (const Encoder *e, unsigned int distance)
+{
+  return e->min_match + (distance > 4095U ? 1U : 0U);
+}
+
+/*****************************************************************************/
+
 #define CHAIN_BASE_MAX 0x20000000U
 
 /*****************************************************************************/
@@ -5388,6 +5396,11 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
 #if defined(LZ9ANS_X86_64_MATCH_FASTPATH)
 match_done:
 #endif /* if defined(LZ9ANS_X86_64_MATCH_FASTPATH) */
+
+  if (e->level <= 3 && k < distance_match_min (e, pos - cand))
+    {
+      return;
+    }
 
   if (e->use_cost)
     {
