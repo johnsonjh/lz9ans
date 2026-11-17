@@ -94,8 +94,9 @@ settings), as well as **LZ9ANS** operating in 8‑bit mode:
 | `lzip`       | LZMA&nbsp;(LZ77+MA+RC) |  `158,016,800`  |      13&nbsp;MiB |  17%&nbsp;larger |
 | `zpaq`       | M5&nbsp;(CM+AC)        |  `131,954,176`  |     246&nbsp;MiB |  3%&nbsp;smaller |
 
-<sub>Memory usage is based on a maximum input segment size of 1 MiB.</sub><br>
-<sup>Performance percentages above are relative to maximum 9‑bit **LZ9ANS**
+<sub>Memory usage calculated based on a maximum input segment size of
+**1 MiB**.</sub><br>
+<sup>Performance percentages calculated relative to maximum 9‑bit **LZ9ANS**
 performance.</sup>
 
 Even when processing the corpus *in 8‑bit mode* (that is, as `55,823,021`
