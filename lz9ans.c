@@ -9679,7 +9679,7 @@ decode_block_finish_pipeline (Output *o, ThreadDecodeBlock *block,
                    ? block->symbols[STREAM_OF - STREAM_LL][i]
                    : stream_get (&s[STREAM_OF]);
 
-#if LZ9_HAS_ALWAYS_INLINE
+# if LZ9_HAS_ALWAYS_INLINE
         if (block->aligned_distances)
           {
             d = decode_dist_aligned (code, &extra, o->reps, o->window_n,
@@ -9690,10 +9690,10 @@ decode_block_finish_pipeline (Output *o, ThreadDecodeBlock *block,
             d = decode_dist_unaligned (code, &extra, o->reps, o->window_n,
                                        o->of_alphabet);
           }
-#else
+# else
         d = decode_dist (code, &extra, o->reps, o->window_n,
                          o->of_alphabet, (int)block->aligned_distances);
-#endif /* if LZ9_HAS_ALWAYS_INLINE */
+# endif /* if LZ9_HAS_ALWAYS_INLINE */
 
         {
           unsigned int max_d
