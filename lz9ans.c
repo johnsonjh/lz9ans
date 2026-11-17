@@ -314,7 +314,7 @@ clamp_thread_limit (unsigned int limit)
 #if defined(__ORACLE_LINT)
 # if !defined(__LINT__)
 #  define __LINT__
-# endif
+# endif /* if !defined(__LINT__) */
 #endif /* if defined(__ORACLE_LINT) */
 
 /*****************************************************************************/
