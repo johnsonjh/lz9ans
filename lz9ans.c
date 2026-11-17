@@ -340,11 +340,13 @@ clamp_thread_limit (unsigned int limit)
 
 #undef LZ9_ALWAYS_INLINE
 #undef LZ9_BR_CONST_DIRECTION
+#undef LZ9_HAS_ALWAYS_INLINE
 #if !defined(__CPPCHECK__) && !defined(__LINT__)
 # if HAS_ATTRIBUTE(always_inline)
 #  define LZ9_INLINE __inline__
 #  define LZ9_ALWAYS_INLINE __inline__ __attribute__((always_inline))
 #  define LZ9_BR_CONST_DIRECTION 1 /* needs explicitly guaranteed inlining */
+#  define LZ9_HAS_ALWAYS_INLINE 1 /* boolean */
 # else
 #  if !defined(LZ9_INLINE)
 #   define LZ9_INLINE /**/
@@ -361,19 +363,25 @@ clamp_thread_limit (unsigned int limit)
 
 #if !defined(LZ9_INLINE)
 # define LZ9_INLINE /**/
-#endif
+#endif /* if !defined(LZ9_INLINE) */
 
 /*****************************************************************************/
 
 #if !defined(LZ9_ALWAYS_INLINE)
 # define LZ9_ALWAYS_INLINE /**/
-#endif
+#endif /* if !defined(LZ9_ALWAYS_INLINE) */
+
+/*****************************************************************************/
+
+#if !defined(LZ9_HAS_ALWAYS_INLINE)
+# define LZ9_HAS_ALWAYS_INLINE 0 /* boolean */
+#endif /* if !defined(LZ9_HAS_ALWAYS_INLINE) */
 
 /*****************************************************************************/
 
 #if !defined(LZ9_BR_CONST_DIRECTION)
 # define LZ9_BR_CONST_DIRECTION 0
-#endif
+#endif /* if !defined(LZ9_BR_CONST_DIRECTION) */
 
 /*****************************************************************************/
 
@@ -5193,8 +5201,13 @@ decode_len (unsigned int code, unsigned int bias, ExtraReader *extra)
 
 /*****************************************************************************/
 
+#if LZ9_HAS_ALWAYS_INLINE
+static HOT LZ9_ALWAYS_INLINE unsigned int
+decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
+#else
 static LZ9_INLINE unsigned int
 decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
+#endif /* if LZ9_HAS_ALWAYS_INLINE */
              unsigned int window_n, unsigned int of_alphabet,
              int aligned_distances)
 {
@@ -5301,6 +5314,30 @@ decode_dist (unsigned int code, ExtraReader *extra, unsigned int *rep,
 
   return d;
 }
+
+/*****************************************************************************/
+
+#if LZ9_HAS_ALWAYS_INLINE
+static HOT LZ9_ALWAYS_INLINE unsigned int
+decode_dist_aligned (unsigned int code, ExtraReader *extra,
+                     unsigned int *rep, unsigned int window_n,
+                     unsigned int of_alphabet)
+{
+  return decode_dist (code, extra, rep, window_n, of_alphabet, 1);
+}
+#endif /* if LZ9_HAS_ALWAYS_INLINE */
+
+/*****************************************************************************/
+
+#if LZ9_HAS_ALWAYS_INLINE
+static HOT LZ9_ALWAYS_INLINE unsigned int
+decode_dist_unaligned (unsigned int code, ExtraReader *extra,
+                       unsigned int *rep, unsigned int window_n,
+                       unsigned int of_alphabet)
+{
+  return decode_dist (code, extra, rep, window_n, of_alphabet, 0);
+}
+#endif /* if LZ9_HAS_ALWAYS_INLINE */
 
 /*****************************************************************************/
 
@@ -9104,8 +9141,22 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
           parallel_codes ? /* //-V547 */
                decoder_buffers->symbols[STREAM_OF - STREAM_LL][i]
                          : stream_get (&s[STREAM_OF]);
+
+#if LZ9_HAS_ALWAYS_INLINE
+        if (aligned_distances)
+          {
+            d = decode_dist_aligned (code, &extra, o->reps, o->window_n,
+                                     o->of_alphabet);
+          }
+        else
+          {
+            d = decode_dist_unaligned (code, &extra, o->reps, o->window_n,
+                                       o->of_alphabet);
+          }
+#else
         d = decode_dist (code, &extra, o->reps, o->window_n,
                          o->of_alphabet, aligned_distances);
+#endif /* if LZ9_HAS_ALWAYS_INLINE */
 
         {
           unsigned int max_d
@@ -9627,8 +9678,22 @@ decode_block_finish_pipeline (Output *o, ThreadDecodeBlock *block,
         code = block->parallel_codes
                    ? block->symbols[STREAM_OF - STREAM_LL][i]
                    : stream_get (&s[STREAM_OF]);
+
+#if LZ9_HAS_ALWAYS_INLINE
+        if (block->aligned_distances)
+          {
+            d = decode_dist_aligned (code, &extra, o->reps, o->window_n,
+                                     o->of_alphabet);
+          }
+        else
+          {
+            d = decode_dist_unaligned (code, &extra, o->reps, o->window_n,
+                                       o->of_alphabet);
+          }
+#else
         d = decode_dist (code, &extra, o->reps, o->window_n,
                          o->of_alphabet, (int)block->aligned_distances);
+#endif /* if LZ9_HAS_ALWAYS_INLINE */
 
         {
           unsigned int max_d
