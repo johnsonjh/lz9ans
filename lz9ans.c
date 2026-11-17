@@ -282,26 +282,40 @@ clamp_thread_limit (unsigned int limit)
 
 /*****************************************************************************/
 
-#if defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
-# define LZ9_INLINE __inline__
-# define LZ9_ALWAYS_INLINE __inline__ __attribute__ ((always_inline))
-# define LZ9_BR_CONST_DIRECTION 1 /* requires explicitly guaranteed inlining */
-#else
-# define LZ9_INLINE
-# define LZ9_ALWAYS_INLINE LZ9_INLINE
-# define LZ9_BR_CONST_DIRECTION 0
-#endif /* if defined(__GNUC__) && !defined(__CPPCHECK__) \
-          && !defined(__LINT__) */
-
-/*****************************************************************************/
-
 #undef HAS_ATTRIBUTE
 #if defined __has_attribute && (defined(__clang__) || defined(__GNUC__))
 # define HAS_ATTRIBUTE(atr) __has_attribute(atr)
 #else
 # define HAS_ATTRIBUTE(atr) 0
+# if !defined(NO_HAS_ATTRIBUTE)
+#  define NO_HAS_ATTRIBUTE /**/
+# endif /* if !defined(NO_HAS_ATTRIBUTE) */
 #endif /* if defined __has_attribute && (defined(__clang__) \
           || defined(__GNUC__)) */
+
+/*****************************************************************************/
+
+#undef OLD_SUNCC
+#if (defined(__SUNPRO_C) && (__SUNPRO_C < 0x590)) || \
+    (defined(__SUNPRO_CC) && (__SUNPRO_CC < 0x590))
+# define OLD_SUNCC /**/
+#else
+# if defined(__SUNPRO_C) || defined(__SUNPRO_CC) && !defined(__ORACLE_LINT)
+#  undef NO_HAS_ATTRIBUTE /* assume that all used attributes exist on suncc! */
+#  undef HAS_ATTRIBUTE
+#  define HAS_ATTRIBUTE(atr) 1
+# endif /* if defined(__SUNPRO_C) || defined(__SUNPRO_CC) \
+           && !defined(__ORACLE_LINT) */
+#endif /* if (defined(__SUNPRO_C) && (__SUNPRO_C < 0x590)) \
+          || (defined(__SUNPRO_CC) && (__SUNPRO_CC < 0x590)) */
+
+/*****************************************************************************/
+
+#if defined(__ORACLE_LINT)
+# if !defined(__LINT__)
+#  define __LINT__
+# endif
+#endif /* if defined(__ORACLE_LINT) */
 
 /*****************************************************************************/
 
@@ -309,6 +323,10 @@ clamp_thread_limit (unsigned int limit)
 #if !defined(__CPPCHECK__) && !defined(__LINT__)
 # if HAS_ATTRIBUTE(hot)
 #  define HOT __attribute__((hot))
+# else
+#  if !defined(NO_HOT)
+#   define NO_HOT /**/
+#  endif /* if !defined(NO_HOT) */
 # endif /* if HAS_ATTRIBUTE(hot) */
 #endif /* if !defined(__CPPCHECK__) && !defined(__LINT__) */
 
@@ -317,6 +335,45 @@ clamp_thread_limit (unsigned int limit)
 #if !defined(HOT)
 # define HOT /**/
 #endif /* if !defined(HOT) */
+
+/*****************************************************************************/
+
+#undef LZ9_ALWAYS_INLINE
+#undef LZ9_BR_CONST_DIRECTION
+#if !defined(__CPPCHECK__) && !defined(__LINT__)
+# if HAS_ATTRIBUTE(always_inline)
+#  define LZ9_INLINE __inline__
+#  define LZ9_ALWAYS_INLINE __inline__ __attribute__((always_inline))
+#  define LZ9_BR_CONST_DIRECTION 1 /* needs explicitly guaranteed inlining */
+# else
+#  if !defined(LZ9_INLINE)
+#   define LZ9_INLINE /**/
+#   if !defined(NO_INLINE)
+#    define NO_INLINE /**/
+#   endif /* if !defined(NO_INLINE) */
+#  endif /* if !defined(LZ9_INLINE) */
+#  define LZ9_ALWAYS_INLINE LZ9_INLINE
+#  define LZ9_BR_CONST_DIRECTION 0
+# endif /* if HAS_ATTRIBUTE(always_inline) */
+#endif /* if !defined(__CPPCHECK__) && !defined(__LINT__) */
+
+/*****************************************************************************/
+
+#if !defined(LZ9_INLINE)
+# define LZ9_INLINE /**/
+#endif
+
+/*****************************************************************************/
+
+#if !defined(LZ9_ALWAYS_INLINE)
+# define LZ9_ALWAYS_INLINE /**/
+#endif
+
+/*****************************************************************************/
+
+#if !defined(LZ9_BR_CONST_DIRECTION)
+# define LZ9_BR_CONST_DIRECTION 0
+#endif
 
 /*****************************************************************************/
 
@@ -12012,6 +12069,40 @@ main (int argc, char **argv)
               "  --threads=N:         limit to N"
               " concurrent threads (default: automatic)\n");
 #endif /* if defined(LZ9ANS_PTHREADS) */
+
+#undef COMPILER_WARNING
+#if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) || defined(NO_INLINE) || \
+    defined(OLD_SUNCC)
+# define COMPILER_WARNING
+      (void)fprintf (stderr, "\n");
+#endif /* if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) \
+          || defined(NO_INLINE) || defined(OLD_SUNCC) */
+
+#if defined(NO_HAS_ATTRIBUTE)
+      (void)fprintf (stderr,
+              "WARNING: Compiler missing support for '__has_attribute'!\n");
+#endif /* if defined(NO_HAS_ATTRIBUTE) */
+
+#if defined(NO_HOT)
+      (void)fprintf (stderr,
+              "WARNING: Compiler missing support for the 'hot' attribute!\n");
+#endif /* if defined(NO_HOT) */
+
+#if defined(NO_INLINE)
+      (void)fprintf (stderr,
+              "WARNING: Compiler missing support for explicit inlining!\n");
+#endif /* if defined(NO_INLINE) */
+
+#if defined(OLD_SUNCC)
+      (void)fprintf (stderr,
+              "WARNING: Compiler version too old (less than Studio 12)!\n");
+#endif /* if defined(OLD_SUNCC) */
+
+
+#if defined(COMPILER_WARNING)
+      (void)fprintf (stderr,
+              "WARNING: This build will NOT perform optimally!\n");
+#endif /* if defined(COMPILER_WARNING) */
 
       return 2;
     }
