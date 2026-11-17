@@ -602,6 +602,11 @@ typedef char stage_must_hold_maximum_stored_block_compile_time_assertion[
 
 /*****************************************************************************/
 
+typedef char stage_must_hold_packed_9bit_block_compile_time_assertion[
+  STAGE_MAX >= (BLOCK_N * 9U + 7U) / 8U ? 1 : -1];
+
+/*****************************************************************************/
+
 #if defined(LZ9ANS_PTHREADS)
 # define THREAD_STACK_BYTES (256UL * 1024UL)
 
@@ -8381,6 +8386,48 @@ output_packed9 (Output *o, const unsigned char *packed)
 /*****************************************************************************/
 
 static int
+output_packed9_bits (Output *o, const unsigned char *packed,
+                     unsigned int packed_bytes, unsigned int bit_count)
+{
+  unsigned int whole = bit_count >> 3;
+  unsigned int tail = bit_count & 7U;
+
+  if (packed_bytes != whole + (tail != 0U) || o->out_bits)
+    {
+      return 0;
+    }
+
+  while (whole)
+    {
+      unsigned int avail
+          = (unsigned int)(sizeof (o->outbuf) - o->out_used);
+      unsigned int chunk = whole < avail ? whole : avail;
+
+      (void)memcpy (o->outbuf + o->out_used, packed, (size_t)chunk);
+      o->out_used += chunk;
+      packed += chunk;
+      whole -= chunk;
+
+      if (o->out_used == sizeof (o->outbuf))
+        {
+          if (!write_exact (o->out, o->outbuf, sizeof (o->outbuf)))
+            {
+              return 0;
+            }
+
+          o->out_used = 0;
+        }
+    }
+
+  o->out_acc = tail ? (unsigned int)(*packed >> (8U - tail)) : 0U;
+  o->out_bits = tail;
+
+  return 1;
+}
+
+/*****************************************************************************/
+
+static int
 output_decoded_block (Output *o, unsigned long start, unsigned int n)
 {
   const unsigned int mask = o->window_n - 1U;
@@ -8572,9 +8619,10 @@ block_crc_end8 (Output *o, unsigned int n, unsigned long expected)
 /*****************************************************************************/
 
 static int
-block_crc_end (Output *o, unsigned int n, unsigned long expected)
+block_crc_end (Output *o, unsigned int n, unsigned long expected,
+               unsigned char *scratch, unsigned int scratch_size)
 {
-  unsigned long start, crc = 0UL;
+  unsigned long start, crc;
   unsigned int i = 0, used = 0;
   const unsigned int mask = o->window_n - 1U;
 
@@ -8590,17 +8638,81 @@ block_crc_end (Output *o, unsigned int n, unsigned long expected)
 
   start = o->produced - n;
 
+  if (!scratch || ((n * 9U + 7U) / 8U) > scratch_size || o->out_bits)
+    {
+      crc = 0UL;
+
+      while (n - i >= 8U)
+        {
+          unsigned int at = (unsigned int)((start + i) & mask);
+          unsigned short values[8];
+          const unsigned short *source;
+
+          if (used > CRC_BUFFER_N - 9U)
+            {
+              crc = crc_update (crc, o->crc_buf, used);
+              used = 0;
+            }
+
+          if (at <= mask - 7U)
+            {
+              source = o->ring + at;
+            }
+          else
+            {
+              unsigned int j;
+
+              for (j = 0; j < 8U; ++j)
+                {
+                  values[j] = o->ring[(at + j) & mask];
+                }
+
+              source = values;
+            }
+
+          pack8_symbols (source, o->crc_buf + used);
+          used += 9U;
+          i += 8U;
+        }
+
+      if (i < n)
+        {
+          unsigned int tail = n - i;
+          unsigned short values[7] = { 0U };
+          unsigned int j, at = (unsigned int)((start + i) & mask);
+
+          if (used > CRC_BUFFER_N - 8U)
+            {
+              crc = crc_update (crc, o->crc_buf, used);
+              used = 0;
+            }
+
+          for (j = 0; j < tail; ++j)
+            {
+              values[j] = o->ring[(at + j) & mask];
+            }
+
+          used += pack9_tail (values, tail, o->crc_buf + used);
+        }
+
+      if (used)
+        {
+          crc = crc_update (crc, o->crc_buf, used);
+        }
+
+      if (crc != expected)
+        {
+          return 0;
+        }
+
+      return output_decoded_block (o, start, n);
+    }
+
   while (n - i >= 8U)
     {
       unsigned int at = (unsigned int)((start + i) & mask);
       unsigned short values[8];
       const unsigned short *source;
-
-      if (used > CRC_BUFFER_N - 9U)
-        {
-          crc = crc_update (crc, o->crc_buf, used);
-          used = 0;
-        }
 
       if (at <= mask - 7U)
         {
@@ -8618,7 +8730,7 @@ block_crc_end (Output *o, unsigned int n, unsigned long expected)
           source = values;
         }
 
-      pack8_symbols (source, o->crc_buf + used);
+      pack8_symbols (source, scratch + used);
       used += 9U;
       i += 8U;
     }
@@ -8629,31 +8741,22 @@ block_crc_end (Output *o, unsigned int n, unsigned long expected)
       unsigned short values[7] = { 0U };
       unsigned int j, at = (unsigned int)((start + i) & mask);
 
-      if (used > CRC_BUFFER_N - 8U)
-        {
-          crc = crc_update (crc, o->crc_buf, used);
-          used = 0;
-        }
-
       for (j = 0; j < tail; ++j)
         {
           values[j] = o->ring[(at + j) & mask];
         }
 
-      used += pack9_tail (values, tail, o->crc_buf + used);
+      used += pack9_tail (values, tail, scratch + used);
     }
 
-  if (used)
-    {
-      crc = crc_update (crc, o->crc_buf, used);
-    }
+  crc = used ? crc_bytes (scratch, used) : 0UL;
 
   if (crc != expected)
     {
       return 0;
     }
 
-  return output_decoded_block (o, start, n);
+  return output_packed9_bits (o, scratch, used, n * 9U);
 }
 
 /*****************************************************************************/
@@ -8938,7 +9041,8 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
       block_begin (o);
 
       return store_stored_symbols (o, stage, n, width)
-             && o->in_block == n && block_crc_end (o, n, expected);
+             && o->in_block == n
+             && block_crc_end (o, n, expected, stage, STAGE_MAX);
     }
 
   if (type != BLOCK_LZ
@@ -9231,7 +9335,8 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
         }
     }
 
-  return o->in_block == n && block_crc_end (o, n, expected);
+  return o->in_block == n
+         && block_crc_end (o, n, expected, stage, STAGE_MAX);
 }
 
 /*****************************************************************************/
@@ -9615,7 +9720,7 @@ decode_block_finish_pipeline (Output *o, ThreadDecodeBlock *block,
     {
       return store_stored_symbols (o, block->stage, n, block->width)
              && o->in_block == n
-             && block_crc_end (o, n, block->expected);
+             && block_crc_end (o, n, block->expected, block->stage, STAGE_MAX);
     }
 
   {
@@ -9768,7 +9873,8 @@ decode_block_finish_pipeline (Output *o, ThreadDecodeBlock *block,
         }
     }
 
-  return o->in_block == n && block_crc_end (o, n, block->expected);
+  return o->in_block == n
+         && block_crc_end (o, n, block->expected, block->stage, STAGE_MAX);
 }
 
 /*****************************************************************************/
