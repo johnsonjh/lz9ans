@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.28 (2026-11-17)"
+#define LZ9VER "v0.9.29 (2026-11-18)"
 
 /*****************************************************************************/
 
@@ -8395,6 +8395,18 @@ output_packed9_bits (Output *o, const unsigned char *packed,
   if (packed_bytes != whole + (tail != 0U) || o->out_bits)
     {
       return 0;
+    }
+
+  if (whole >= sizeof (o->outbuf))
+    {
+      if (!output_flush (o)
+          || !write_exact (o->out, packed, (size_t)whole))
+        {
+          return 0;
+        }
+
+      packed += whole;
+      whole = 0U;
     }
 
   while (whole)
