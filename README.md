@@ -56,7 +56,8 @@ in entropy decoding and LZ match processing.
 
 ## Specification
 
-See the [`FORMAT.md`](FORMAT.md) document for the complete specification.
+See the [`docs/FORMAT.md`](docs/FORMAT.md) document for the complete
+specification.
 
 ## Contributing
 
