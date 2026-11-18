@@ -16,6 +16,7 @@
 /corpus/t.dat
 /corpus/*.txt
 /*.diff
+/docs/**/*.pdf
 *.gcda
 /log.pvs
 /lz9ans
