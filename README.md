@@ -39,82 +39,13 @@ reference implementation offering nine different compression profiles: four
 decompression, with the reference implementation providing single‑threaded and
 multi‑threaded encoder and decoder variants.
 
-## Performance
-
-**LZ9ANS‑32K** (corpus of `446,584,168` input bits)<br>
-[**663** **KiB** encoder state; **209** **KiB** decoder state, **1** thread]:
-
-|    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
-|---------:|:---------------:|:---------:|:---------:|---------------:|
-| **`‑1`** |  `155,036,928`  | `65.284%` | `2.881:1` | `‑291,547,240` |
-| **`‑2`** |  `151,956,176`  | `65.974%` | `2.939:1` |   `‑3,080,752` |
-| **`‑3`** |  `150,008,216`  | `66.410%` | `2.977:1` |   `‑1,947,960` |
-| **`‑4`** |  `149,188,224`  | `66.593%` | `2.993:1` |     `‑819,992` |
-| **`‑5`** |  `143,197,832`  | `67.935%` | `3.119:1` |   `‑5,990,392` |
-| **`‑6`** |  `139,919,024`  | `68.669%` | `3.192:1` |   `‑3,278,808` |
-| **`‑7`** |  `139,572,728`  | `68.747%` | `3.200:1` |     `‑346,296` |
-| **`‑8`** |  `139,294,488`  | `68.809%` | `3.206:1` |     `‑278,240` |
-| **`‑9`** |  `139,011,888`  | `68.872%` | `3.213:1` |     `‑282,600` |
-
-**LZ9ANS‑64K** (corpus of `446,584,168` input bits)<br>
-[**855** **KiB** encoder state; **273** **KiB** decoder state, **1** thread]:
-
-|    Level | Compressed bits |  Percent  |   Ratio   |          Delta |
-|---------:|:---------------:|:---------:|:---------:|---------------:|
-| **`‑1`** |  `153,208,184`  | `65.693%` | `2.915:1` | `‑293,375,984` |
-| **`‑2`** |  `149,713,184`  | `66.476%` | `2.983:1` |   `‑3,495,000` |
-| **`‑3`** |  `147,447,072`  | `66.983%` | `3.029:1` |   `‑2,266,112` |
-| **`‑4`** |  `146,779,712`  | `67.133%` | `3.043:1` |     `‑667,360` |
-| **`‑5`** |  `139,752,752`  | `68.706%` | `3.196:1` |   `‑7,026,960` |
-| **`‑6`** |  `136,495,960`  | `69.436%` | `3.272:1` |   `‑3,256,792` |
-| **`‑7`** |  `136,041,576`  | `69.537%` | `3.283:1` |     `‑454,384` |
-| **`‑8`** |  `135,693,312`  | `69.615%` | `3.291:1` |     `‑348,264` |
-| **`‑9`** |  `135,375,328`  | `69.686%` | `3.299:1` |     `‑317,984` |
-
-### Competition
-
-Compare the numbers above with the results of the same corpus packed with
-popular 8‑bit compression algorithms (all at their maximum compression
-settings), as well as **LZ9ANS** operating in 8‑bit mode:
-
-|      Utility | Algorithm              | Compressed bits | Memory           | Performance      |
-|-------------:|:-----------------------|:---------------:|-----------------:|-----------------:|
-| `lzfx`       | LZF                    |  `281,115,248`  |      70&nbsp;KiB | 108%&nbsp;larger |
-| `compress`   | LZW                    |  `279,608,608`  |     400&nbsp;KiB | 107%&nbsp;larger |
-| `lz4`        | LZ77+VLE               |  `221,797,064`  |     512&nbsp;KiB |  64%&nbsp;larger |
-| `lzop`       | LZO1X&nbsp;(LZ77+BC)   |  `212,130,184`  |      70&nbsp;KiB |  57%&nbsp;larger |
-| `gzip`       | DEFLATE&nbsp;(LZ77+HC) |  `202,579,712`  |     350&nbsp;KiB |  50%&nbsp;larger |
-| `lzfse`      | LZFSE&nbsp;(LZ77+FSE)  |  `194,587,720`  |      74&nbsp;KiB |  44%&nbsp;larger |
-| **`lz9ans`** | **LZ9ANS‑32K**         |  `191,066,928`  | **663&nbsp;KiB** |  41%&nbsp;larger |
-| **`lz9ans`** | **LZ9ANS‑64K**         |  `184,164,336`  | **855&nbsp;KiB** |  36%&nbsp;larger |
-| `bzip2`      | BWT+MTF+HC             |  `177,850,592`  |     1.2&nbsp;MiB |  31%&nbsp;larger |
-| `zstd`       | LZ77+HC+FSE            |  `170,129,736`  |      10&nbsp;MiB |  26%&nbsp;larger |
-| `bzip3`      | BWT+LZP+CM             |  `169,815,400`  |     8.2&nbsp;MiB |  25%&nbsp;larger |
-| `brotli`     | LZ77+HC+CD             |  `161,977,528`  |     210&nbsp;MiB |  20%&nbsp;larger |
-| `lzip`       | LZMA&nbsp;(LZ77+MA+RC) |  `158,016,800`  |      13&nbsp;MiB |  17%&nbsp;larger |
-| `zpaq`       | M5&nbsp;(CM+AC)        |  `131,954,176`  |     246&nbsp;MiB |  3%&nbsp;smaller |
-
-<sub>Memory usage calculated based on a maximum input segment size of
-**1 MiB**.</sub><br>
-<sup>Performance percentages calculated relative to maximum 9‑bit **LZ9ANS**
-performance.</sup>
-
-Even when processing the corpus *in 8‑bit mode* (that is, as `55,823,021`
-8‑bit octets, rather than as `49,620,463` 9‑bit nonets), **LZ9ANS**, which is
-tuned *explicitly* for compressing **9‑bit** data, more than holds its own and
-is only surpassed by algorithms that require *substantially* more memory (2× to
-500×) and/or processing time (enough to make native **Multics** implementations
-impractical).
-
-## Hardware
-
 The overall codec architecture was deliberately engineered with hardware
 friendliness in mind (more so than most ANS‑based schemes), sometimes to the
 detriment of compression ratio: memory usage is deterministic, all per‑block
 lengths and storage requirements are explicitly bounded (symbols per block,
 payload and descriptor sizes, and window sizes), ANS state is reset
 independently for each block, decode tables change only through explicit
-descriptors, LIT symbol decoding is independent of history and previously
+descriptors, `LIT` symbol decoding is independent of history and previously
 emitted output, etc.
 
 These intentional design choices provide a predictable resource envelope and
