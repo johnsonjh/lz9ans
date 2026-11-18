@@ -9,6 +9,7 @@
 /.build-config
 /compile_commands.json
 /compile_commands.tmp
+/conv9
 /corpus/*.csv
 /corpus/obj/
 /corpus/out
