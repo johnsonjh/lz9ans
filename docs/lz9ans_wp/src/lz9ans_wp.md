@@ -102,23 +102,16 @@ The result is a codec with several complementary characteristics:
 
 - Native support for `9`‑bit symbols without requiring `16`‑bit external
   representation or `8`‑bit repacking.
-
 - Compatibility with conventional `8`‑bit input and output.
-
 - Entropy coding designed to exploit positional characteristics within
   `36`‑bit words.
-
 - Dictionary compression that preserves useful history across block boundaries.
-
 - Bounded block sizes, history windows, entropy states, and descriptor
   structures.
-
 - Multiple entropy representations selected according to the characteristics
   of individual streams.
-
 - A cost-aware `LZ` parser that considers the downstream entropy
   representation.
-
 - Optional parallel processing and hardware-accelerated checksum calculation.
 
 These characteristics are best understood as a coordinated architecture
@@ -859,10 +852,13 @@ The `V9` architecture provides opportunities for parallel processing because
 blocks have bounded output and independently initialized entropy states.
 
 The reference implementation includes optional multithreaded processing
-paths.  POSIX builds use `pthread`; Windows builds can select native Windows
-threading with `LZ9ANS_WINTHREAD`, using the Windows synchronization APIs and
-C‑runtime-aware thread creation.  The native Windows backend requires Windows
-Vista (or Windows Server 2008) or later.
+paths.
+
+UNIX builds use POSIX threads (`pthread`); Microsoft Windows builds can select
+native Windows threading with `LZ9ANS_WINTHREAD`, using the native Microsoft
+Windows synchronization APIs and C‑runtime-aware thread creation.  The native
+Microsoft Windows thread backend requires Windows Vista (or Windows Server
+2008) or later.
 
 These are implementation features rather than requirements of the compressed
 format.
@@ -901,9 +897,11 @@ entropy work while maintaining sequential control over `LZ` reconstruction.
 For known-length frames, it can process multiple blocks in a bounded pipeline.
 
 The coordinator processes descriptors and snapshots the relevant entropy
-tables. Workers decode ordinary `LL`, `ML`, and `OF` streams. The coordinator
-then performs sequence reconstruction, processes `EXTRA`, updates history
-and repeat distances, validates checksums, and emits output in order.
+tables. Workers decode ordinary `LL`, `ML`, and `OF` streams.
+
+The coordinator then performs sequence reconstruction, processes `EXTRA`,
+updates history and repeat distances, validates checksums, and emits output
+in order.
 
 Blocks requiring phased `LL` or `ML` decoding use the sequential fallback.
 
@@ -919,8 +917,8 @@ correctly ordered.
 The format does not require multithreading.
 
 A fully compatible implementation can be single-threaded, and the reference
-build supports configurations using `pthread`, native Windows threading, or
-no threading.
+build supports configurations using `pthread`, native Microsoft Windows
+threading, or no threading.
 
 This keeps the format usable in environments where thread libraries or native
 threading facilities are unavailable or undesirable.
@@ -1260,10 +1258,12 @@ validation, parallelism, and hardware implementation.
 ### Acknowledgments
 
 The author gratefully acknowledges the use of the
-**REDUCE Computer Algebra System**, which was instrumental in the prototyping,
-design evaluation, and early testing phases of this work.
+“**REDUCE Computer Algebra System**”, which was instrumental in the
+prototyping, design evaluation, and early testing phases of this work.
 
 ### More Information
+
+Additional information and the complete MIT licensed source code is available:
 
 * **GitHub**: [`https://github.com/johnsonjh/lz9ans`](https://github.com/johnsonjh/lz9ans)
 
