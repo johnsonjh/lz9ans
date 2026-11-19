@@ -7,12 +7,18 @@
 .PHONY: all
 all: lz9ans_wp.pdf
 
+##############################################################################
+
 .PHONY: clean
 clean:
 	rm -f lz9ans_wp.pdf
 
+##############################################################################
+
 lz9ans_wp.pdf: src/lz9ans_wp.md
 	pandoc -s $< --pdf-engine=xelatex -o $@
+
+##############################################################################
 
 .PHONY: automatic
 automatic: src/lz9ans_wp.md
