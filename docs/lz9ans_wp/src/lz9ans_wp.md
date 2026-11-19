@@ -858,8 +858,11 @@ complete frame has been successfully validated.
 The `V9` architecture provides opportunities for parallel processing because
 blocks have bounded output and independently initialized entropy states.
 
-The reference implementation includes optional `pthread`-based processing
-paths.
+The reference implementation includes optional multithreaded processing
+paths.  POSIX builds use `pthread`; Windows builds can select native Windows
+threading with `LZ9ANS_WINTHREAD`, using the Windows synchronization APIs and
+C‑runtime-aware thread creation.  The native Windows backend requires Windows
+Vista (or Windows Server 2008) or later.
 
 These are implementation features rather than requirements of the compressed
 format.
@@ -916,10 +919,11 @@ correctly ordered.
 The format does not require multithreading.
 
 A fully compatible implementation can be single-threaded, and the reference
-build supports configurations without `pthread` functionality.
+build supports configurations using `pthread`, native Windows threading, or
+no threading.
 
-This keeps the format usable in environments where thread libraries are
-unavailable or undesirable.
+This keeps the format usable in environments where thread libraries or native
+threading facilities are unavailable or undesirable.
 
 ### Portable Software and Hardware Implementation
 

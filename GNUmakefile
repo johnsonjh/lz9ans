@@ -14,14 +14,23 @@ ifeq ($(THREADS),pthreads)
   THREAD_DEFS = -DLZ9ANS_PTHREADS
   THREAD_CFLAGS ?= -pthread
   THREAD_LDFLAGS ?= -pthread
+else ifeq ($(THREADS),winthread)
+  THREAD_DEFS = -DLZ9ANS_WINTHREAD
+  THREAD_CFLAGS =
+  THREAD_LDFLAGS =
 else ifneq ($(THREADS),none)
-  $(error THREADS must be either 'none' or 'pthreads')
+  $(error THREADS must be either 'none', 'pthreads', or 'winthread')
 endif
 
 ##############################################################################
 
+ifeq ($(origin THREADS),file)
 all:
 	$(MAKE) lz9ans THREADS=pthreads || $(MAKE) lz9ans THREADS=none
+else
+all:
+	$(MAKE) lz9ans THREADS=$(THREADS)
+endif
 
 ##############################################################################
 
@@ -99,6 +108,13 @@ test-threads:
 		THREAD_CFLAGS="$${THREAD_CFLAGS:--pthread}" \
 		THREAD_LDFLAGS="$${THREAD_LDFLAGS:--pthread}" \
 		./tests/test_threads.py
+
+##############################################################################
+
+test-winthreads:
+	env CC="$${CC:-$(CC)}" CFLAGS="$${EXTRA_CFLAGS:-} $(CFLAGS)" \
+		LDFLAGS="$${EXTRA_LDFLAGS:-} $(LDFLAGS)" \
+		THREAD_BACKEND=winthread ./tests/test_threads.py
 
 ##############################################################################
 
@@ -191,7 +207,8 @@ distclean: clean
 ##############################################################################
 
 .PHONY: all test test-threads thread-sanitizer sanitizers cppcheck oracle \
-	lint pvs pvs-studio clean distclean FORCE test-auto-block-threads
+	lint pvs pvs-studio clean distclean FORCE test-auto-block-threads \
+	test-winthreads
 
 ##############################################################################
 # Local Variables:
