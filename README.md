@@ -101,7 +101,7 @@ early testing phases of this work.
   [arXiv:2605.00579](https://arxiv.org/abs/2605.00579).
 
 * V. Gopal, E. Ozturk, J. Guilford, G. Wolrich, W. K. Feghali, and M. G. Dixon,
-  “**Fast CRC Computation for Generic Polynomials Using PCLMULQDQ
+  “**Fast CRC Computation for Generic Polynomials Using `PCLMULQDQ`
   Instruction**,” *Intel Corporation*, *White Paper*, Order No. 323102,
   Dec. 2009,
   [Fossies:&nbsp;`crc‑pclmulqdq.pdf`](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf).
