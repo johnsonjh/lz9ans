@@ -1493,11 +1493,17 @@ thread_pool_run_main_first (ThreadPool *pool, const ThreadTask *tasks,
 
 /*****************************************************************************/
 
+#if defined(LZ9ANS_WINTHREAD)
+static void
+#else
 static int
+#endif /* if defined(LZ9ANS_WINTHREAD) */
 thread_pool_destroy (ThreadPool *pool)
 {
 #if defined(LZ9ANS_THREADED)
+# if !defined(LZ9ANS_WINTHREAD)
   int okay = 1;
+# endif /* if !defined(LZ9ANS_WINTHREAD) */
 
   if (pool->worker_count)
     {
@@ -1543,7 +1549,11 @@ thread_pool_destroy (ThreadPool *pool)
   free (pool->tasks);
   (void)memset (pool, 0, sizeof (*pool));
 
+# if defined(LZ9ANS_WINTHREAD)
+  return;
+# else
   return okay;
+# endif /* if defined(LZ9ANS_WINTHREAD) */
 #else
   (void)pool;
 
@@ -10977,10 +10987,17 @@ cleanup:
   free (history);
   free (raw);
 
+# if defined(LZ9ANS_WINTHREAD)
+  if (pool_ready)
+    {
+      thread_pool_destroy (&pool);
+    }
+# else
   if (pool_ready && !thread_pool_destroy (&pool))
     {
       okay = 0;
     }
+# endif /* if defined(LZ9ANS_WINTHREAD) */
 
   return okay;
 }
@@ -11731,14 +11748,16 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
   okay = 1;
 
 cleanup:
-#if defined(LZ9ANS_THREADED)
+#if defined(LZ9ANS_WINTHREAD)
+  thread_pool_destroy (&pool);
+#elif defined(LZ9ANS_PTHREADS)
   if (!thread_pool_destroy (&pool))
     {
       okay = 0;
     }
 #else
   (void)thread_pool_destroy (&pool);
-#endif /* if defined(LZ9ANS_THREADED) */
+#endif /* if defined(LZ9ANS_WINTHREAD) */
 
 #if defined(LZ9ANS_THREADED)
   free_thread_decoder_buffers (&decoder_buffers);
