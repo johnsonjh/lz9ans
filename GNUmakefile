@@ -86,6 +86,11 @@ test: lz9ans
 	./tests/test_overlap_copy.py
 	./tests/test_memory.py
 	./tests/test_auto_block_threads.py
+	env CC="$${CC:-$(CC)}" CFLAGS="$${EXTRA_CFLAGS:-} $(CFLAGS)" \
+		LDFLAGS="$${EXTRA_LDFLAGS:-} $(LDFLAGS)" \
+		THREAD_CFLAGS="$${THREAD_CFLAGS:--pthread}" \
+		THREAD_LDFLAGS="$${THREAD_LDFLAGS:--pthread}" \
+		./tests/test_pthread_cleanup.py
 	./tests/test_crc_batch.py
 	env CC="$${CC:-$(CC)}" CFLAGS="$${EXTRA_CFLAGS:-} $(CFLAGS)" \
 		LDFLAGS="$${EXTRA_LDFLAGS:-} $(LDFLAGS)" \
@@ -108,6 +113,11 @@ test-threads:
 		THREAD_CFLAGS="$${THREAD_CFLAGS:--pthread}" \
 		THREAD_LDFLAGS="$${THREAD_LDFLAGS:--pthread}" \
 		./tests/test_threads.py
+	env CC="$${CC:-$(CC)}" CFLAGS="$${EXTRA_CFLAGS:-} $(CFLAGS)" \
+		LDFLAGS="$${EXTRA_LDFLAGS:-} $(LDFLAGS)" \
+		THREAD_CFLAGS="$${THREAD_CFLAGS:--pthread}" \
+		THREAD_LDFLAGS="$${THREAD_LDFLAGS:--pthread}" \
+		./tests/test_pthread_cleanup.py
 
 ##############################################################################
 

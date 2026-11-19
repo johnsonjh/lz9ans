@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.31 (2026-11-19)"
+#define LZ9VER "v0.9.32 (2026-11-19)"
 
 /*****************************************************************************/
 
@@ -731,6 +731,18 @@ typedef struct
 typedef pthread_mutex_t lz9_mutex_t;
 typedef pthread_cond_t lz9_cond_t;
 typedef pthread_t lz9_thread_t;
+
+static void
+lz9_pthread_fatal (const char *operation, int error)
+{
+  (void)fprintf (stderr, "lz9ans: %s failed (pthread error %d)\n",
+                 operation, error);
+
+  abort ();
+}
+
+/*****************************************************************************/
+
 # elif defined(LZ9ANS_WINTHREAD)
 typedef SRWLOCK lz9_mutex_t;
 typedef CONDITION_VARIABLE lz9_cond_t;
@@ -1182,7 +1194,12 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
 
     if (attr_ready) /* //-V547 */
       {
-        (void)pthread_attr_destroy (&attr);
+        int rc = pthread_attr_destroy (&attr);
+
+        if (rc != 0)
+          {
+            lz9_pthread_fatal ("pthread_attr_destroy", rc);
+          }
       }
 
     return 1;
@@ -1221,7 +1238,12 @@ init_failed:
 # if defined(LZ9ANS_PTHREADS)
     if (attr_ready)
       {
-        (void)pthread_attr_destroy (&attr);
+        int rc = pthread_attr_destroy (&attr);
+
+        if (rc != 0)
+          {
+            lz9_pthread_fatal ("pthread_attr_destroy", rc);
+          }
       }
 # endif /* if defined(LZ9ANS_PTHREADS) */
 
@@ -1245,7 +1267,14 @@ init_failed:
 # if defined(LZ9ANS_WINTHREAD)
             lz9_winthread_wait_close (pool->threads[i]);
 # else
-            (void)pthread_join (pool->threads[i], (void **)0);
+            {
+              int rc = pthread_join (pool->threads[i], (void **)0);
+
+              if (rc != 0)
+                {
+                  lz9_pthread_fatal ("pthread_join", rc);
+                }
+            }
 # endif /* if defined(LZ9ANS_WINTHREAD) */
           }
       }
@@ -1253,17 +1282,32 @@ init_failed:
 # if defined(LZ9ANS_PTHREADS)
     if (pool->work_done_ready)
       {
-        (void)pthread_cond_destroy (&pool->work_done);
+        int rc = pthread_cond_destroy (&pool->work_done);
+
+        if (rc != 0)
+          {
+            lz9_pthread_fatal ("pthread_cond_destroy(work_done)", rc);
+          }
       }
 
     if (pool->work_ready_ready)
       {
-        (void)pthread_cond_destroy (&pool->work_ready);
+        int rc = pthread_cond_destroy (&pool->work_ready);
+
+        if (rc != 0)
+          {
+            lz9_pthread_fatal ("pthread_cond_destroy(work_ready)", rc);
+          }
       }
 
     if (pool->mutex_ready)
       {
-        (void)pthread_mutex_destroy (&pool->mutex);
+        int rc = pthread_mutex_destroy (&pool->mutex);
+
+        if (rc != 0)
+          {
+            lz9_pthread_fatal ("pthread_mutex_destroy", rc);
+          }
       }
 # endif /* if defined(LZ9ANS_PTHREADS) */
 
@@ -1493,18 +1537,14 @@ thread_pool_run_main_first (ThreadPool *pool, const ThreadTask *tasks,
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_WINTHREAD)
+#if defined(LZ9ANS_THREADED)
 static void
 #else
 static int
-#endif /* if defined(LZ9ANS_WINTHREAD) */
+#endif /* if defined(LZ9ANS_THREADED) */
 thread_pool_destroy (ThreadPool *pool)
 {
 #if defined(LZ9ANS_THREADED)
-# if !defined(LZ9ANS_WINTHREAD)
-  int okay = 1;
-# endif /* if !defined(LZ9ANS_WINTHREAD) */
-
   if (pool->worker_count)
     {
       unsigned int i;
@@ -1519,28 +1559,45 @@ thread_pool_destroy (ThreadPool *pool)
 # if defined(LZ9ANS_WINTHREAD)
           lz9_winthread_wait_close (pool->threads[i]);
 # else
-          if (pthread_join (pool->threads[i], (void **)0) != 0)
+          int rc = pthread_join (pool->threads[i], (void **)0);
+
+          if (rc != 0)
             {
-              okay = 0;
+              lz9_pthread_fatal ("pthread_join", rc);
             }
 # endif /* if defined(LZ9ANS_WINTHREAD) */
         }
     }
 
 # if defined(LZ9ANS_PTHREADS)
-  if (pool->work_done_ready && pthread_cond_destroy (&pool->work_done) != 0)
+  if (pool->work_done_ready)
     {
-      okay = 0;
+      int rc = pthread_cond_destroy (&pool->work_done);
+
+      if (rc != 0)
+        {
+          lz9_pthread_fatal ("pthread_cond_destroy(work_done)", rc);
+        }
     }
 
-  if (pool->work_ready_ready && pthread_cond_destroy (&pool->work_ready) != 0)
+  if (pool->work_ready_ready)
     {
-      okay = 0;
+      int rc = pthread_cond_destroy (&pool->work_ready);
+
+      if (rc != 0)
+        {
+          lz9_pthread_fatal ("pthread_cond_destroy(work_ready)", rc);
+        }
     }
 
-  if (pool->mutex_ready && pthread_mutex_destroy (&pool->mutex) != 0)
+  if (pool->mutex_ready)
     {
-      okay = 0;
+      int rc = pthread_mutex_destroy (&pool->mutex);
+
+      if (rc != 0)
+        {
+          lz9_pthread_fatal ("pthread_mutex_destroy", rc);
+        }
     }
 # endif /* if defined(LZ9ANS_PTHREADS) */
 
@@ -1548,12 +1605,6 @@ thread_pool_destroy (ThreadPool *pool)
   free (pool->workers);
   free (pool->tasks);
   (void)memset (pool, 0, sizeof (*pool));
-
-# if defined(LZ9ANS_WINTHREAD)
-  return;
-# else
-  return okay;
-# endif /* if defined(LZ9ANS_WINTHREAD) */
 #else
   (void)pool;
 
@@ -10842,7 +10893,7 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
   unsigned int header_len = unknown_count ? FRAME_HEADER_PREFIX_N + 7U
                                           : FHEAD_N;
   unsigned int participants, i;
-  int okay = 0, pool_ready = 0;
+  int okay = 0;
 
   (void)memset (&context, 0, sizeof (context));
 
@@ -10856,7 +10907,6 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
       }
   }
 
-  pool_ready = 1;
   participants = pool.participants;
   jobs = (ThreadBlockJob *)calloc (participants, sizeof (ThreadBlockJob));
   tasks = (ThreadTask *)calloc (participants, sizeof (ThreadTask));
@@ -10973,6 +11023,8 @@ encode_file_parallel_blocks (FILE *in, FILE *out, unsigned int mode,
   okay = 1;
 
 cleanup:
+  thread_pool_destroy (&pool);
+
   if (jobs)
     {
       for (i = 0; i < participants; ++i)
@@ -10986,18 +11038,6 @@ cleanup:
   free (tasks);
   free (history);
   free (raw);
-
-# if defined(LZ9ANS_WINTHREAD)
-  if (pool_ready)
-    {
-      thread_pool_destroy (&pool);
-    }
-# else
-  if (pool_ready && !thread_pool_destroy (&pool))
-    {
-      okay = 0;
-    }
-# endif /* if defined(LZ9ANS_WINTHREAD) */
 
   return okay;
 }
@@ -11748,16 +11788,11 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
   okay = 1;
 
 cleanup:
-#if defined(LZ9ANS_WINTHREAD)
+#if defined(LZ9ANS_THREADED)
   thread_pool_destroy (&pool);
-#elif defined(LZ9ANS_PTHREADS)
-  if (!thread_pool_destroy (&pool))
-    {
-      okay = 0;
-    }
 #else
   (void)thread_pool_destroy (&pool);
-#endif /* if defined(LZ9ANS_WINTHREAD) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 #if defined(LZ9ANS_THREADED)
   free_thread_decoder_buffers (&decoder_buffers);
