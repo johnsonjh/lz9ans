@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`46`** (2026‑11‑15)
+> Document revision **`47`** (2026‑11‑19)
 
 <!-- toc -->
 
@@ -28,7 +28,7 @@
 - [6. Decoder procedure and validation requirements](#6-decoder-procedure-and-validation-requirements)
 - [7. Encoder reference choices (informative, not required for decoding)](#7-encoder-reference-choices-informative-not-required-for-decoding)
   * [7.1. Reference implementation memory usage](#71-reference-implementation-memory-usage)
-  * [7.2. Optional pthread details](#72-optional-pthread-details)
+  * [7.2. Optional threading details](#72-optional-threading-details)
 - [8. Golden vectors and interoperability](#8-golden-vectors-and-interoperability)
 - [9. Format gaps and future design choices](#9-format-gaps-and-future-design-choices)
 - [10. Version 9 features, extensions, and control records](#10-version-9-features-extensions-and-control-records)
@@ -872,7 +872,7 @@ For 8–bit output, the history ring uses one byte per symbol instead of the two
 bytes used by the 9–bit path.  This reduces decoder state by exactly 32,768
 octets for a 32K window or 65,536 octets for a 64K window.
 
-In a pthread build, the report also accounts for the maximum per–participant
+In a threaded build, the report also accounts for the maximum per–participant
 encoder contexts and private block–output buffers, shared history and input
 scratch, thread–pool allocations, and worker–stack budgets when independent
 block encoding is selected.  It reports both the maximum parallel–block encoder
@@ -892,7 +892,7 @@ The reported values are not a proof of native Multics segment occupancy:
 ANSI C89 type widths (8–bit–octet size assumed) and Multics PL/I word
 representations are different and must be sized separately.
 
-### 7.2. Optional pthread details
+### 7.2. Optional threading details
 
 The `--threads=N` limit (includes the main) thread: `0` (zero) means automatic
 sizing, `1` (one) selects the original sequential encoder, and larger positive
@@ -905,7 +905,8 @@ maximum effective participant count is 32 on 32‑bit builds and 128 on 64‑bit
 builds. Larger explicit requests are silently clamped to that maximum, and
 automatic sizing is subject to the same cap.  These limits include the main
 thread.  The default serial build accepts and validates this option but ignores
-it; only the pthread‑enabled build advertises it in command help.
+it; only a thread‑enabled build (pthread or native Windows threads)
+advertises it in command help.
 
 Threading is an *implementation detail* and does not alter any frame, block,
 descriptor, checksum, or entropy‑coding rule.  With more than one effective
@@ -943,23 +944,27 @@ itself.
 
 Unknown–length frames retain the streaming decoder and its existing per–block
 parallel entropy path, limited to the three `LL`/`ML`/`OF` tasks.  The serial
-build, and a pthread build with `--threads=1`, retain the original sequential
-decoder path.  The `--threads=N` option controls the effective participant
-limit for the known–length pipeline, subject to available logical processors
-and the existing 32/128 architecture cap.  The bounded lookahead is at most
-128 blocks, with three ordinary entropy-stream tasks per eligible block.
+build, and a thread‑enabled build with `--threads=1`, retain the original
+sequential decoder path.  The `--threads=N` option controls the effective
+participant limit for the known–length pipeline, subject to available logical
+processors and the existing 32/128 architecture cap.  The bounded lookahead
+is at most 128 blocks, with three ordinary entropy-stream tasks per eligible
+block.
 
-In a pthread build, `--memory`, `--memory-32k`, and `--memory-64k` accept an
-optional `--threads=N` and report the effective compression/decompression
-participant limits, the per‑block encoder contexts and output buffers when
-block encoding is selected, the maximum 49,155‑octet decoder symbol arrays
-(allocated lazily only for ordinary `LL`/`ML` blocks), and separately budgeted
-worker stacks.  Each additional pthread is given a 262,144‑octet stack; this
-operating‑system‑managed stack reservation is reported separately from
+In a thread‑enabled build, `--memory`, `--memory-32k`, and `--memory-64k`
+accept an optional `--threads=N` and report the effective
+compression/decompression participant limits, per‑block encoder contexts and
+output buffers when block encoding is selected, the maximum 49,155‑octet
+decoder symbol arrays (allocated lazily only for ordinary `LL`/`ML` blocks),
+and separately budgeted worker stacks.  Each additional worker is configured
+with a 262,144‑octet stack budget.  The pthread backend requests this size with
+`pthread_attr_setstacksize`; the native Windows backend uses `_beginthreadex`
+with `STACK_SIZE_PARAM_IS_A_RESERVATION`, making this the stack reservation
+size.  This operating‑system‑managed stack budget is reported separately from
 LZ9ANS‑managed heap allocations.  The independent‑block encoder contexts are
-allocated only when the pthread build selects more than one compression
-participant.  A pthread build using `--threads=1` (or running where only one
-logical processor is available) uses the original encoder path and does not
+allocated only when a thread‑enabled build selects more than one compression
+participant.  A thread‑enabled build using `--threads=1` (or running where only
+one logical processor is available) uses the original encoder path and does not
 allocate block‑worker contexts.  On Linux x86_64, a pthread build with
 `--threads=1` reports **678,690 octets** (32K window) and **875,298 octets**
 (64K window) of encoder state, 12 octets above the respective serial figures
@@ -1440,15 +1445,15 @@ the frame advertises feature flag `0x04`.
 
 ### 10.11. Independent-block encoding in the reference implementation
 
-In a pthread build, compression *automatically* uses independent–block encoding
-when the effective participant limit exceeds one.  `--threads=0` selects the
-available logical–processor count, capped at 32 participants on 32‑bit builds
-and 128 on 64‑bit builds; a positive value caps participants, including the
-coordinator, and requests above the architecture limit are silently clamped.
-`--threads=1`, or a system with only one available logical processor, uses the
-original sequential encoder.  A non–threaded build never selects
-independent–block encoding and retains the original serial behavior.  There is
-no separate command–line switch for this strategy.
+In a thread‑enabled build, compression *automatically* uses independent–block
+encoding when the effective participant limit exceeds one.  `--threads=0`
+selects the available logical–processor count, capped at 32 participants on
+32‑bit builds and 128 on 64‑bit builds; a positive value caps participants,
+including the coordinator, and requests above the architecture limit are
+silently clamped.  `--threads=1`, or a system with only one available
+logical processor, uses the original sequential encoder.  A non–threaded build
+never selects independent–block encoding and retains the original serial
+behavior.  There is no separate command–line switch for this strategy.
 
 Independent–block encoding does not add a V9 feature bit or alter any
 block/header/descriptor syntax.  The coordinator partitions input into the
@@ -1465,20 +1470,20 @@ block remains available, while cross–block model reuse is not used.
 
 Workers return complete block records in private memory.  The coordinator
 emits those records in original input order and is the only code that accesses
-the input/output streams.  The serial build and a pthread build with
+the input/output streams.  The serial build and a thread‑enabled build with
 `--threads=1` use the original encoder path, not the independent–block path.
-A pthread build with more than one effective participant uses the same
+A thread‑enabled build with more than one effective participant uses the same
 block–independent coding algorithm regardless of participant count, so
 thread scheduling does not change the output.  This mode can produce different
 compressed bytes and ratios than the original sequential encoder, but its
 output remains an ordinary V9 frame readable any existing V9 decoder.  The
-pthread decoder can additionally overlap entropy decoding across multiple
+threaded decoder can additionally overlap entropy decoding across multiple
 known‑length blocks as described in section 7.2; `LZ` reconstruction and output
 remain ordered and sequential.
 
-In a pthread build, the memory report estimates the per–participant encoder
-contexts, private block–output buffers, shared history snapshot and raw–input
-scratch buffer, plus the pthread worker–stack budget, when independent–block
+In a thread‑enabled build, the memory report estimates the per–participant
+encoder contexts, private block–output buffers, shared history snapshot and
+raw–input scratch buffer, plus the worker–stack budget, when independent–block
 encoding is selected automatically.  These allocations are absent from the
-default serial build and from the pthread build when `--threads=1` or only one
-logical processor is available.
+default serial build and from a thread‑enabled build when `--threads=1` or only
+one logical processor is available.

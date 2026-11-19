@@ -32,6 +32,26 @@
 
 /*****************************************************************************/
 
+#if defined(LZ9ANS_PTHREADS) && defined(LZ9ANS_WINTHREAD)
+# error Both LZ9ANS_PTHREADS and LZ9ANS_WINTHREAD defined
+#endif /* if defined(LZ9ANS_PTHREADS) && defined(LZ9ANS_WINTHREAD) */
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_WINTHREAD) && !defined(_WIN32) \
+    && !defined(_WIN64)
+# error LZ9ANS_WINTHREAD requires a Windows target (_WIN32 or _WIN64)
+#endif /* if defined(LZ9ANS_WINTHREAD) && !defined(_WIN32) \
+          && !defined(_WIN64) */
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_PTHREADS) || defined(LZ9ANS_WINTHREAD)
+# define LZ9ANS_THREADED 1
+#endif /* if defined(LZ9ANS_PTHREADS) || defined(LZ9ANS_WINTHREAD) */
+
+/*****************************************************************************/
+
 #if defined(LZ9ANS_PTHREADS)
 # include <pthread.h>
 #endif /* if defined(LZ9ANS_PTHREADS) */
@@ -39,6 +59,13 @@
 /*****************************************************************************/
 
 #if defined(_WIN32) || defined(_WIN64)
+# if defined(LZ9ANS_WINTHREAD)
+#  if !defined(_WIN32_WINNT)
+#   define _WIN32_WINNT 0x0600
+#  elif _WIN32_WINNT < 0x0600
+#   error LZ9ANS_WINTHREAD requires _WIN32_WINNT >= 0x0600
+#  endif /* if !defined(_WIN32_WINNT) */
+# endif /* if defined(LZ9ANS_WINTHREAD) */
 # if !defined(WIN32_LEAN_AND_MEAN)
 #  define WIN32_LEAN_AND_MEAN 1
 # endif /* if !defined(WIN32_LEAN_AND_MEAN) */
@@ -46,6 +73,9 @@
 # include <fcntl.h>
 # include <io.h>
 # include <stdint.h>
+# if defined(LZ9ANS_WINTHREAD)
+#  include <process.h>
+# endif /* if defined(LZ9ANS_WINTHREAD) */
 # if defined(_MSC_VER)
 #  include <intrin.h>
 # endif /* if defined(_MSC_VER) */
@@ -151,9 +181,9 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 #define BLOCK_PREFIX_N 3U
 #define LZ_BLOCK_HEADER_N 23U
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 # define BLOCK_OUTPUT_MAX (LZ_BLOCK_HEADER_N + DESC_MAX + STAGE_DATA_MAX)
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 #define STORED_BLOCK_HEADER_N 7U
 #define FRAME_HEADER_PREFIX_N 13U
@@ -242,7 +272,7 @@ clamp_thread_limit (unsigned int limit)
 
 /*****************************************************************************/
 
-#if !defined(LZ9ANS_PTHREADS) && (defined(__linux) || defined(__linux__) \
+#if !defined(LZ9ANS_THREADED) && (defined(__linux) || defined(__linux__) \
     || defined(linux) || defined(__gnu_linux__))
 # undef fgetc
 # define fgetc(s) fgetc_unlocked(s) /* //-V1059 */
@@ -260,12 +290,12 @@ clamp_thread_limit (unsigned int limit)
 # define feof(f) feof_unlocked(f) /* //-V1059 */
 # undef ferror
 # define ferror(f) ferror_unlocked(f) /* //-V1059 */
-#endif /* if !defined(LZ9ANS_PTHREADS) && (defined(__linux) \
+#endif /* if !defined(LZ9ANS_THREADED) && (defined(__linux) \
           || defined(__linux__) || defined(linux) || defined(__gnu_linux__)) */
 
 /*****************************************************************************/
 
-#if !defined(LZ9ANS_PTHREADS) && (defined(_WIN32) || defined(_WIN64))
+#if !defined(LZ9ANS_THREADED) && (defined(_WIN32) || defined(_WIN64))
 # undef fgetc
 # define fgetc(s) _fgetc_nolock(s) /* //-V1059 */
 # undef fread
@@ -280,7 +310,7 @@ clamp_thread_limit (unsigned int limit)
 # define fflush(f) _fflush_nolock(f) /* //-V1059 */
 # undef fclose
 # define fclose(f) _fclose_nolock(f) /* //-V1059 */
-#endif /* if !defined(LZ9ANS_PTHREADS) && (defined(_WIN32) \
+#endif /* if !defined(LZ9ANS_THREADED) && (defined(_WIN32) \
           || defined(_WIN64)) */
 
 /*****************************************************************************/
@@ -482,13 +512,13 @@ sequence_capacity (unsigned int min_match)
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 static unsigned int
 decoder_symbol_capacity (unsigned int min_match)
 {
   return BLOCK_N / min_match;
 }
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -642,19 +672,19 @@ typedef struct
   unsigned int reps[3];
   unsigned short costs[4][512];
   unsigned int pcounts[4][512];
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   unsigned int *prefix;
 #else
   unsigned int prefix[BLOCK_N + 1U];
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 } Encoder;
 
 /*****************************************************************************/
 
-#if !defined(LZ9ANS_PTHREADS)
+#if !defined(LZ9ANS_THREADED)
 typedef char encoder_prefix_must_hold_table_cache_compile_time_assertion[
   sizeof (((Encoder *)0)->prefix) >= TABLE_CACHE_BYTES ? 1 : -1];
-#endif /* if !defined(LZ9ANS_PTHREADS) */
+#endif /* if !defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -668,7 +698,7 @@ typedef char stage_must_hold_packed_9bit_block_compile_time_assertion[
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 # define THREAD_STACK_BYTES (256UL * 1024UL)
 
 /*****************************************************************************/
@@ -697,12 +727,51 @@ typedef struct
 
 /*****************************************************************************/
 
+# if defined(LZ9ANS_PTHREADS)
+typedef pthread_mutex_t lz9_mutex_t;
+typedef pthread_cond_t lz9_cond_t;
+typedef pthread_t lz9_thread_t;
+# elif defined(LZ9ANS_WINTHREAD)
+typedef SRWLOCK lz9_mutex_t;
+typedef CONDITION_VARIABLE lz9_cond_t;
+typedef HANDLE lz9_thread_t;
+
+static void
+lz9_winthread_fatal (const char *operation, DWORD error)
+{
+  (void)fprintf (stderr, "lz9ans: %s failed (Windows error %lu)\n",
+                 operation, (unsigned long)error);
+  abort ();
+}
+
+/*****************************************************************************/
+
+static void
+lz9_winthread_wait_close (lz9_thread_t thread)
+{
+  DWORD result = WaitForSingleObject (thread, INFINITE);
+
+  if (result != WAIT_OBJECT_0)
+    {
+      lz9_winthread_fatal ("WaitForSingleObject",
+                           result == WAIT_FAILED ? GetLastError () : result);
+    }
+
+  if (!CloseHandle (thread))
+    {
+      lz9_winthread_fatal ("CloseHandle", GetLastError ());
+    }
+}
+# endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
 struct ThreadPool
 {
-  pthread_mutex_t mutex;
-  pthread_cond_t work_ready;
-  pthread_cond_t work_done;
-  pthread_t *threads;
+  lz9_mutex_t mutex;
+  lz9_cond_t work_ready;
+  lz9_cond_t work_done;
+  lz9_thread_t *threads;
   ThreadWorker *workers;
   ThreadTask *tasks;
   unsigned long generation;
@@ -720,17 +789,39 @@ struct ThreadPool
 
 /*****************************************************************************/
 
+# if defined(LZ9ANS_PTHREADS)
+#  define lz9_mutex_lock(m) ((void)pthread_mutex_lock ((m)))
+#  define lz9_mutex_unlock(m) ((void)pthread_mutex_unlock ((m)))
+#  define lz9_cond_wait(c, m) ((void)pthread_cond_wait ((c), (m)))
+#  define lz9_cond_broadcast(c) ((void)pthread_cond_broadcast ((c)))
+# elif defined(LZ9ANS_WINTHREAD)
+#  define lz9_mutex_lock(m) AcquireSRWLockExclusive ((m))
+#  define lz9_mutex_unlock(m) ReleaseSRWLockExclusive ((m))
+#  define lz9_cond_wait(c, m) \
+  do \
+    { \
+      if (!SleepConditionVariableSRW ((c), (m), INFINITE, 0)) \
+        { \
+          lz9_winthread_fatal ("SleepConditionVariableSRW", GetLastError ()); \
+        } \
+    } \
+  while (never)
+#  define lz9_cond_broadcast(c) WakeAllConditionVariable ((c))
+# endif /* if defined(LZ9ANS_PTHREADS) */
+
+/*****************************************************************************/
+
 #else
 typedef struct
 {
   unsigned int participants;
   unsigned int task_capacity;
 } ThreadPool;
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 typedef struct
 {
   Stream stream;
@@ -779,27 +870,27 @@ struct ThreadDecodeBlock
 # define DECODER_PIPELINE_BLOCK_CAPACITY THREAD_LIMIT_64BIT
 # define DECODER_PIPELINE_TASK_CAPACITY \
     (DECODER_PIPELINE_BLOCK_CAPACITY * (ENTROPY_STREAM_COUNT - 1U))
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
 typedef struct
 {
   unsigned char *symbols[ENTROPY_STREAM_COUNT - 1U];
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   unsigned int capacity;
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 } ThreadDecoderBuffers;
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 typedef struct ParallelBlockContext ParallelBlockContext;
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 typedef struct
 {
   Encoder encoder;
@@ -809,7 +900,7 @@ typedef struct
   unsigned long sequence;
   ParallelBlockContext *context;
 } ThreadBlockJob;
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -823,7 +914,7 @@ typedef struct
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 struct ParallelBlockContext
 {
   ThreadPool *pool;
@@ -846,7 +937,7 @@ struct ParallelBlockContext
   int input_finished;
   int failed;
 };
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -872,7 +963,7 @@ typedef struct
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 static unsigned int
 available_processors (void)
 {
@@ -915,19 +1006,24 @@ compression_participants (unsigned int limit)
 
 /*****************************************************************************/
 
+# if defined(LZ9ANS_WINTHREAD)
+static unsigned __stdcall
+thread_worker_main (void *arg)
+# else
 static void *
 thread_worker_main (void *arg)
+# endif /* if defined(LZ9ANS_WINTHREAD) */
 {
   ThreadWorker *worker = (ThreadWorker *)arg;
   ThreadPool *pool = worker->pool;
 
-  (void)pthread_mutex_lock (&pool->mutex);
+  lz9_mutex_lock (&pool->mutex);
 
   for (;;)
     {
       while (!pool->stopping && worker->generation == pool->generation)
         {
-          (void)pthread_cond_wait (&pool->work_ready, &pool->mutex);
+          lz9_cond_wait (&pool->work_ready, &pool->mutex);
         }
 
       if (pool->stopping)
@@ -942,9 +1038,9 @@ thread_worker_main (void *arg)
           unsigned int index = pool->next_task++;
           ThreadTask task = pool->tasks[index];
 
-          (void)pthread_mutex_unlock (&pool->mutex);
+          lz9_mutex_unlock (&pool->mutex);
           task.function (task.context);
-          (void)pthread_mutex_lock (&pool->mutex);
+          lz9_mutex_lock (&pool->mutex);
 
           if (pool->pending)
             {
@@ -953,16 +1049,20 @@ thread_worker_main (void *arg)
 
           if (!pool->pending)
             {
-              (void)pthread_cond_broadcast (&pool->work_done);
+              lz9_cond_broadcast (&pool->work_done);
             }
         }
     }
 
-  (void)pthread_mutex_unlock (&pool->mutex);
+  lz9_mutex_unlock (&pool->mutex);
 
+# if defined(LZ9ANS_WINTHREAD)
+  return 0U;
+# else
   return (void *)0;
+# endif /* if defined(LZ9ANS_WINTHREAD) */
 }
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -978,11 +1078,13 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
       task_capacity = 1U;
     }
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   {
     unsigned int desired, cpus, i, effective_max;
+# if defined(LZ9ANS_PTHREADS)
     pthread_attr_t attr;
     int attr_ready = 0;
+# endif /* if defined(LZ9ANS_PTHREADS) */
 
     cpus = available_processors ();
     desired = limit ? limit : cpus;
@@ -1017,7 +1119,8 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
         return 1;
       }
 
-    pool->threads = (pthread_t *)calloc (desired - 1U, sizeof (pthread_t));
+    pool->threads = (lz9_thread_t *)calloc (desired - 1U,
+                                            sizeof (lz9_thread_t));
     pool->workers = (ThreadWorker *)calloc (desired - 1U,
                                              sizeof (ThreadWorker));
     pool->tasks = (ThreadTask *)calloc (task_capacity, sizeof (ThreadTask));
@@ -1027,6 +1130,7 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
         goto init_failed;
       }
 
+# if defined(LZ9ANS_PTHREADS)
     if (pthread_mutex_init (&pool->mutex, (const pthread_mutexattr_t *)0) != 0)
       {
         goto init_failed;
@@ -1082,34 +1186,71 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
       }
 
     return 1;
+# elif defined(LZ9ANS_WINTHREAD)
+    InitializeSRWLock (&pool->mutex);
+    pool->mutex_ready = 1;
+
+    InitializeConditionVariable (&pool->work_ready);
+    pool->work_ready_ready = 1;
+
+    InitializeConditionVariable (&pool->work_done);
+    pool->work_done_ready = 1;
+
+    for (i = 0; i < desired - 1U; ++i)
+      {
+        pool->workers[i].pool = pool;
+        pool->workers[i].generation = 0UL;
+
+        pool->threads[i] = (HANDLE)_beginthreadex (
+            (void *)0, (unsigned int)THREAD_STACK_BYTES,
+            thread_worker_main, &pool->workers[i],
+            STACK_SIZE_PARAM_IS_A_RESERVATION, (unsigned int *)0);
+
+        if (!pool->threads[i])
+          {
+            goto init_failed;
+          }
+
+        ++pool->worker_count;
+      }
+
+    return 1;
+# endif /* if defined(LZ9ANS_PTHREADS) */
 
 init_failed:
+# if defined(LZ9ANS_PTHREADS)
     if (attr_ready)
       {
         (void)pthread_attr_destroy (&attr);
       }
+# endif /* if defined(LZ9ANS_PTHREADS) */
 
     if (pool->mutex_ready)
       {
-        (void)pthread_mutex_lock (&pool->mutex);
+        lz9_mutex_lock (&pool->mutex);
         pool->stopping = 1;
 
         if (pool->work_ready_ready)
           {
-            (void)pthread_cond_broadcast (&pool->work_ready);
+            lz9_cond_broadcast (&pool->work_ready);
           }
 
-        (void)pthread_mutex_unlock (&pool->mutex);
+        lz9_mutex_unlock (&pool->mutex);
       }
 
     if (pool->threads)
       {
         for (i = 0; i < pool->worker_count; ++i)
           {
+# if defined(LZ9ANS_WINTHREAD)
+            lz9_winthread_wait_close (pool->threads[i]);
+# else
             (void)pthread_join (pool->threads[i], (void **)0);
+# endif /* if defined(LZ9ANS_WINTHREAD) */
           }
       }
 
+# if defined(LZ9ANS_PTHREADS)
     if (pool->work_done_ready)
       {
         (void)pthread_cond_destroy (&pool->work_done);
@@ -1124,6 +1265,7 @@ init_failed:
       {
         (void)pthread_mutex_destroy (&pool->mutex);
       }
+# endif /* if defined(LZ9ANS_PTHREADS) */
 
     free (pool->threads);
     free (pool->workers);
@@ -1139,12 +1281,12 @@ init_failed:
   pool->task_capacity = task_capacity;
 
   return 1;
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 }
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 static int
 thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
                  unsigned int task_count)
@@ -1159,7 +1301,7 @@ thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
 
   if (pool->worker_count && task_count)
     {
-      (void)pthread_mutex_lock (&pool->mutex);
+      lz9_mutex_lock (&pool->mutex);
 
       for (i = 0; i < task_count; ++i)
         {
@@ -1170,29 +1312,29 @@ thread_pool_run (ThreadPool *pool, const ThreadTask *tasks,
       pool->next_task = 0U;
       pool->pending = task_count;
       ++pool->generation;
-      (void)pthread_cond_broadcast (&pool->work_ready);
+      lz9_cond_broadcast (&pool->work_ready);
 
       while (pool->next_task < pool->task_count)
         {
           unsigned int index = pool->next_task++;
           ThreadTask task = pool->tasks[index];
-          (void)pthread_mutex_unlock (&pool->mutex);
+          lz9_mutex_unlock (&pool->mutex);
           task.function (task.context);
-          (void)pthread_mutex_lock (&pool->mutex);
+          lz9_mutex_lock (&pool->mutex);
           --pool->pending;
 
           if (!pool->pending)
             {
-              (void)pthread_cond_broadcast (&pool->work_done);
+              lz9_cond_broadcast (&pool->work_done);
             }
         }
 
       while (pool->pending)
         {
-          (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+          lz9_cond_wait (&pool->work_done, &pool->mutex);
         }
 
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_mutex_unlock (&pool->mutex);
 
       return 1;
     }
@@ -1219,11 +1361,11 @@ thread_pool_submit_async (ThreadPool *pool, const ThreadTask *tasks,
       return 0;
     }
 
-  (void)pthread_mutex_lock (&pool->mutex);
+  lz9_mutex_lock (&pool->mutex);
 
   if (pool->pending)
     {
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_mutex_unlock (&pool->mutex);
 
       return 0;
     }
@@ -1237,8 +1379,8 @@ thread_pool_submit_async (ThreadPool *pool, const ThreadTask *tasks,
   pool->next_task = 0U;
   pool->pending = task_count;
   ++pool->generation;
-  (void)pthread_cond_broadcast (&pool->work_ready);
-  (void)pthread_mutex_unlock (&pool->mutex);
+  lz9_cond_broadcast (&pool->work_ready);
+  lz9_mutex_unlock (&pool->mutex);
 
   return 1;
 }
@@ -1253,14 +1395,14 @@ thread_pool_wait_group (ThreadPool *pool, const unsigned int *pending)
       return;
     }
 
-  (void)pthread_mutex_lock (&pool->mutex);
+  lz9_mutex_lock (&pool->mutex);
 
   while (*pending)
     {
-      (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+      lz9_cond_wait (&pool->work_done, &pool->mutex);
     }
 
-  (void)pthread_mutex_unlock (&pool->mutex);
+  lz9_mutex_unlock (&pool->mutex);
 }
 
 /*****************************************************************************/
@@ -1273,14 +1415,14 @@ thread_pool_wait_all (ThreadPool *pool)
       return;
     }
 
-  (void)pthread_mutex_lock (&pool->mutex);
+  lz9_mutex_lock (&pool->mutex);
 
   while (pool->pending)
     {
-      (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+      lz9_cond_wait (&pool->work_done, &pool->mutex);
     }
 
-  (void)pthread_mutex_unlock (&pool->mutex);
+  lz9_mutex_unlock (&pool->mutex);
 }
 
 /*****************************************************************************/
@@ -1313,7 +1455,7 @@ thread_pool_run_main_first (ThreadPool *pool, const ThreadTask *tasks,
       return 0;
     }
 
-  (void)pthread_mutex_lock (&pool->mutex);
+  lz9_mutex_lock (&pool->mutex);
 
   for (i = 0; i < task_count; ++i)
     {
@@ -1324,57 +1466,62 @@ thread_pool_run_main_first (ThreadPool *pool, const ThreadTask *tasks,
   pool->next_task = 1U;
   pool->pending = task_count;
   ++pool->generation;
-  (void)pthread_cond_broadcast (&pool->work_ready);
-  (void)pthread_mutex_unlock (&pool->mutex);
+  lz9_cond_broadcast (&pool->work_ready);
+  lz9_mutex_unlock (&pool->mutex);
 
   tasks[0].function (tasks[0].context);
 
-  (void)pthread_mutex_lock (&pool->mutex);
+  lz9_mutex_lock (&pool->mutex);
 
   --pool->pending; /* Cannot underflow since task is still pending. */
 
   if (!pool->pending)
     {
-      (void)pthread_cond_broadcast (&pool->work_done);
+      lz9_cond_broadcast (&pool->work_done);
     }
 
   while (pool->pending)
     {
-      (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+      lz9_cond_wait (&pool->work_done, &pool->mutex);
     }
 
-  (void)pthread_mutex_unlock (&pool->mutex);
+  lz9_mutex_unlock (&pool->mutex);
 
   return 1;
 }
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
 static int
 thread_pool_destroy (ThreadPool *pool)
 {
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   int okay = 1;
 
   if (pool->worker_count)
     {
       unsigned int i;
 
-      (void)pthread_mutex_lock (&pool->mutex);
+      lz9_mutex_lock (&pool->mutex);
       pool->stopping = 1;
-      (void)pthread_cond_broadcast (&pool->work_ready);
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_cond_broadcast (&pool->work_ready);
+      lz9_mutex_unlock (&pool->mutex);
 
       for (i = 0; i < pool->worker_count; ++i)
         {
+# if defined(LZ9ANS_WINTHREAD)
+          lz9_winthread_wait_close (pool->threads[i]);
+# else
           if (pthread_join (pool->threads[i], (void **)0) != 0)
             {
               okay = 0;
             }
+# endif /* if defined(LZ9ANS_WINTHREAD) */
         }
     }
 
+# if defined(LZ9ANS_PTHREADS)
   if (pool->work_done_ready && pthread_cond_destroy (&pool->work_done) != 0)
     {
       okay = 0;
@@ -1389,6 +1536,7 @@ thread_pool_destroy (ThreadPool *pool)
     {
       okay = 0;
     }
+# endif /* if defined(LZ9ANS_PTHREADS) */
 
   free (pool->threads);
   free (pool->workers);
@@ -1400,7 +1548,7 @@ thread_pool_destroy (ThreadPool *pool)
   (void)pool;
 
   return 1;
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 }
 
 /*****************************************************************************/
@@ -8871,7 +9019,7 @@ decode_phased_literals (Output *o, Stream *s, unsigned long count)
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 static void
 free_thread_decoder_buffers (ThreadDecoderBuffers *buffers)
 {
@@ -8972,15 +9120,15 @@ decode_stream_task_async (void *arg)
 
   decode_stream_task (task->workspace);
 
-  (void)pthread_mutex_lock (&pool->mutex);
+  lz9_mutex_lock (&pool->mutex);
 
   if (block->pending)
     {
       --block->pending;
     }
 
-  (void)pthread_cond_broadcast (&pool->work_done);
-  (void)pthread_mutex_unlock (&pool->mutex);
+  lz9_cond_broadcast (&pool->work_done);
+  lz9_mutex_unlock (&pool->mutex);
 }
 
 /*****************************************************************************/
@@ -9027,7 +9175,7 @@ decode_streams_parallel (Stream streams[ENTROPY_STREAM_COUNT],
 
   return 1;
 }
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -9240,7 +9388,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
   extra.raw = &raw_extra;
   extra.failed = 0;
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   if (pool && pool->participants > 1U && q
       && s[STREAM_LL].mode != MODE_PHASED
       && s[STREAM_ML].mode != MODE_PHASED)
@@ -9255,7 +9403,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 #else
   (void)pool;
   (void)decoder_buffers;
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
   {
     unsigned int produced = 0, literals = 0;
@@ -9414,7 +9562,7 @@ decode_block (FILE *in, Output *o, unsigned int max_n, unsigned char *stage,
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 static ThreadDecodeBlock *
 thread_decode_block_create (void)
 {
@@ -10077,7 +10225,7 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
 
   return 1;
 }
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -10098,9 +10246,9 @@ allocated_encoder (Encoder *e, unsigned int window_n,
   e->desc = (unsigned char *)malloc (DESC_MAX);
   e->table = (AnsTable *)malloc (sizeof (AnsTable));
   e->gtable = (AnsTable *)malloc (PHASE_GROUPS_MAX * sizeof (AnsTable));
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   e->prefix = (unsigned int *)malloc ((BLOCK_N + 1U) * sizeof (unsigned int));
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
   if (e->stage)
     {
@@ -10114,9 +10262,9 @@ allocated_encoder (Encoder *e, unsigned int window_n,
 
   return e->buffer && e->seq && e->head && e->link && e->stage && e->desc
          && e->table && e->gtable
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
          && e->prefix
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
          ;
 }
 
@@ -10133,14 +10281,14 @@ free_encoder (Encoder *e)
   FREE (e->desc);
   FREE (e->table);
   FREE (e->gtable);
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   FREE (e->prefix);
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 }
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 static int
 read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
                        int unknown_count, unsigned long done,
@@ -10367,13 +10515,13 @@ parallel_block_finish_input_read (ParallelBlockContext *context)
 {
   ThreadPool *pool = context->pool;
 
-  (void)pthread_mutex_lock (&pool->mutex);
+  lz9_mutex_lock (&pool->mutex);
   context->input_busy = 0;
 
   if (context->failed)
     {
-      (void)pthread_cond_broadcast (&pool->work_done);
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_cond_broadcast (&pool->work_done);
+      lz9_mutex_unlock (&pool->mutex);
 
       return 0;
     }
@@ -10395,22 +10543,22 @@ parallel_block_prepare (ThreadBlockJob *job)
 
   if (synchronized)
     {
-      (void)pthread_mutex_lock (&pool->mutex);
+      lz9_mutex_lock (&pool->mutex);
 
       while (context->input_busy && !context->failed)
         {
-          (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+          lz9_cond_wait (&pool->work_done, &pool->mutex);
         }
 
       if (context->failed || context->input_finished)
         {
-          (void)pthread_mutex_unlock (&pool->mutex);
+          lz9_mutex_unlock (&pool->mutex);
 
           return 0;
         }
 
       context->input_busy = 1;
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_mutex_unlock (&pool->mutex);
     }
   else if (context->failed || context->input_finished)
     {
@@ -10442,8 +10590,8 @@ parallel_block_prepare (ThreadBlockJob *job)
 
       if (synchronized)
         {
-          (void)pthread_cond_broadcast (&pool->work_done);
-          (void)pthread_mutex_unlock (&pool->mutex);
+          lz9_cond_broadcast (&pool->work_done);
+          lz9_mutex_unlock (&pool->mutex);
         }
 
       return 0;
@@ -10455,8 +10603,8 @@ parallel_block_prepare (ThreadBlockJob *job)
 
       if (synchronized)
         {
-          (void)pthread_cond_broadcast (&pool->work_done);
-          (void)pthread_mutex_unlock (&pool->mutex);
+          lz9_cond_broadcast (&pool->work_done);
+          lz9_mutex_unlock (&pool->mutex);
         }
 
       return 0;
@@ -10516,8 +10664,8 @@ parallel_block_prepare (ThreadBlockJob *job)
 
   if (synchronized)
     {
-      (void)pthread_cond_broadcast (&pool->work_done);
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_cond_broadcast (&pool->work_done);
+      lz9_mutex_unlock (&pool->mutex);
     }
 
   return 1;
@@ -10532,15 +10680,15 @@ parallel_block_fail (ParallelBlockContext *context)
 
   if (pool->worker_count)
     {
-      (void)pthread_mutex_lock (&pool->mutex);
+      lz9_mutex_lock (&pool->mutex);
     }
 
   context->failed = 1;
 
   if (pool->worker_count)
     {
-      (void)pthread_cond_broadcast (&pool->work_done);
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_cond_broadcast (&pool->work_done);
+      lz9_mutex_unlock (&pool->mutex);
     }
 }
 
@@ -10556,22 +10704,22 @@ parallel_block_write (ThreadBlockJob *job)
 
   if (synchronized)
     {
-      (void)pthread_mutex_lock (&pool->mutex);
+      lz9_mutex_lock (&pool->mutex);
 
       while (!context->failed
              && job->sequence != context->next_output_sequence)
         {
-          (void)pthread_cond_wait (&pool->work_done, &pool->mutex);
+          lz9_cond_wait (&pool->work_done, &pool->mutex);
         }
 
       if (context->failed)
         {
-          (void)pthread_mutex_unlock (&pool->mutex);
+          lz9_mutex_unlock (&pool->mutex);
 
           return 0;
         }
 
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_mutex_unlock (&pool->mutex);
     }
   else if (context->failed
            || job->sequence != context->next_output_sequence)
@@ -10583,7 +10731,7 @@ parallel_block_write (ThreadBlockJob *job)
 
   if (synchronized)
     {
-      (void)pthread_mutex_lock (&pool->mutex);
+      lz9_mutex_lock (&pool->mutex);
     }
 
   if (okay)
@@ -10597,8 +10745,8 @@ parallel_block_write (ThreadBlockJob *job)
 
   if (synchronized)
     {
-      (void)pthread_cond_broadcast (&pool->work_done);
-      (void)pthread_mutex_unlock (&pool->mutex);
+      lz9_cond_broadcast (&pool->work_done);
+      lz9_mutex_unlock (&pool->mutex);
     }
 
   return okay;
@@ -10836,7 +10984,7 @@ cleanup:
 
   return okay;
 }
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -10854,18 +11002,18 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
   unsigned int header_len = unknown_count ? FRAME_HEADER_PREFIX_N + 7U
                                           : FHEAD_N;
 
-#if !defined(LZ9ANS_PTHREADS)
+#if !defined(LZ9ANS_THREADED)
   (void)thread_limit;
-#endif /* if !defined(LZ9ANS_PTHREADS) */
+#endif /* if !defined(LZ9ANS_THREADED) */
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   if (compression_participants (thread_limit) > 1U)
     {
       return encode_file_parallel_blocks (in, out, mode, elements,
                                           unknown_count, level, window_n,
                                           features, thread_limit);
     }
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
   if (!allocated_encoder (&e, window_n,
                           (features & FEATURE_MIN_MATCH_2)
@@ -11418,7 +11566,7 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
       return 0;
     }
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   if (!thread_pool_init (&pool, thread_limit,
                          unknown_count ? 3U
                                        : (total ? thread_limit_maximum ()
@@ -11432,7 +11580,7 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
     }
 #else
   (void)thread_pool_init (&pool, thread_limit, 3U, 3U);
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
   (void)memset (&decoder_buffers, 0, sizeof (decoder_buffers));
 
@@ -11517,7 +11665,7 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
     }
   else
     {
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
       if (pool.participants > 1U)
         {
           if (!decode_blocks_pipeline (in, o, total, &done, desc, tables,
@@ -11527,7 +11675,7 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
             }
         }
       else
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
         {
           while (done < total)
             {
@@ -11583,18 +11731,18 @@ decode_file (FILE *in, FILE *out, unsigned int thread_limit)
   okay = 1;
 
 cleanup:
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   if (!thread_pool_destroy (&pool))
     {
       okay = 0;
     }
 #else
   (void)thread_pool_destroy (&pool);
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   free_thread_decoder_buffers (&decoder_buffers);
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
   free (stage);
   free (desc);
   free (tables);
@@ -12010,7 +12158,7 @@ parse_thread_limit (const char *option, unsigned int *limit)
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
 static unsigned int
 memory_thread_participants (unsigned int limit, unsigned int max_participants)
 {
@@ -12023,7 +12171,7 @@ memory_thread_participants (unsigned int limit, unsigned int max_participants)
 
   return participants ? participants : 1U;
 }
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 /*****************************************************************************/
 
@@ -12039,9 +12187,9 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
   enc_seq_levels_1_5 = (unsigned long)sequence_capacity (MIN_MATCH_DEFAULT)
                        * sizeof (Sequence);
   enc_fixed = (unsigned long)sizeof (Encoder)
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
               + (unsigned long)(BLOCK_N + 1U) * sizeof (unsigned int)
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
               + (unsigned long)(window_n + BLOCK_N) * sizeof (unsigned short)
               + (unsigned long)HASH_N * sizeof (int)
               + (unsigned long)window_n * sizeof (int) + STAGE_MAX + DESC_MAX
@@ -12079,7 +12227,7 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
   (void)printf ("decoder maximum allocated state for 8-bit output: %lu"
                 " bytes (including phased tables)\n", dec8);
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
   {
     unsigned int cpus = available_processors ();
     unsigned int cp = compression_participants (thread_limit);
@@ -12131,7 +12279,7 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
               + (unsigned long)window_n * sizeof (unsigned short)
               + STAGE_MAX
               + (unsigned long)(cp - 1U)
-                    * (sizeof (pthread_t) + sizeof (ThreadWorker));
+                    * (sizeof (lz9_thread_t) + sizeof (ThreadWorker));
         block_state_levels_1_5
             = (unsigned long)cp * enc_levels_1_5
               + (unsigned long)cp
@@ -12142,7 +12290,7 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
               + (unsigned long)window_n * sizeof (unsigned short)
               + STAGE_MAX
               + (unsigned long)(cp - 1U)
-                    * (sizeof (pthread_t) + sizeof (ThreadWorker));
+                    * (sizeof (lz9_thread_t) + sizeof (ThreadWorker));
       }
 
     if (dp_legacy > 1U)
@@ -12159,13 +12307,18 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
       {
         decoder_pool_state
             = (unsigned long)(dp - 1U)
-                  * (sizeof (pthread_t) + sizeof (ThreadWorker))
+                  * (sizeof (lz9_thread_t) + sizeof (ThreadWorker))
               + (unsigned long)DECODER_PIPELINE_TASK_CAPACITY
                     * sizeof (ThreadTask);
       }
 
+# if defined(LZ9ANS_WINTHREAD)
+    (void)printf ("winthread build: %u available logical processors;"
+                  " --threads=%u\n", cpus, thread_limit);
+# else
     (void)printf ("pthread build: %u available logical processors;"
                   " --threads=%u\n", cpus, thread_limit);
+# endif /* if defined(LZ9ANS_WINTHREAD) */
     (void)printf ("compression mode: %s\n",
                   cp > 1U ? "independent blocks" : "sequential");
     (void)printf ("compression participants: %u (main thread included)\n",
@@ -12197,12 +12350,17 @@ print_memory_usage (unsigned int window_n, unsigned int thread_limit)
                   " (known-length pipeline)\n", decoder_pool_state);
     (void)printf ("decompression worker-stack budget: %lu bytes\n",
                   decoder_stack);
+# if defined(LZ9ANS_WINTHREAD)
+    (void)printf ("worker stack size: %lu bytes per winthread\n",
+                  THREAD_STACK_BYTES);
+# else
     (void)printf ("worker stack size: %lu bytes per pthread\n",
                   THREAD_STACK_BYTES);
+# endif /* if defined(LZ9ANS_WINTHREAD) */
   }
 #else
   (void)thread_limit;
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 }
 
 /*****************************************************************************/
@@ -12273,7 +12431,7 @@ main (int argc, char **argv)
     {
       (void)fprintf (stderr,
               "LZ9ANS reference compressor/decompressor " LZ9VER "\n\n");
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
       (void)fprintf (stderr,
               "Usage:\n"
               "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
@@ -12287,7 +12445,7 @@ main (int argc, char **argv)
               " [--window=W]\n");
       (void)fprintf (stderr,
               "  lz9ans d <input> <output> [-v]\n\n");
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
       (void)fprintf (stderr,
               "  Specify an input or output name of '-' for stdin");
       (void)fprintf (stderr,
@@ -12308,11 +12466,11 @@ main (int argc, char **argv)
               "  --window=W:");
       (void)fprintf (stderr,
               "          use W (32k or 64k) history window (default: 32k)\n");
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_THREADED)
       (void)fprintf (stderr,
               "  --threads=N:         limit to N"
               " concurrent threads (default: automatic)\n");
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_THREADED) */
 
 #undef COMPILER_WARNING
 #if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) || defined(NO_INLINE) || \

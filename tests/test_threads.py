@@ -36,6 +36,12 @@ def run(command, *, data=None, expected=0):
 
 
 def build(binary, threaded):
+    backend = os.environ.get("THREAD_BACKEND", "pthreads")
+    if backend not in ("pthreads", "winthread"):
+        raise ValueError(f"unsupported THREAD_BACKEND: {backend}")
+    if threaded and backend == "winthread" and os.name != "nt":
+        raise RuntimeError("THREAD_BACKEND=winthread requires a Windows host")
+
     cc = shlex.split(os.environ.get("CC", "cc"))
     cflags = shlex.split(
         os.environ.get(
@@ -47,10 +53,12 @@ def build(binary, threaded):
     thread_cflags = shlex.split(os.environ.get("THREAD_CFLAGS", "-pthread"))
     thread_ldflags = shlex.split(os.environ.get("THREAD_LDFLAGS", "-pthread"))
     command = cc + cflags
-    if threaded:
+    if threaded and backend == "pthreads":
         command += ["-DLZ9ANS_PTHREADS"] + thread_cflags
+    elif threaded:
+        command += ["-DLZ9ANS_WINTHREAD"]
     command += ["-o", str(binary), str(SOURCE)] + ldflags
-    if threaded:
+    if threaded and backend == "pthreads":
         command += thread_ldflags
     command.append("-lm")
     run(command)
@@ -153,8 +161,14 @@ def check_options(serial, threaded):
         assert b"--threads=N" in threaded_help
         serial_memory = run([str(serial), "--memory"]).stdout
         threaded_memory = run([str(threaded), "--memory"]).stdout
-        assert b"pthread build" not in serial_memory
-        assert b"pthread build" in threaded_memory
+        backend = os.environ.get("THREAD_BACKEND", "pthreads")
+        backend_label = (
+            b"pthread build" if backend == "pthreads" else b"winthread build"
+        )
+        assert backend_label not in serial_memory
+        assert backend_label in threaded_memory
+        stack_label = b"per pthread" if backend == "pthreads" else b"per winthread"
+        assert b"worker stack size: 262144 bytes " + stack_label in threaded_memory
         assert b"encoder maximum allocated state" in serial_memory
         assert b"encoder allocated state at levels 1-5" in serial_memory
         assert b"decoder base allocated state" in serial_memory
@@ -190,8 +204,10 @@ def check_options(serial, threaded):
 def main():
     with tempfile.TemporaryDirectory(prefix="lz9ans-threads-") as tmp:
         work = Path(tmp)
-        serial = work / "lz9ans-serial"
-        threaded = work / "lz9ans-pthread"
+        suffix = ".exe" if os.name == "nt" else ""
+        serial = work / f"lz9ans-serial{suffix}"
+        backend = os.environ.get("THREAD_BACKEND", "pthreads")
+        threaded = work / f"lz9ans-{backend}{suffix}"
         build(serial, False)
         build(threaded, True)
 
@@ -256,7 +272,7 @@ def main():
         print("PASS multi-block cache/fallback equivalence")
 
         # Exercise the multi-block entropy pipeline at several explicit thread
-        # limits.  The serial binary and the pthread binary with one participant
+        # limits.  The serial binary and the threaded binary with one participant
         # must retain the original sequential decode path.
         multi_stream = work / "multi-block-32k-4-serial.lz9a"
         expected_decoded = multi.read_bytes()
