@@ -4,7 +4,7 @@
 :: vim: set ft=dosbatch cc=80 :
 :: scspell-id: b8e200c8-e441-11f1-838b-80ee73e9b8e7
 
-cl /Ob3 /GS- /Oi /O2 /W4 /wd4996 /Felz9ans.exe
+cl /Ob3 /GL /GS- /Gw /Oi /O2 /W4 /wd4996 /Felz9ans.exe
 
 :: Local Variables:
 :: mode: bat-mode
