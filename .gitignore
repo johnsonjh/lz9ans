@@ -20,6 +20,8 @@
 /log.pvs
 /lz9ans
 /lz9ans_asan
+/lz9ans.exe
+/lz9ans.obj
 /lz9ans.plist
 /notes.txt
 *.orig
