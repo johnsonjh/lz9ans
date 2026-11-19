@@ -46,6 +46,9 @@
 # include <fcntl.h>
 # include <io.h>
 # include <stdint.h>
+# if defined(_MSC_VER)
+#  include <intrin.h>
+# endif /* if defined(_MSC_VER) */
 #elif defined(__unix__) || defined(__APPLE__) || defined(__linux__)
 # include <fcntl.h>
 # include <sys/stat.h>
@@ -361,6 +364,24 @@ clamp_thread_limit (unsigned int limit)
 
 /*****************************************************************************/
 
+#if (defined(_WIN32) || defined(_WIN64)) && defined(_MSC_VER) \
+    && !defined(__GNUC__)
+# undef NO_HAS_ATTRIBUTE
+# undef NO_HOT
+# undef NO_INLINE
+# undef LZ9_INLINE
+# define LZ9_INLINE __inline
+# undef LZ9_ALWAYS_INLINE
+# define LZ9_ALWAYS_INLINE __forceinline
+# undef LZ9_HAS_ALWAYS_INLINE
+# define LZ9_HAS_ALWAYS_INLINE 1
+# undef LZ9_BR_CONST_DIRECTION
+# define LZ9_BR_CONST_DIRECTION 1
+#endif /* if (defined(_WIN32) || defined(_WIN64)) && defined(_MSC_VER) \
+          && !defined(__GNUC__) */
+
+/*****************************************************************************/
+
 #if !defined(LZ9_INLINE)
 # define LZ9_INLINE /**/
 #endif /* if !defined(LZ9_INLINE) */
@@ -385,14 +406,27 @@ clamp_thread_limit (unsigned int limit)
 
 /*****************************************************************************/
 
-/* The 64-bit lane comparison assumes little-endian x86-64 symbol storage. */
-#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__)) \
+/* The 64-bit lane comparison assumes 64-bit little-endian symbol storage. */
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__) \
+    || defined(__aarch64__)) && !defined(__CPPCHECK__) && !defined(__LINT__) \
+    && !defined(LZ9ANS_DISABLE_64BIT_MATCH_FASTPATH)
+# define LZ9ANS_64BIT_MATCH_FASTPATH 1
+#endif /* if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__) \
+          || defined(__aarch64__)) && !defined(__CPPCHECK__) \
+          && !defined(__LINT__) \
+          && !defined(LZ9ANS_DISABLE_64BIT_MATCH_FASTPATH) */
+
+/*****************************************************************************/
+
+#if (defined(_WIN32) || defined(_WIN64)) && defined(_MSC_VER) \
+    && !defined(__GNUC__) && (defined(_M_AMD64) || defined(_M_ARM64)) \
     && !defined(__CPPCHECK__) && !defined(__LINT__) \
-    && !defined(LZ9ANS_DISABLE_X86_64_MATCH_FASTPATH)
-# define LZ9ANS_X86_64_MATCH_FASTPATH 1
-#endif /* if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__)) \
+    && !defined(LZ9ANS_DISABLE_64BIT_MATCH_FASTPATH)
+# define LZ9ANS_64BIT_MATCH_FASTPATH 1
+#endif /* if (defined(_WIN32) || defined(_WIN64)) && defined(_MSC_VER) \
+          && !defined(__GNUC__) && (defined(_M_AMD64) || defined(_M_ARM64)) \
           && !defined(__CPPCHECK__) && !defined(__LINT__) \
-          && !defined(LZ9ANS_DISABLE_X86_64_MATCH_FASTPATH) */
+          && !defined(LZ9ANS_DISABLE_64BIT_MATCH_FASTPATH) */
 
 /*****************************************************************************/
 
@@ -402,6 +436,33 @@ typedef char lz9_u64_type_must_be_at_least_64_bits_compile_time_assertion[
   sizeof (lz9_u64) * CHAR_BIT >= 64 ? 1 : -1];
 #endif /* if defined(__GNUC__) && !defined(__CPPCHECK__) \
           && !defined(__LINT__) */
+
+/*****************************************************************************/
+
+#if (defined(_WIN32) || defined(_WIN64)) && defined(_MSC_VER) \
+    && !defined(__GNUC__) && !defined(__CPPCHECK__) && !defined(__LINT__)
+typedef unsigned __int64 lz9_u64;
+typedef char lz9_u64_type_must_be_at_least_64_bits_compile_time_assertion[
+  sizeof (lz9_u64) * CHAR_BIT >= 64 ? 1 : -1];
+#endif /* if (defined(_WIN32) || defined(_WIN64)) && defined(_MSC_VER) \
+          && !defined(__GNUC__) && !defined(__CPPCHECK__) \
+          && !defined(__LINT__) */
+
+/*****************************************************************************/
+
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
+# if defined(_MSC_VER) && !defined(__GNUC__)
+static LZ9_ALWAYS_INLINE unsigned int
+lz9_ctz64 (lz9_u64 value)
+{
+  unsigned long index;
+  (void)_BitScanForward64 (&index, value);
+  return (unsigned int)index;
+}
+# else
+#  define lz9_ctz64(x) ((unsigned int)__builtin_ctzll(x))
+# endif /* if defined(_MSC_VER) && !defined(__GNUC__) */
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
 
 /*****************************************************************************/
 
@@ -5493,7 +5554,7 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
   const unsigned short *buf = e->buffer;
   unsigned int k;
 
-#if defined(LZ9ANS_X86_64_MATCH_FASTPATH)
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
   if (max >= 4U)
     {
       lz9_u64 a, b, diff;
@@ -5504,7 +5565,7 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
 
       if (diff)
         {
-          k = (unsigned int)(__builtin_ctzll (diff) >> 4);
+          k = (unsigned int)(lz9_ctz64 (diff) >> 4);
 
           if (k < 3U)
             {
@@ -5517,7 +5578,7 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
       k = 4U;
     }
   else
-#endif /* if defined(LZ9ANS_X86_64_MATCH_FASTPATH) */
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
     {
       if (buf[cand] != p0 || buf[cand + 1U] != p1 || buf[cand + 2U] != p2)
         {
@@ -5527,7 +5588,7 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
       k = 3U;
     }
 
-#if defined(LZ9ANS_X86_64_MATCH_FASTPATH)
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
   while (k + 4U <= max)
     {
       lz9_u64 a, b, diff;
@@ -5538,23 +5599,23 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
 
       if (diff)
         {
-          k += (unsigned int)(__builtin_ctzll (diff) >> 4);
+          k += (unsigned int)(lz9_ctz64 (diff) >> 4);
 
           goto match_done;
         }
 
       k += 4U;
     }
-#endif /* if defined(LZ9ANS_X86_64_MATCH_FASTPATH) */
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
 
   while (k < max && buf[cand + k] == buf[pos + k])
     {
       ++k;
     }
 
-#if defined(LZ9ANS_X86_64_MATCH_FASTPATH)
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
 match_done:
-#endif /* if defined(LZ9ANS_X86_64_MATCH_FASTPATH) */
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
 
   if (e->level <= 3 && k < distance_match_min (e, pos - cand))
     {
