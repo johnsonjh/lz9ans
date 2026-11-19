@@ -1268,42 +1268,47 @@ design evaluation, and early testing phases of this work.
 ### See Also
 
 * J. Ziv and A. Lempel,
-“**A Universal Algorithm for Sequential Data Compression**,”
-*IEEE Trans. Inf. Theory*, vol. 23, no. 3, pp. 337–343, May 1977,
-[doi: 10.1109/TIT.1977.1055714](http://dx.doi.org/10.1109/TIT.1977.1055714).
+  “**A Universal Algorithm for Sequential Data Compression**,”
+  *IEEE Trans. Inf. Theory*, vol. 23, no. 3, pp. 337–343, May 1977,
+  [doi: 10.1109/TIT.1977.1055714](http://dx.doi.org/10.1109/TIT.1977.1055714).
 
 * J. Duda,
-“**Asymmetric numeral systems**,” 2009,
-[arXiv:0902.0271](https://arxiv.org/abs/0902.0271).
+  “**Asymmetric numeral systems**,” 2009,
+  [arXiv:0902.0271](https://arxiv.org/abs/0902.0271).
 
 * J. Duda,
-“**Asymmetric numeral systems: entropy coding combining speed of Huffman
-coding with compression rate of arithmetic coding**,”
-2013, [arXiv:1311.2540](https://arxiv.org/abs/1311.2540).
+  “**Asymmetric numeral systems: entropy coding combining speed of Huffman
+  coding with compression rate of arithmetic coding**,”
+  2013, [arXiv:1311.2540](https://arxiv.org/abs/1311.2540).
 
 * Y. Collet and M. Kucherawy,
-“**Zstandard Compression**,”
-*Internet Engineering Task Force (IETF), Request for Comments (RFC) 8878*,
-Feb. 2021, [doi: 10.17487/RFC8878](http://dx.doi.org/10.17487/RFC8878).
+  “**Zstandard Compression**,”
+  *Internet Engineering Task Force (IETF), Request for Comments (RFC) 8878*,
+  Feb. 2021, [doi: 10.17487/RFC8878](http://dx.doi.org/10.17487/RFC8878).
+
+* Y. Collet,
+  “**Finite State Entropy**,” 2013–2024,
+  [New Generation Entropy coders](https://github.com/cyan4973/finitestateentropy),
+  [https://github.com/cyan4973/finitestateentropy](https://github.com/cyan4973/finitestateentropy).
 
 * K. Szewczyk,
-“**Linear KL–Optimal Frequency Normalisation**,” 2026,
-[arXiv:2605.00579](https://arxiv.org/abs/2605.00579).
+  “**Linear KL–Optimal Frequency Normalisation**,” 2026,
+  [arXiv:2605.00579](https://arxiv.org/abs/2605.00579).
 
 * V. Gopal, E. Ozturk, J. Guilford, G. Wolrich, W. K. Feghali, and M. G. Dixon,
-“**Fast CRC Computation for Generic Polynomials Using `PCLMULQDQ` Instruction**,”
-[*Intel Corporation, White Paper*, Order No. 323102, Dec. 2009](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf).
+  “**Fast CRC Computation for Generic Polynomials Using `PCLMULQDQ` Instruction**,”
+  [*Intel Corporation, White Paper*, Order No. 323102, Dec. 2009](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf).
 
 * E. L. Glaser, J. F. Couleur, and G. A. Oliver,
-“**System design of a computer for time–sharing applications**,”
-in *Proceedings of the November 30–December 1, 1965,
-Fall Joint Computer Conference, Part I* (AFIPS ’65), pp. 197–202,
-[doi: 10.1145/1463891.1463913](http://dx.doi.org/10.1145/1463891.1463913).
+  “**System design of a computer for time–sharing applications**,”
+  in *Proceedings of the November 30–December 1, 1965,
+  Fall Joint Computer Conference, Part I* (AFIPS ’65), pp. 197–202,
+  [doi: 10.1145/1463891.1463913](http://dx.doi.org/10.1145/1463891.1463913).
 
 * A. C. Hearn, A. C. Norman, et al.,
-“**REDUCE Computer Algebra System**,” 1968–2026,
-[Reduce Algebra Project](https://reduce-algebra.sourceforge.io/),
-[`https://reduce‑algebra.sourceforge.io/`](https://reduce-algebra.sourceforge.io/).
+  “**REDUCE Computer Algebra System**,” 1968–2026,
+  [Reduce Algebra Project](https://reduce-algebra.sourceforge.io/),
+  [https://reduce‑algebra.sourceforge.io/](https://reduce-algebra.sourceforge.io/).
 
 <!-- vim: set ft=pandoc expandtab conceallevel=0 cc=80 : -->
 <!-- EOF -->

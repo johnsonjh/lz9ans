@@ -96,6 +96,10 @@ early testing phases of this work.
   *Internet Engineering Task Force (IETF), Request for Comments (RFC) 8878*,
   Feb. 2021, [doi:&nbsp;10.17487/RFC8878](http://dx.doi.org/10.17487/RFC8878).
 
+* Y. Collet,
+  “**Finite State Entropy**,” 2013–2024,
+  [New Generation Entropy coders](https://github.com/cyan4973/finitestateentropy).
+
 * K. Szewczyk,
   “**Linear KL–Optimal Frequency Normalisation**,” 2026,
   [arXiv:2605.00579](https://arxiv.org/abs/2605.00579).
