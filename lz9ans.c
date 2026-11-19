@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.29 (2026-11-18)"
+#define LZ9VER "v0.9.30 (2026-11-19)"
 
 /*****************************************************************************/
 
@@ -5483,7 +5483,7 @@ chain_index_range (Encoder *e, unsigned int from, unsigned int to)
 
 /*****************************************************************************/
 
-static HOT LZ9_INLINE void
+static HOT LZ9_ALWAYS_INLINE void
 consider_match (const Encoder *e, unsigned int pos, unsigned int max,
                 unsigned long base_ll_price,
                 unsigned int cand, unsigned int p0, unsigned int p1,
