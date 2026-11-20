@@ -21,7 +21,7 @@ def build(binary, threshold):
     flags = shlex.split(
         os.environ.get(
             "CFLAGS",
-            "-D_ALL_SOURCE -D_GNU_SOURCE -O3 -ansi -pedantic -Wall -Wextra -Werror",
+            "-O3 -ansi -pedantic -Wall -Wextra -Werror",
         )
     )
     subprocess.run(

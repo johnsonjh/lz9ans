@@ -45,7 +45,7 @@ def main():
         cflags = shlex.split(
             os.environ.get(
                 "CFLAGS",
-                "-D_ALL_SOURCE -D_GNU_SOURCE -O1 -g -ansi -pedantic "
+                "-O1 -g -ansi -pedantic "
                 "-Wall -Wextra -Werror",
             )
         )
