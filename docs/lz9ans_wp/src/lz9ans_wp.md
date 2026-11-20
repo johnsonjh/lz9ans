@@ -6,7 +6,7 @@
 title: LZ9ANS
 subtitle: A High-Performance Modern 9-bit Compression Architecture
 author: Jeffrey H. Johnson
-date: DRAFT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;November 19th 2026&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;DRAFT
+date: DRAFT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;November 20th 2026&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;DRAFT
 documentclass: extarticle
 fontsize: 10pt
 classoption:
@@ -34,14 +34,16 @@ Most general-purpose compression formats are designed around the assumption
 that their input consists of conventional `8`‑bit bytes.
 
 That assumption is appropriate for contemporary computing environments, but it
-is not universally applicable. Historical and specialized architectures
-frequently use different logical data widths, and systems built around `36`‑bit
-words present a particularly interesting case: four `9`‑bit characters fit
-naturally into a single machine word.
+is not universally applicable.
+
+Historical and specialized architectures frequently use different logical data
+widths, and systems built around `36`‑bit words present a particularly
+interesting case: four `9`‑bit characters fit naturally into a single machine
+word.
 
 **LZ9ANS** is a compression format and reference implementation designed to
-address this class of requirements without sacrificing the flexibility of
-a modern general‑purpose compression architecture.
+address this class of requirements without sacrificing the flexibility of a
+modern general‑purpose compression architecture.
 
 Combining `LZ77`‑style dictionary compression with table-based Asymmetric
 Numeral Systems (`tANS`), **LZ9ANS** introduces a number of architectural and
@@ -54,11 +56,11 @@ persistent dictionary history, model reuse, adaptive entropy representations,
 and cost‑aware parsing.
 
 The design also places considerable emphasis on predictable resource
-consumption and implementation flexibility. Its explicit framing,
-bounded coding structures, deterministic entropy‑table construction,
-and well‑defined decoding semantics make it suitable for implementation
-in portable software as well as environments where memory, processing
-resources, or hardware architecture impose additional constraints.
+consumption and implementation flexibility. Its explicit framing, bounded
+coding structures, deterministic entropy‑table construction, and well‑defined
+decoding semantics make it suitable for implementation in portable software as
+well as environments where memory, processing resources, or hardware
+architecture impose additional constraints.
 
 The current **LZ9ANS** bitstream is `V9`.  The `V9` format supports both
 `8`‑bit and `9`‑bit representations.  Consequently, **LZ9ANS** is not limited
@@ -72,14 +74,14 @@ compatible production implementations.
 
 ### Introduction
 
-Compression formats are often optimized around a relatively narrow set
-of assumptions about their target environment. Most contemporary formats
-operate on `8`‑bit bytes, use conventional dictionary-based compression,
-and apply an entropy coder to the resulting symbols.
+Compression formats are often optimized around a relatively narrow set of
+assumptions about their target environment. Most contemporary formats operate
+on `8`‑bit bytes, use conventional dictionary-based compression, and apply an
+entropy coder to the resulting symbols.
 
-These approaches work well for ordinary files, but they can become
-inefficient or unnecessarily complicated when the underlying data has a
-different logical organization.
+These approaches work well for ordinary files, but they can become inefficient
+or unnecessarily complicated when the underlying data has a different logical
+organization.
 
 The GE/Honeywell/Bull Multics and Unisys OS2200 environments provide a useful
 example. Their historical architectures use `36`‑bit words, with four `9`‑bit
@@ -92,11 +94,11 @@ compression even begins, and naïvely repacking to `8`‑bit octets destroys
 natural repeats.
 
 **LZ9ANS** addresses this problem directly by using a native `9`‑bit logical
-symbol model, but native symbol width is only one part of its design. The
-codec also takes advantage of the structure of `36`‑bit words when selecting
-entropy models and representing dictionary distances. Its architecture combines
-these specialized features with a block-oriented `LZ77` and `tANS` design
-intended to remain efficient and predictable on conventional `8`‑bit systems.
+symbol model, but native symbol width is only one part of its design. The codec
+also takes advantage of the structure of `36`‑bit words when selecting entropy
+models and representing dictionary distances. Its architecture combines these
+specialized features with a block-oriented `LZ77` and `tANS` design intended to
+remain efficient and predictable on conventional `8`‑bit systems.
 
 The result is a codec with several complementary characteristics:
 
@@ -135,14 +137,14 @@ values without converting them into a larger logical representation.
 For conventional `8`‑bit data, symbols occupy the range `0`–`255`. In native
 `9`‑bit mode, all `512` possible values are available.
 
-The distinction is maintained throughout the compression architecture. The
-`LZ` match finder, literal stream, entropy models, history management, and
-checksum calculation operate on logical symbols rather than assuming that
-every symbol is an `8`‑bit byte.
+The distinction is maintained throughout the compression architecture. The `LZ`
+match finder, literal stream, entropy models, history management, and checksum
+calculation operate on logical symbols rather than assuming that every symbol
+is an `8`‑bit byte.
 
-This separation is important for portability. A host implementation can
-use whatever internal storage representation is convenient without changing
-the logical data model or the external format.
+This separation is important for portability. A host implementation can use
+whatever internal storage representation is convenient without changing the
+logical data model or the external format.
 
 #### Efficient external representation:
 
@@ -156,15 +158,15 @@ $$
 This provides a compact external representation without padding each symbol
 to `16` bits.
 
-The reference implementation includes optimized packing and unpacking
-paths for groups of symbols, together with portable fallback implementations.
+The reference implementation includes optimized packing and unpacking paths for
+groups of symbols, together with portable fallback implementations.
 
 This makes it possible to support native `9`‑bit data while retaining
 conventional octet-oriented framing and I/O.
 
 The distinction between logical symbols and physical storage is particularly
-valuable when developing implementations for architectures whose native
-word sizes do not correspond to `8`‑bit bytes.
+valuable when developing implementations for architectures whose native word
+sizes do not correspond to `8`‑bit bytes.
 
 #### Conventional `8`‑bit operation:
 
@@ -203,13 +205,13 @@ $$
 For data beginning on a word boundary, the four phases correspond to the
 four `9`‑bit characters within each `36`‑bit word.
 
-This matters when the character distributions differ according to
-position. Structured binary data, for example, may exhibit distinct
-statistical characteristics in different word positions.
+This matters when the character distributions differ according to position.
+Structured binary data, for example, may exhibit distinct statistical
+characteristics in different word positions.
 
-Rather than forcing all four positions into one combined statistical model,
-the encoder can build separate histograms and evaluate permitted groupings
-of the four phases.
+Rather than forcing all four positions into one combined statistical model, the
+encoder can build separate histograms and evaluate permitted groupings of the
+four phases.
 
 Different `tANS` models can then be selected for different phase groups.
 
@@ -221,15 +223,15 @@ models does not require resetting the `tANS` state. The models operate within
 the same `1,024`-state space.
 
 The decoder derives the phase from the absolute position within the frame. It
-must therefore maintain the frame position across block boundaries rather
-than restarting phase at the beginning of every block.
+must therefore maintain the frame position across block boundaries rather than
+restarting phase at the beginning of every block.
 
 Phase-dependent entropy coding offers a useful opportunity to exploit
 structure that conventional byte-oriented codecs cannot directly express.
 
-It is especially relevant when the underlying data is organized around
-`36`‑bit words, but it remains optional. Data that does not benefit from
-phase-dependent modeling can use ordinary entropy coding.
+It is especially relevant when the underlying data is organized around `36`‑bit
+words, but it remains optional. Data that does not benefit from phase-dependent
+modeling can use ordinary entropy coding.
 
 #### Aligned-distance coding:
 
@@ -240,8 +242,8 @@ words, its displacement is divisible by four.
 For eligible explicit match distances, **LZ9ANS** provides an alternative
 aligned-distance representation.
 
-A divisible-by-four distance can be represented using two fewer residual
-bits, with an alignment selector bit.
+A divisible-by-four distance can be represented using two fewer residual bits,
+with an alignment selector bit.
 
 The benefit is therefore conditional: the aligned representation is
 advantageous when the distance encoding saves more than the selector overhead.
@@ -254,20 +256,20 @@ This approach complements phase-dependent entropy coding:
 - Aligned-distance coding exploits repeated structures whose displacement
   preserves their position within a word.
 
-Together, these features adapt both the entropy and dictionary portions
-of the compression architecture to the same underlying data organization.
+Together, these features adapt both the entropy and dictionary portions of the
+compression architecture to the same underlying data organization.
 
 They are not simply alternative packing schemes. They are format-level
-mechanisms that allow the encoder to exploit structural information that
-would otherwise be lost in a generic byte-oriented model.
+mechanisms that allow the encoder to exploit structural information that would
+otherwise be lost in a generic byte-oriented model.
 
 ### Bounded Design for Predictable Resource Usage
 
 A central design goal of **LZ9ANS** is to make the amount of work and storage
 associated with decoding explicit and bounded.
 
-This is especially important for production implementations intended to
-operate in constrained environments or to be translated into hardware.
+This is especially important for production implementations intended to operate
+in constrained environments or to be translated into hardware.
 
 #### Explicit block and window limits:
 
@@ -281,8 +283,8 @@ The history window is configurable:
 
 The maximum match length is `32,768` symbols.
 
-The entropy coder uses `1,024` states, and the format places explicit limits
-on the sizes of descriptors and compressed payloads.
+The entropy coder uses `1,024` states, and the format places explicit limits on
+the sizes of descriptors and compressed payloads.
 
 These limits allow a decoder to establish its resource requirements before
 processing untrusted block contents.
@@ -310,9 +312,9 @@ permits them.
 An important architectural distinction is that the block output limit and
 history window are independent.
 
-Each block has bounded output and entropy-coding requirements. However,
-its dictionary can still reference data decoded in earlier blocks within
-the same frame.
+Each block has bounded output and entropy-coding requirements. However, its
+dictionary can still reference data decoded in earlier blocks within the same
+frame.
 
 This preserves cross-block compression opportunities without requiring
 arbitrarily large output blocks.
@@ -328,26 +330,26 @@ construct an entropy state space whose size depends on untrusted input.
 Instead, it reconstructs transition tables from normalized frequency
 descriptors within the defined limits.
 
-This provides a predictable memory footprint and a straightforward mapping
-to table-based software or hardware implementations.
+This provides a predictable memory footprint and a straightforward mapping to
+table-based software or hardware implementations.
 
 #### Explicit descriptor and payload lengths:
 
 Every compressed block describes its component streams and their associated
 lengths.
 
-The format therefore provides explicit boundaries for the individual
-entropy streams and the raw `EXTRA` bitstream.
+The format therefore provides explicit boundaries for the individual entropy
+streams and the raw `EXTRA` bitstream.
 
 A decoder can validate the relevant lengths and padding before reading or
 decoding the corresponding data.
 
-This is preferable to architectures in which stream boundaries must be
-inferred from the entropy state or discovered by speculative parsing.
+This is preferable to architectures in which stream boundaries must be inferred
+from the entropy state or discovered by speculative parsing.
 
-Bounded structures are not merely a convenience for embedded
-implementations. They make validation, testing, memory accounting, and
-hardware implementation substantially more manageable.
+Bounded structures are not merely a convenience for embedded implementations.
+They make validation, testing, memory accounting, and hardware implementation
+substantially more manageable.
 
 ### Hybrid `LZ77` and `tANS` Compression Architecture
 
@@ -376,11 +378,11 @@ components.
 | `OF`     | `20` or `21` | Match offsets                       |
 | `EXTRA`  | Raw          | Additional length and distance bits |
 
-This separation allows each component to use an appropriate representation
-and statistical model.
+This separation allows each component to use an appropriate representation and
+statistical model.
 
-The literal stream can be modeled independently of the match-length and
-offset streams.
+The literal stream can be modeled independently of the match-length and offset
+streams.
 
 Similarly, the sequence metadata does not need to share entropy state with the
 literal data.
@@ -388,8 +390,8 @@ literal data.
 The `EXTRA` stream carries additional bits associated with length and distance
 codes. It is independently bounded and forward-oriented.
 
-This division provides a well-defined structure for both software and
-hardware implementations.
+This division provides a well-defined structure for both software and hardware
+implementations.
 
 #### Multiple entropy representations:
 
@@ -430,15 +432,15 @@ Entropy state and entropy models have different lifetimes in **LZ9ANS**. The
 `tANS` state is initialized independently for each block, but normalized
 frequency models can persist across blocks within a frame.
 
-The `REUSE` descriptor allows a block to reference an already installed
-model rather than transmitting a fresh frequency description.
+The `REUSE` descriptor allows a block to reference an already installed model
+rather than transmitting a fresh frequency description.
 
 At higher compression levels, the reference encoder can evaluate a cached
 model against the current stream and use it when the resulting representation
 is smaller.
 
-Model reuse reduces descriptor overhead in data where successive blocks
-have similar statistical characteristics.
+Model reuse reduces descriptor overhead in data where successive blocks have
+similar statistical characteristics.
 
 The model caches are maintained separately by stream kind, preventing an
 `LL` model, for example, from being incorrectly interpreted as a `LIT` model.
@@ -451,8 +453,8 @@ persistent knowledge of the data’s statistical characteristics.
 The entropy coder is a particularly important part of **LZ9ANS**. `V9` defines
 a custom table-based `tANS` representation using a fixed `1,024`-state space.
 
-Although it follows the general principles of table-based ANS coding,
-its table construction and serialized descriptors are specific to **LZ9ANS**.
+Although it follows the general principles of table-based ANS coding, its table
+construction and serialized descriptors are specific to **LZ9ANS**.
 
 #### Deterministic state-table construction:
 
@@ -464,8 +466,8 @@ $$
 \mathrm{position} \leftarrow (\mathrm{position} + 643) \bmod 1024
 $$
 
-Symbols are placed in ascending order, with each symbol occupying the
-number of states specified by its normalized frequency.
+Symbols are placed in ascending order, with each symbol occupying the number of
+states specified by its normalized frequency.
 
 Because the spreading step is relatively prime to `1,024`, the procedure
 visits every state.
@@ -473,8 +475,8 @@ visits every state.
 The decoder then constructs its transition entries from the resulting
 distribution.
 
-Each entry contains the decoded symbol, the number of bits to consume,
-and the baseline for the next state.
+Each entry contains the decoded symbol, the number of bits to consume, and the
+baseline for the next state.
 
 The reference implementation packs these fields into a `32`‑bit entry. This
 supports efficient state lookup using a compact table representation.
@@ -490,11 +492,11 @@ The `tANS` bitstream uses a specific reverse-consumption convention.
 
 The final ten meaningful bits contain the initial decoder state.
 
-The decoder then emits symbols in forward logical order while consuming
-the preceding groups of bits in reverse group order.
+The decoder then emits symbols in forward logical order while consuming the
+preceding groups of bits in reverse group order.
 
-The bits within each group retain their MSB-first interpretation. They
-are not individually reversed.
+The bits within each group retain their MSB-first interpretation. They are not
+individually reversed.
 
 After decoding the expected symbols, the decoder must verify:
 
@@ -532,8 +534,8 @@ choice, not simply a replacement for a conventional Huffman coder.
 An efficient entropy coder depends on the quality of its normalized
 frequency distributions.
 
-The reference encoder uses a deterministic integer-based implementation
-of Linear KL‑Optimal frequency normalization.
+The reference encoder uses a deterministic integer-based implementation of
+Linear KL‑Optimal frequency normalization.
 
 The objective is to convert observed symbol counts into positive integer
 frequencies that sum to exactly `1,024`.
@@ -558,8 +560,8 @@ where:
 The reference implementation uses fixed-point arithmetic, bounded frequency
 allocations, and selection procedures to arrive at the final distribution.
 
-It avoids requiring general-purpose floating-point logarithms and does
-not need to sort every possible allocation adjustment.
+It avoids requiring general-purpose floating-point logarithms and does not need
+to sort every possible allocation adjustment.
 
 This is valuable for portability and deterministic execution.
 
@@ -602,18 +604,18 @@ preliminary frequency distributions. These prices are represented using
 fixed-point `Q8` values.  The encoder also builds a prefix-cost array for
 literal symbols.
 
-This allows the estimated cost of a literal interval to be obtained in
-constant time:
+This allows the estimated cost of a literal interval to be obtained in constant
+time:
 
 $$
 \operatorname{cost}(a, b) = \operatorname{prefix}[b] - \operatorname{prefix}[a]
 $$
 
-The parser can therefore compare the estimated cost of representing a
-range as literals against the estimated cost of using a dictionary match.
+The parser can therefore compare the estimated cost of representing a range as
+literals against the estimated cost of using a dictionary match.
 
-This is substantially more informative than selecting matches based only
-on their length.
+This is substantially more informative than selecting matches based only on
+their length.
 
 #### Progressive search effort:
 
@@ -623,24 +625,24 @@ The reference implementation exposes compression levels `1`–`9`, where levels
 The levels progressively increase match-search effort and parsing
 sophistication.
 
-Lower levels use relatively shallow match searches and greedy
-decisions. Higher levels perform deeper candidate searches, consider
-additional match-length opportunities, and apply cost-guided refinement.
+Lower levels use relatively shallow match searches and greedy decisions.
+Higher levels perform deeper candidate searches, consider additional
+match-length opportunities, and apply cost-guided refinement.
 
 The highest levels can also consider two-symbol matches where their distance
 representation is sufficiently inexpensive.
 
-The purpose is to spend more processing time evaluating alternatives that
-may produce a better final representation.
+The purpose is to spend more processing time evaluating alternatives that may
+produce a better final representation.
 
 This is a bounded heuristic rather than an exact global optimal parser. Its
 estimated costs are derived from preliminary distributions, so the compression
 level should not be interpreted as a mathematical guarantee of monotonically
 decreasing output size.
 
-Nevertheless, the approach gives the encoder a way to reason about the
-actual downstream representation rather than treating every dictionary
-match as equally expensive.
+Nevertheless, the approach gives the encoder a way to reason about the actual
+downstream representation rather than treating every dictionary match as
+equally expensive.
 
 #### Candidate pruning:
 
@@ -661,15 +663,15 @@ Candidate pruning prevents the encoder from spending additional effort on
 matches that cannot improve an already established best match length.
 
 Together, cost estimates, bounded search depth, lazy matching, and candidate
-pruning provide a practical compromise between compression quality and
-encoder complexity.
+pruning provide a practical compromise between compression quality and encoder
+complexity.
 
 ### Repeat-Distance Optimization and `RUN` Coding
 
 Dictionary offsets are not uniformly distributed in practical `LZ` data.
 
-Recently used distances often recur, making it possible to represent them
-more efficiently than arbitrary explicit offsets.
+Recently used distances often recur, making it possible to represent them more
+efficiently than arbitrary explicit offsets.
 
 **LZ9ANS** maintains three repeat-distance slots using most-recently-used
 (MRU) promotion.
@@ -684,8 +686,8 @@ Its offset alphabet includes:
 
 #### Repeat-distance slots:
 
-When a match uses a distance, the relevant repeat slot is updated according
-to the specified MRU rules.
+When a match uses a distance, the relevant repeat slot is updated according to
+the specified MRU rules.
 
 Subsequent matches can then refer to one of the initialized slots without
 transmitting a complete explicit distance.
@@ -717,14 +719,14 @@ The decoder semantics remain simple and explicit.
 
 At higher compression levels, the encoder can consider two-symbol matches.
 
-These are particularly useful when the distance is already represented by
-an initialized repeat slot or `RUN`, making the match inexpensive.
+These are particularly useful when the distance is already represented by an
+initialized repeat slot or `RUN`, making the match inexpensive.
 
-The encoder evaluates whether the cost of the two-symbol match is lower
-than the cost of retaining the corresponding literals.
+The encoder evaluates whether the cost of the two-symbol match is lower than
+the cost of retaining the corresponding literals.
 
-This is another example of dictionary parsing and entropy representation
-being optimized together.
+This is another example of dictionary parsing and entropy representation being
+optimized together.
 
 ### Adaptive Use of `STORED` Blocks
 
@@ -751,14 +753,14 @@ with storing the block.
 
 When appropriate, this avoids more expensive cost-guided parsing passes.
 
-`STORED` blocks preserve the existing `LZ` history and repeat-distance
-slots. They are not dictionary reset points.
+`STORED` blocks preserve the existing `LZ` history and repeat-distance slots.
+They are not dictionary reset points.
 
-This is important because using an uncompressed block should not discard
-useful compression context for subsequent blocks.
+This is important because using an uncompressed block should not discard useful
+compression context for subsequent blocks.
 
-The result is a codec that can adapt between compressed and uncompressed
-block representations without interrupting the logical dictionary history.
+The result is a codec that can adapt between compressed and uncompressed block
+representations without interrupting the logical dictionary history.
 
 ### Frame Design and Streaming
 
@@ -782,8 +784,8 @@ Unknown-length frames use an extension and an explicit `END` record, allowing
 compression and decompression through standard input/output streams and
 other non-seekable interfaces.
 
-The frame format does not require platform-specific filenames, timestamps,
-or record metadata.
+The frame format does not require platform-specific filenames, timestamps, or
+record metadata.
 
 These belong to higher-level archive or storage formats.
 
@@ -795,9 +797,9 @@ The `V9` specification also defines final-symbol truncation metadata. The
 current ANSI C reference decoder accepts only the zero-truncation value, and
 the reference encoder does not emit extended `END` records.
 
-Independent implementations should follow the actual supported format
-semantics rather than assuming that every specified extension is already
-implemented by the reference program.
+Independent implementations should follow the actual supported format semantics
+rather than assuming that every specified extension is already implemented by
+the reference program.
 
 ### Data Integrity and Defensive Decoding
 
@@ -819,40 +821,39 @@ constrain the decoder’s resource requirements.
 #### Entropy termination checks:
 
 Each `tANS` stream has explicit decoding requirements.  After decoding the
-expected number of symbols, the decoder verifies the final state and
-meaningful bit consumption.
+expected number of symbols, the decoder verifies the final state and meaningful
+bit consumption.
 
-This provides an additional layer of validation beyond simply producing
-the expected symbol count.
+This provides an additional layer of validation beyond simply producing the
+expected symbol count.
 
 #### Canonical block checksums:
 
 **LZ9ANS** uses CRC‑32 block checksums.  The checksum is calculated over the
 decoded symbols repacked into a canonical MSB-first `9`‑bit representation.
 
-This is important because the checksum is independent of whether the
-decoded output is presented as `8`‑bit or `9`‑bit data.
+This is important because the checksum is independent of whether the decoded
+output is presented as `8`‑bit or `9`‑bit data.
 
 For a valid block, the decoder must reproduce the prescribed logical symbol
 sequence and verify its checksum.
 
-A production implementation should validate the block before committing
-its decoded contents to its destination.
+A production implementation should validate the block before committing its
+decoded contents to its destination.
 
 This provides block-level integrity checking and prevents a failed checksum
 from silently producing accepted output for that block.
 
-For applications that require whole-file atomicity, the caller should also
-use a temporary output destination and only publish the result after the
-complete frame has been successfully validated.
+For applications that require whole-file atomicity, the caller should also use
+a temporary output destination and only publish the result after the complete
+frame has been successfully validated.
 
 ### Parallel Processing
 
 The `V9` architecture provides opportunities for parallel processing because
 blocks have bounded output and independently initialized entropy states.
 
-The reference implementation includes optional multithreaded processing
-paths.
+The reference implementation includes optional multithreaded processing paths.
 
 UNIX builds use POSIX threads (`pthread`); Microsoft Windows builds can select
 native Windows threading with `LZ9ANS_WINTHREAD`, using the native Microsoft
@@ -867,12 +868,12 @@ format.
 
 The parallel encoder uses independent-block compression workers.
 
-Each worker receives a block and an appropriate snapshot of preceding
-input history, then performs its own match finding, sequence generation,
-and entropy coding.
+Each worker receives a block and an appropriate snapshot of preceding input
+history, then performs its own match finding, sequence generation, and entropy
+coding.
 
-The coordinator manages input and output and writes completed blocks in
-their original order.
+The coordinator manages input and output and writes completed blocks in their
+original order.
 
 This permits multiple blocks to be compressed concurrently without requiring
 workers to share mutable match-finder or entropy state.
@@ -880,8 +881,8 @@ workers to share mutable match-finder or entropy state.
 The independent-block strategy has a deliberate trade-off.
 
 Cross-block `LZ` matches remain possible because workers receive preceding
-history, but the workers do not use the same persistent repeat-distance
-and entropy-model state as the sequential encoder.
+history, but the workers do not use the same persistent repeat-distance and
+entropy-model state as the sequential encoder.
 
 Consequently, the compressed representation may differ from sequential
 compression even though the output remains a valid `V9` frame.
@@ -960,8 +961,8 @@ The portable software implementation remains the correctness baseline.
 
 #### Optimized symbol processing:
 
-The reference implementation includes optimized paths for `9`‑bit packing
-and unpacking.
+The reference implementation includes optimized paths for `9`‑bit packing and
+unpacking.
 
 It also includes accelerated match comparison on `x86‑64`, using wider
 comparisons and bit operations, with a portable fallback.
@@ -996,12 +997,12 @@ hardware performance.
 
 ### Decoder Compatibility and Independent Implementations
 
-A defining advantage of **LZ9ANS** is the separation between normative
-decoding semantics and reference encoder optimization decisions.
+A defining advantage of **LZ9ANS** is the separation between normative decoding
+semantics and reference encoder optimization decisions.
 
-An independent decoder does not need to reproduce the reference encoder’s
-match finder, parsing heuristics, frequency normalizer, candidate pruning,
-or model-selection strategy — it must implement the `V9` bitstream format
+An independent decoder does not need to reproduce the reference encoder’s match
+finder, parsing heuristics, frequency normalizer, candidate pruning, or
+model-selection strategy — it must implement the `V9` bitstream format
 correctly.
 
 This distinction permits substantial implementation freedom.
@@ -1024,15 +1025,15 @@ forward-copy semantics. A conventional C `memcpy` is not suitable when source
 and destination ranges overlap.
 
 Likewise, checksums must be calculated over the canonical logical symbol
-representation rather than simply over whatever bytes happen to be written
-to an `8`‑bit per character output file.
+representation rather than simply over whatever bytes happen to be written to
+an `8`‑bit per character output file.
 
 These details should be considered part of the interoperability contract.
 
 ### Memory Characteristics
 
-The reference implementation provides useful evidence of the format’s
-bounded memory architecture.
+The reference implementation provides useful evidence of the format’s bounded
+memory architecture.
 
 Its documented Linux `x86‑64` allocation measurements include:
 
@@ -1048,8 +1049,8 @@ Its documented Linux `x86‑64` allocation measurements include:
 | `64K` decoder, max. phased tables    | `279,140` bytes     |
 
 These figures describe the documented codec allocations, not total process
-resident memory. They exclude factors such as allocator overhead, some
-I/O buffers, worker-stack reservations, and platform-specific runtime
+resident memory. They exclude factors such as allocator overhead, some I/O
+buffers, worker-stack reservations, and platform-specific runtime
 requirements.
 
 The decoder also allocates phased tables lazily, avoiding their cost when
@@ -1058,8 +1059,8 @@ ordinary entropy descriptors are sufficient.
 For `8`‑bit output, the history ring can use one byte per symbol rather than
 two, reducing its memory requirement.
 
-The measurements demonstrate that the reference architecture has been
-designed with bounded memory consumption in mind.
+The measurements demonstrate that the reference architecture has been designed
+with bounded memory consumption in mind.
 
 For deployments with strict resource requirements, these figures should be
 treated as implementation-specific baselines. Each production implementation
@@ -1074,17 +1075,17 @@ distinctive range of applications.
 #### Historical computing environments:
 
 Native `9`‑bit symbol support makes **LZ9ANS** directly relevant to
-environments involving Multics, OS2200, and other systems with `36`‑bit
-word (non-octet) oriented logical data.
+environments involving Multics, OS2200, and other systems with `36`‑bit word
+(non-octet) oriented logical data.
 
-The codec can preserve the complete logical symbol range without forcing
-the user to repack the bitstream or represent every character as a padded
+The codec can preserve the complete logical symbol range without forcing the
+user to repack the bitstream or represent every character as a padded
 “`16`‑bit” value.
 
 #### Archival and interchange of specialized data:
 
-The explicit framing and portable representation provide a defined format
-for storing and exchanging `9`‑bit data.
+The explicit framing and portable representation provide a defined format for
+storing and exchanging `9`‑bit data.
 
 The separation between compression and external metadata also permits
 **LZ9ANS** to be incorporated into larger archival or interchange systems.
@@ -1112,8 +1113,8 @@ wire format.
 
 #### Hardware-assisted and hardware-oriented implementations:
 
-The format’s bounded state and explicit data dependencies make it a
-candidate for optimized hardware implementation.
+The format’s bounded state and explicit data dependencies make it a candidate
+for optimized hardware implementation.
 
 The deterministic entropy tables, limited state dimensions, and separate
 streams are particularly useful architectural properties in this context.
@@ -1128,8 +1129,8 @@ sequence of `8`‑bit bytes, symbols are modeled using one common literal
 distribution, longer `LZ` matches are generally preferred, every stream uses
 the same entropy-coding approach, entropy tables must be transmitted
 repeatedly, blocks are natural dictionary reset points, distance codes
-represent offsets uniformly, and codec runtime resource requirements emerge
-or evolve from implementation behavior.
+represent offsets uniformly, and codec runtime resource requirements emerge or
+evolve from implementation behavior.
 
 Conversely, for the **LZ9ANS** design, first-class input is sequence of logical
 `9`‑bit symbols (with an `8`‑bit mode also supported), optional phase-dependent
@@ -1141,8 +1142,8 @@ dictionary history persists, repeat-distance slots are supported, `RUN` and
 aligned-distance coding exploit recurring structures, and all important format
 structures have explicit bounds which define the runtime resource requirements.
 
-This comparison is not intended to suggest that these features are absent
-from every other compression format. Rather, it illustrates the particular
+This comparison is not intended to suggest that these features are absent from
+every other compression format. Rather, it illustrates the particular
 combination of decisions made by **LZ9ANS** and the way they support its
 specialized goals.
 
@@ -1155,12 +1156,12 @@ requirements that independent implementations must handle carefully.
   unpacking, and canonical checksums. Implementations must not assume that host
   byte representation and logical symbol representation are interchangeable.
 
-* Second, phase-dependent entropy coding adds state and descriptor
-  complexity. The decoder must calculate the correct absolute frame phase
-  and correctly select the model associated with each symbol.
+* Second, phase-dependent entropy coding adds state and descriptor complexity.
+  The decoder must calculate the correct absolute frame phase and correctly
+  select the model associated with each symbol.
 
-* Third, persistent dictionary history and repeat-distance state mean
-  that blocks cannot be decoded as wholly independent units. Parallel
+* Third, persistent dictionary history and repeat-distance state mean that
+  blocks cannot be decoded as wholly independent units. Parallel
   implementations must preserve the specified dependencies even when entropy
   decoding is performed concurrently.
 
@@ -1183,26 +1184,26 @@ brought together into one bounded, portable format.
 
 Its native `9`‑bit symbol model addresses a genuine limitation of conventional
 byte-oriented codecs. Its `36`‑bit-word-aware entropy and distance coding
-extend that capability beyond simple symbol packing, allowing the codec
-to exploit structural properties of the target data.
+extend that capability beyond simple symbol packing, allowing the codec to
+exploit structural properties of the target data.
 
 The combination of `LZ77` and deterministic table-based `tANS` provides a
 flexible compression architecture. Separate streams, multiple entropy
 representations, persistent model reuse, and integer-based frequency
-normalization allow the encoder to adapt its representation to the contents
-of each block.
+normalization allow the encoder to adapt its representation to the contents of
+each block.
 
-The reference parser goes beyond conventional longest-match
-selection by incorporating estimated entropy costs into dictionary
-decisions. Repeat-distance slots, `RUN` coding, aligned distances, and
-selective short matches further demonstrate how the dictionary and entropy
-layers are designed to complement one another.
+The reference parser goes beyond conventional longest-match selection by
+incorporating estimated entropy costs into dictionary decisions.
+Repeat-distance slots, `RUN` coding, aligned distances, and selective short
+matches further demonstrate how the dictionary and entropy layers are designed
+to complement one another.
 
 At the implementation level, bounded block sizes, history windows, entropy
 states, descriptor areas, and payload lengths provide predictable resource
 requirements. Explicit stream framing, validation rules, checksums, and
-deterministic entropy construction support independent implementations
-and provide a foundation for optimized software and hardware designs.
+deterministic entropy construction support independent implementations and
+provide a foundation for optimized software and hardware designs.
 
 Equally important, the format does not require every implementation to
 reproduce the reference encoder’s particular optimization strategies.
@@ -1246,20 +1247,20 @@ Its distinctive strengths are the combination of:
     otherwise specialized wire format.
 
 10. **A portable, hardware-conscious implementation architecture**, supporting
-   both conventional software and future specialized implementations.
+    both conventional software and future specialized implementations.
 
 The most compelling aspect of **LZ9ANS** is that these capabilities are *not*
 independent additions; they reinforce one another: the symbol architecture
-informs the phase model; the phase model complements dictionary alignment;
-the dictionary parser uses entropy costs; the entropy streams use persistent
+informs the phase model; the phase model complements dictionary alignment; the
+dictionary parser uses entropy costs; the entropy streams use persistent
 models; and the bounded block architecture provides the foundation for
 validation, parallelism, and hardware implementation.
 
 ### Acknowledgments
 
-The author gratefully acknowledges the use of the
-“**REDUCE Computer Algebra System**”, which was instrumental in the
-prototyping, design evaluation, and early testing phases of this work.
+The author gratefully acknowledges the use of the “**REDUCE Computer Algebra
+System**”, which was instrumental in the prototyping, design evaluation, and
+early testing phases of this work.
 
 ### More Information
 
@@ -1292,7 +1293,8 @@ Additional information and the complete MIT licensed source code is available:
 
 * Y. Collet,
   “**Finite State Entropy**,” 2013–2024,
-  [New Generation Entropy coders](https://github.com/cyan4973/finitestateentropy),
+  [New Generation Entropy
+  coders](https://github.com/cyan4973/finitestateentropy),
   [https://github.com/cyan4973/finitestateentropy](https://github.com/cyan4973/finitestateentropy).
 
 * K. Szewczyk,
@@ -1300,8 +1302,9 @@ Additional information and the complete MIT licensed source code is available:
   [arXiv:2605.00579](https://arxiv.org/abs/2605.00579).
 
 * V. Gopal, E. Ozturk, J. Guilford, G. Wolrich, W. K. Feghali, and M. G. Dixon,
-  “**Fast CRC Computation for Generic Polynomials Using `PCLMULQDQ` Instruction**,”
-  [*Intel Corporation, White Paper*, Order No. 323102, Dec. 2009](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf),
+  “**Fast CRC Computation for Generic Polynomials Using `PCLMULQDQ`
+  Instruction**,” [*Intel Corporation, White Paper*, Order No. 323102, Dec.
+  2009](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf),
   [https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf).
 
 * E. L. Glaser, J. F. Couleur, and G. A. Oliver,
