@@ -57,9 +57,10 @@ in entropy decoding and LZ match processing.
 ## Specification
 
 * A white paper,
-  “LZ9ANS: A High-Performance Modern 9-bit Compression Architecture”
-  ([download](https://raw.githubusercontent.com/johnsonjh/lz9ans/master/docs/lz9ans_wp/lz9ans_wp.pdf),
-  [view](https://github.com/johnsonjh/lz9ans/blob/master/docs/lz9ans_wp/lz9ans_wp.pdf)),
+  “**LZ9ANS: A High-Performance Modern 9-bit Compression Architecture**”
+  ([*download*](https://raw.githubusercontent.com/johnsonjh/lz9ans/master/docs/lz9ans_wp/lz9ans_wp.pdf)
+  or
+  [*view*](https://github.com/johnsonjh/lz9ans/blob/master/docs/lz9ans_wp/lz9ans_wp.pdf)),
   details the codec design, with a focus on the features that are most valuable
   when developing independent, compatible production implementations.
 
