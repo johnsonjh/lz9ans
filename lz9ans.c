@@ -1471,7 +1471,7 @@ thread_pool_wait_all (ThreadPool *pool)
 
 static int
 thread_pool_run_main_first (ThreadPool *pool, const ThreadTask *tasks,
-                             unsigned int task_count)
+                            unsigned int task_count)
 {
   unsigned int i;
 
@@ -4816,7 +4816,7 @@ norm_active_kl ( /*cppcheck-suppress unusedFunction */
   NormScratch scratch;
 
   return norm_active_kl_with_scratch (counts, idx, active, total, freq,
-                                     &scratch);
+                                      &scratch);
 }
 #endif /* if defined(LZ9ANS_TEST_NORMALIZER) */
 
@@ -4829,7 +4829,7 @@ norm_active_with_scratch (const unsigned int *counts,
                           NormScratch *scratch)
 {
   return norm_active_kl_with_scratch (counts, idx, active, total, freq,
-                                     scratch);
+                                      scratch);
 }
 
 /*****************************************************************************/
@@ -9748,10 +9748,10 @@ thread_decode_block_snapshot_tables (ThreadDecodeBlock *block,
 
 static int
 decode_block_prepare_pipeline (FILE *in, const Output *o,
-                                unsigned long frame_produced,
-                                unsigned int max_n, unsigned char *desc,
-                                DecTable *tables, DecTable **phase_tables,
-                                ThreadPool *pool, ThreadDecodeBlock *block)
+                               unsigned long frame_produced,
+                               unsigned int max_n, unsigned char *desc,
+                               DecTable *tables, DecTable **phase_tables,
+                               ThreadPool *pool, ThreadDecodeBlock *block)
 {
   unsigned char h[LZ_BLOCK_HEADER_N];
   unsigned long bitlen[STREAM_COUNT], lengths[STREAM_COUNT], total = 0;
@@ -10289,8 +10289,7 @@ decode_blocks_pipeline (FILE *in, Output *o, unsigned long total,
 /*****************************************************************************/
 
 static int
-allocated_encoder (Encoder *e, unsigned int window_n,
-                    unsigned int min_match)
+allocated_encoder (Encoder *e, unsigned int window_n, unsigned int min_match)
 {
   (void)memset (e, 0, sizeof (*e));
   e->window_n = window_n;
@@ -10472,7 +10471,7 @@ read_next_input_block (FILE *in, unsigned int mode, unsigned long elements,
           unsigned int needed_bits = n * 9U;
           unsigned int needed_bytes
               = needed_bits <= *nbits ? 0U
-                : (needed_bits - *nbits + 7U) / 8U;
+                                      : (needed_bits - *nbits + 7U) / 8U;
 
           if (needed_bytes
               && !read_exact (in, raw, (size_t)needed_bytes))
@@ -11165,7 +11164,7 @@ encode_file (FILE *in, FILE *out, unsigned int mode, unsigned long elements,
               unsigned int target_bits = BLOCK_N * 9U;
               unsigned int target_bytes
                   = target_bits <= nbits ? 0U
-                    : (target_bits - nbits + 7U) / 8U;
+                                         : (target_bits - nbits + 7U) / 8U;
               unsigned long available_bits;
 
               if (!read_some (in, e.stage, (size_t)target_bytes, &input_bytes))
