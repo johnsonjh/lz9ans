@@ -77,7 +77,7 @@ def build(binary, work):
         ("pthread_attr_destroy", "lz9_test_pthread_attr_destroy"),
         ("sysconf", "lz9_test_sysconf"),
     )
-    app_command = cc + cflags + thread_cflags + ["-DLZ9ANS_PTHREADS"]
+    app_command = cc + cflags + thread_cflags + ["-DLZ9ANS_PTHREAD"]
     app_command += [f"-D{name}={alias}" for name, alias in aliases]
     app_command += ["-c", str(SOURCE), "-o", str(app_object)]
     run(app_command)

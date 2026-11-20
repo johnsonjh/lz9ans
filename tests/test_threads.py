@@ -54,7 +54,7 @@ def build(binary, threaded):
     thread_ldflags = shlex.split(os.environ.get("THREAD_LDFLAGS", "-pthread"))
     command = cc + cflags
     if threaded and backend == "pthreads":
-        command += ["-DLZ9ANS_PTHREADS"] + thread_cflags
+        command += ["-DLZ9ANS_PTHREAD"] + thread_cflags
     elif threaded:
         command += ["-DLZ9ANS_WINTHREAD"]
     command += ["-o", str(binary), str(SOURCE)] + ldflags

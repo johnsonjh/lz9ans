@@ -11,7 +11,7 @@ THREADS ?= none
 ##############################################################################
 
 ifeq ($(THREADS),pthreads)
-  THREAD_DEFS = -DLZ9ANS_PTHREADS
+  THREAD_DEFS = -DLZ9ANS_PTHREAD
   THREAD_CFLAGS ?= -pthread
   THREAD_LDFLAGS ?= -pthread
 else ifeq ($(THREADS),winthread)
@@ -160,7 +160,7 @@ oracle: lz9ans.c crc32_hw.h
 		-errtags -D_ALL_SOURCE -D_GNU_SOURCE lz9ans.c
 	/opt/oracle/developerstudio12.6/bin/lint -O -D__ORACLE_LINT -fd \
 		-std=c89 -XCC=no -errchk=structarg,parentheses,locfmtchk \
-		-errtags -D_ALL_SOURCE -D_GNU_SOURCE -DLZ9ANS_PTHREADS lz9ans.c
+		-errtags -D_ALL_SOURCE -D_GNU_SOURCE -DLZ9ANS_PTHREAD lz9ans.c
 
 ##############################################################################
 
@@ -183,7 +183,7 @@ lint: lz9ans.c crc32_hw.h
 		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
 	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
 		-Wno-missing-noreturn -Wno-padded -Wno-overlength-strings \
-		-Werror -D_ALL_SOURCE -D_GNU_SOURCE -DLZ9ANS_PTHREADS lz9ans.c \
+		-Werror -D_ALL_SOURCE -D_GNU_SOURCE -DLZ9ANS_PTHREAD lz9ans.c \
 		$${EXTRA_LDFLAGS:-} $(LDFLAGS) -pthread -lm
 	$(MAKE) pvs-studio
 	$(MAKE) clean

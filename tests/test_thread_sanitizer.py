@@ -55,7 +55,7 @@ def main():
         command = (
             cc
             + cflags
-            + ["-DLZ9ANS_PTHREADS", "-fsanitize=thread", "-fno-omit-frame-pointer"]
+            + ["-DLZ9ANS_PTHREAD", "-fsanitize=thread", "-fno-omit-frame-pointer"]
             + thread_cflags
             + ["-o", str(binary), str(SOURCE)]
             + ldflags

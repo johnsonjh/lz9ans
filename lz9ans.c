@@ -9,7 +9,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.34 (2026-11-20)"
+#define LZ9VER "v0.9.35 (2026-11-20)"
 
 /*****************************************************************************/
 
@@ -32,29 +32,29 @@
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS) && defined(LZ9ANS_WINTHREAD)
-# error Both LZ9ANS_PTHREADS and LZ9ANS_WINTHREAD defined
-#endif /* if defined(LZ9ANS_PTHREADS) && defined(LZ9ANS_WINTHREAD) */
+#if defined(LZ9ANS_PTHREAD) && defined(LZ9ANS_WINTHREAD)
+# error Both LZ9ANS_PTHREAD and LZ9ANS_WINTHREAD defined
+#endif /* if defined(LZ9ANS_PTHREAD) && defined(LZ9ANS_WINTHREAD) */
 
 /*****************************************************************************/
 
 #if defined(LZ9ANS_WINTHREAD) && !defined(_WIN32) \
     && !defined(_WIN64)
-# error LZ9ANS_WINTHREAD requires a Windows target (_WIN32 or _WIN64)
+# error LZ9ANS_WINTHREAD requires a Windows target
 #endif /* if defined(LZ9ANS_WINTHREAD) && !defined(_WIN32) \
           && !defined(_WIN64) */
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS) || defined(LZ9ANS_WINTHREAD)
+#if defined(LZ9ANS_PTHREAD) || defined(LZ9ANS_WINTHREAD)
 # define LZ9ANS_THREADED 1
-#endif /* if defined(LZ9ANS_PTHREADS) || defined(LZ9ANS_WINTHREAD) */
+#endif /* if defined(LZ9ANS_PTHREAD) || defined(LZ9ANS_WINTHREAD) */
 
 /*****************************************************************************/
 
-#if defined(LZ9ANS_PTHREADS)
+#if defined(LZ9ANS_PTHREAD)
 # include <pthread.h>
-#endif /* if defined(LZ9ANS_PTHREADS) */
+#endif /* if defined(LZ9ANS_PTHREAD) */
 
 /*****************************************************************************/
 
@@ -727,7 +727,7 @@ typedef struct
 
 /*****************************************************************************/
 
-# if defined(LZ9ANS_PTHREADS)
+# if defined(LZ9ANS_PTHREAD)
 typedef pthread_mutex_t lz9_mutex_t;
 typedef pthread_cond_t lz9_cond_t;
 typedef pthread_t lz9_thread_t;
@@ -774,7 +774,7 @@ lz9_winthread_wait_close (lz9_thread_t thread)
       lz9_winthread_fatal ("CloseHandle", GetLastError ());
     }
 }
-# endif /* if defined(LZ9ANS_PTHREADS) */
+# endif /* if defined(LZ9ANS_PTHREAD) */
 
 /*****************************************************************************/
 
@@ -801,7 +801,7 @@ struct ThreadPool
 
 /*****************************************************************************/
 
-# if defined(LZ9ANS_PTHREADS)
+# if defined(LZ9ANS_PTHREAD)
 #  define lz9_mutex_lock(m) ((void)pthread_mutex_lock ((m)))
 #  define lz9_mutex_unlock(m) ((void)pthread_mutex_unlock ((m)))
 #  define lz9_cond_wait(c, m) ((void)pthread_cond_wait ((c), (m)))
@@ -819,7 +819,7 @@ struct ThreadPool
     } \
   while (never)
 #  define lz9_cond_broadcast(c) WakeAllConditionVariable ((c))
-# endif /* if defined(LZ9ANS_PTHREADS) */
+# endif /* if defined(LZ9ANS_PTHREAD) */
 
 /*****************************************************************************/
 
@@ -1093,10 +1093,10 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
 #if defined(LZ9ANS_THREADED)
   {
     unsigned int desired, cpus, i, effective_max;
-# if defined(LZ9ANS_PTHREADS)
+# if defined(LZ9ANS_PTHREAD)
     pthread_attr_t attr;
     int attr_ready = 0;
-# endif /* if defined(LZ9ANS_PTHREADS) */
+# endif /* if defined(LZ9ANS_PTHREAD) */
 
     cpus = available_processors ();
     desired = limit ? limit : cpus;
@@ -1142,7 +1142,7 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
         goto init_failed;
       }
 
-# if defined(LZ9ANS_PTHREADS)
+# if defined(LZ9ANS_PTHREAD)
     if (pthread_mutex_init (&pool->mutex, (const pthread_mutexattr_t *)0) != 0)
       {
         goto init_failed;
@@ -1232,10 +1232,10 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
       }
 
     return 1;
-# endif /* if defined(LZ9ANS_PTHREADS) */
+# endif /* if defined(LZ9ANS_PTHREAD) */
 
 init_failed:
-# if defined(LZ9ANS_PTHREADS)
+# if defined(LZ9ANS_PTHREAD)
     if (attr_ready)
       {
         int rc = pthread_attr_destroy (&attr);
@@ -1245,7 +1245,7 @@ init_failed:
             lz9_pthread_fatal ("pthread_attr_destroy", rc);
           }
       }
-# endif /* if defined(LZ9ANS_PTHREADS) */
+# endif /* if defined(LZ9ANS_PTHREAD) */
 
     if (pool->mutex_ready)
       {
@@ -1279,7 +1279,7 @@ init_failed:
           }
       }
 
-# if defined(LZ9ANS_PTHREADS)
+# if defined(LZ9ANS_PTHREAD)
     if (pool->work_done_ready)
       {
         int rc = pthread_cond_destroy (&pool->work_done);
@@ -1309,7 +1309,7 @@ init_failed:
             lz9_pthread_fatal ("pthread_mutex_destroy", rc);
           }
       }
-# endif /* if defined(LZ9ANS_PTHREADS) */
+# endif /* if defined(LZ9ANS_PTHREAD) */
 
     free (pool->threads);
     free (pool->workers);
@@ -1569,7 +1569,7 @@ thread_pool_destroy (ThreadPool *pool)
         }
     }
 
-# if defined(LZ9ANS_PTHREADS)
+# if defined(LZ9ANS_PTHREAD)
   if (pool->work_done_ready)
     {
       int rc = pthread_cond_destroy (&pool->work_done);
@@ -1599,7 +1599,7 @@ thread_pool_destroy (ThreadPool *pool)
           lz9_pthread_fatal ("pthread_mutex_destroy", rc);
         }
     }
-# endif /* if defined(LZ9ANS_PTHREADS) */
+# endif /* if defined(LZ9ANS_PTHREAD) */
 
   free (pool->threads);
   free (pool->workers);
