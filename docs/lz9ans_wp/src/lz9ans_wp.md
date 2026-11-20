@@ -1301,7 +1301,8 @@ Additional information and the complete MIT licensed source code is available:
 
 * V. Gopal, E. Ozturk, J. Guilford, G. Wolrich, W. K. Feghali, and M. G. Dixon,
   “**Fast CRC Computation for Generic Polynomials Using `PCLMULQDQ` Instruction**,”
-  [*Intel Corporation, White Paper*, Order No. 323102, Dec. 2009](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf).
+  [*Intel Corporation, White Paper*, Order No. 323102, Dec. 2009](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf),
+  [https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf](https://fossies.org/linux/zlib-ng/doc/crc-pclmulqdq.pdf).
 
 * E. L. Glaser, J. F. Couleur, and G. A. Oliver,
   “**System design of a computer for time–sharing applications**,”
