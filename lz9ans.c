@@ -1134,7 +1134,7 @@ thread_pool_init (ThreadPool *pool, unsigned int limit,
     pool->threads = (lz9_thread_t *)calloc (desired - 1U,
                                             sizeof (lz9_thread_t));
     pool->workers = (ThreadWorker *)calloc (desired - 1U,
-                                             sizeof (ThreadWorker));
+                                            sizeof (ThreadWorker));
     pool->tasks = (ThreadTask *)calloc (task_capacity, sizeof (ThreadTask));
 
     if (!pool->threads || !pool->workers || !pool->tasks)
