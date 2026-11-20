@@ -45,6 +45,8 @@ def build_harness(path, force_32bit=False, bfprt=False):
         [cc]
         + cflags.split()
         + [
+            "-D_ALL_SOURCE",
+            "-D_GNU_SOURCE",
             "-O2",
             "-ansi",
             "-pedantic",

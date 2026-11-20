@@ -23,16 +23,6 @@
 
 /*****************************************************************************/
 
-#undef _ALL_SOURCE
-#define _ALL_SOURCE
-
-/*****************************************************************************/
-
-#undef _GNU_SOURCE
-#define _GNU_SOURCE
-
-/*****************************************************************************/
-
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
@@ -98,17 +88,18 @@
 
 /*****************************************************************************/
 
+#if defined(FREE)
+# undef FREE
+#endif /* if defined(FREE) */
+
 static const int never = 0;
 
-/*****************************************************************************/
-
-#undef FREE
-#define FREE(p) \
-  do \
-    { \
-      free((p)); \
+#define FREE(p)   \
+  do              \
+    {             \
+      free((p));  \
       (p) = NULL; \
-    } \
+    }             \
   while(never)
 
 /*****************************************************************************/
@@ -189,9 +180,11 @@ typedef char lz9_file_offset_type_must_be_64_bits_compile_time_assertion[
 #define DESC_MAX 8192U
 #define BLOCK_PREFIX_N 3U
 #define LZ_BLOCK_HEADER_N 23U
+
 #if defined(LZ9ANS_THREADED)
 # define BLOCK_OUTPUT_MAX (LZ_BLOCK_HEADER_N + DESC_MAX + STAGE_DATA_MAX)
 #endif /* if defined(LZ9ANS_THREADED) */
+
 #define STORED_BLOCK_HEADER_N 7U
 #define FRAME_HEADER_PREFIX_N 13U
 #define FRAME_HEADER_MIN_N 17U
@@ -760,7 +753,6 @@ lz9_winthread_fatal (const char *operation, DWORD error)
 {
   (void)fprintf (stderr, "lz9ans: %s failed (Windows error %lu)\n",
                  operation, (unsigned long)error);
-
   abort ();
 }
 
