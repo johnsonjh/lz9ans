@@ -750,6 +750,7 @@ lz9_winthread_fatal (const char *operation, DWORD error)
 {
   (void)fprintf (stderr, "lz9ans: %s failed (Windows error %lu)\n",
                  operation, (unsigned long)error);
+
   abort ();
 }
 
