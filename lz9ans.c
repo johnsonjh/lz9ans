@@ -88,18 +88,15 @@
 
 /*****************************************************************************/
 
-#if defined(FREE)
-# undef FREE
-#endif /* if defined(FREE) */
-
 static const int never = 0;
 
-#define FREE(p)   \
-  do              \
-    {             \
-      free((p));  \
+#undef FREE
+#define FREE(p) \
+  do \
+    { \
+      free((p)); \
       (p) = NULL; \
-    }             \
+    } \
   while(never)
 
 /*****************************************************************************/
