@@ -33,10 +33,9 @@ header-includes:
 ### Abstract
 
 Most general-purpose compression formats are designed around the assumption
-that their input consists of conventional `8`‑bit bytes.
-
-That assumption is appropriate for contemporary computing environments, but it
-is not universally applicable.
+that their input consists of conventional `8`‑bit bytes.  That assumption is
+appropriate for contemporary computing environments, but it is not universally
+applicable.
 
 Historical and specialized architectures frequently use different logical data
 widths, and systems built around `36`‑bit words present a particularly
