@@ -6041,7 +6041,9 @@ parse_block (Encoder *e)
   unsigned int pos = e->window_n, end = e->window_n + e->n;
   unsigned int litstart = pos, k, length, distance;
   unsigned int pos_hash, next_hash = 0, cached_hash = 0;
-  int have_cached_hash = 0;
+  unsigned int cached_length = 0, cached_distance = 0;
+  long cached_gain = 0;
+  int have_cached_hash = 0, have_cached_match = 0;
   long gain = 0;
 
   e->sn = 0;
@@ -6095,8 +6097,19 @@ parse_block (Encoder *e)
         }
 
       have_next_hash = 0;
-      find_match (e, pos, end, pos - litstart, pos_hash, &length, &distance,
-                  &gain);
+
+      if (have_cached_match)
+        {
+          length = cached_length;
+          distance = cached_distance;
+          gain = cached_gain;
+          have_cached_match = 0;
+        }
+      else
+        {
+          find_match (e, pos, end, pos - litstart, pos_hash, &length,
+                      &distance, &gain);
+        }
 
       if (e->lazy && length >= 3 && length < max_lazy && pos + 3U < end)
         {
@@ -6105,6 +6118,7 @@ parse_block (Encoder *e)
 
           next_hash = hash3 (e->buffer + pos + 1U);
           have_next_hash = 1;
+
           find_match (e, pos + 1U, end, pos + 1U - litstart, next_hash,
                       &nextlen, &nextdist, &nextgain);
 
@@ -6122,6 +6136,14 @@ parse_block (Encoder *e)
               ++pos;
               cached_hash = next_hash;
               have_cached_hash = 1;
+
+              if (pos_hash != next_hash)
+                {
+                  cached_length = nextlen;
+                  cached_distance = nextdist;
+                  cached_gain = nextgain;
+                  have_cached_match = 1;
+                }
 
               continue;
             }
