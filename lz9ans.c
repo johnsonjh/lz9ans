@@ -433,7 +433,6 @@ clamp_thread_limit (unsigned int limit)
 
 /*****************************************************************************/
 
-/* The 64-bit lane comparison assumes 64-bit little-endian symbol storage. */
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__amd64__) \
     || defined(__aarch64__)) && !defined(__CPPCHECK__) && !defined(__LINT__) \
     && !defined(LZ9ANS_DISABLE_64BIT_MATCH_FASTPATH)
@@ -5754,9 +5753,12 @@ chain_index_range (Encoder *e, unsigned int from, unsigned int to)
 static HOT LZ9_ALWAYS_INLINE void
 consider_match (const Encoder *e, unsigned int pos, unsigned int max,
                 unsigned long base_ll_price,
-                unsigned int cand, unsigned int p0, unsigned int p1,
-                unsigned int p2, unsigned int *best, unsigned int *distance,
-                long *best_gain)
+                unsigned int cand,
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
+                lz9_u64 current_word,
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
+                unsigned int p0, unsigned int p1, unsigned int p2,
+                unsigned int *best, unsigned int *distance, long *best_gain)
 {
   const unsigned short *buf = e->buffer;
   unsigned int k;
@@ -5764,11 +5766,10 @@ consider_match (const Encoder *e, unsigned int pos, unsigned int max,
 #if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
   if (max >= 4U)
     {
-      lz9_u64 a, b, diff;
+      lz9_u64 a, diff;
 
       (void)memcpy (&a, buf + cand, sizeof (a));
-      (void)memcpy (&b, buf + pos, sizeof (b));
-      diff = a ^ b;
+      diff = a ^ current_word;
 
       if (diff)
         {
@@ -5912,6 +5913,9 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
   unsigned long base_ll_price = 0;
   const unsigned short *buf;
   unsigned int p0, p1, p2, i;
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
+  lz9_u64 current_word = 0;
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
   unsigned int history_start = e->window_n - e->hlen;
 
   if (pos + 2U >= end)
@@ -5956,9 +5960,19 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
     }
 
   buf = e->buffer;
-  p0 = buf[pos];
-  p1 = buf[pos + 1U];
-  p2 = buf[pos + 2U];
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
+  if (max >= 4U)
+    {
+      (void)memcpy (&current_word, buf + pos, sizeof (current_word));
+      p0 = p1 = p2 = 0U;
+    }
+  else
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
+    {
+      p0 = buf[pos];
+      p1 = buf[pos + 1U];
+      p2 = buf[pos + 2U];
+    }
 
   if (e->use_cost)
     {
@@ -5972,6 +5986,9 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
       if (rep && rep <= pos - history_start)
         {
           consider_match (e, pos, max, base_ll_price, pos - rep,
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
+                          current_word,
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
                           p0, p1, p2, &best, &d, &best_gain);
         }
     }
@@ -5993,6 +6010,9 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
         }
 
       consider_match (e, pos, max, base_ll_price, cand,
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
+                      current_word,
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
                       p0, p1, p2, &best, &d, &best_gain);
 
       if (!e->use_cost && best == max)
