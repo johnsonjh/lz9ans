@@ -6,7 +6,7 @@
 title: LZ9ANS
 subtitle: A High-Performance Modern 9-bit Compression Architecture
 author: Jeffrey H. Johnson
-date: DRAFT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;November 20th 2026&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;DRAFT
+date: DRAFT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;November 21th 2026&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;DRAFT
 documentclass: extarticle
 fontsize: 10pt
 classoption:
@@ -29,6 +29,8 @@ header-includes:
 \hyphenation{Implementations}
 \hyphenation{Normalization}
 \hyphenation{REDUCE}
+
+### Abstract
 
 Most general-purpose compression formats are designed around the assumption
 that their input consists of conventional `8`‑bit bytes.
