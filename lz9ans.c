@@ -5996,32 +5996,65 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
   pos_a = pos + e->base;
   cand_a = (unsigned int)e->head[pos_hash];
 
-  while (checks < (int)e->search_depth && cand_a < pos_a
-         && pos_a <= cand_a + e->window_n)
+  if (e->use_cost)
     {
-      const unsigned int cand = cand_a - e->base;
+      const unsigned int link_mask = e->window_n - 1U;
 
-      if (best >= 3U && best < max && buf[cand + best] != buf[pos + best])
+      while (checks < (int)e->search_depth && cand_a < pos_a
+             && pos_a <= cand_a + e->window_n)
         {
+          const unsigned int slot = cand_a & link_mask;
+          const unsigned int cand = cand_a - e->base;
+          unsigned int next_cand_a;
+
+          if (best >= 3U && best < max
+              && buf[cand + best] != buf[pos + best])
+            {
+              cand_a = (unsigned int)e->link[slot];
+              ++checks;
+              continue;
+            }
+
+          next_cand_a = (unsigned int)e->link[slot];
+          consider_match (e, pos, max, base_ll_price, cand,
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
+                          current_word,
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
+                          p0, p1, p2, &best, &d, &best_gain);
+
+          cand_a = next_cand_a;
+          ++checks;
+        }
+    }
+  else
+    {
+      while (checks < (int)e->search_depth && cand_a < pos_a
+             && pos_a <= cand_a + e->window_n)
+        {
+          const unsigned int cand = cand_a - e->base;
+
+          if (best >= 3U && best < max
+              && buf[cand + best] != buf[pos + best])
+            {
+              cand_a = (unsigned int)e->link[cand_a & (e->window_n - 1U)];
+              ++checks;
+              continue;
+            }
+
+          consider_match (e, pos, max, base_ll_price, cand,
+#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
+                          current_word,
+#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
+                          p0, p1, p2, &best, &d, &best_gain);
+
+          if (best == max)
+            {
+              break;
+            }
+
           cand_a = (unsigned int)e->link[cand_a & (e->window_n - 1U)];
           ++checks;
-
-          continue;
         }
-
-      consider_match (e, pos, max, base_ll_price, cand,
-#if defined(LZ9ANS_64BIT_MATCH_FASTPATH)
-                      current_word,
-#endif /* if defined(LZ9ANS_64BIT_MATCH_FASTPATH) */
-                      p0, p1, p2, &best, &d, &best_gain);
-
-      if (!e->use_cost && best == max)
-        {
-          break;
-        }
-
-      cand_a = (unsigned int)e->link[cand_a & (e->window_n - 1U)];
-      ++checks;
     }
 
   if (best < 3U && e->use_cost && e->min_match == MIN_MATCH_SHORT)
