@@ -1259,8 +1259,8 @@ validation, parallelism, and hardware implementation.
 
 ### Acknowledgments
 
-The author gratefully acknowledges the use of the “**REDUCE Computer Algebra
-System**”, which was instrumental in the prototyping, design evaluation, and
+The author gratefully acknowledges the use of the **REDUCE Computer Algebra
+System**, which was instrumental in the prototyping, design evaluation, and
 early testing phases of this work.
 
 ### More Information
