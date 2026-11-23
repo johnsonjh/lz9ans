@@ -89,20 +89,25 @@
 # if defined(_MSC_VER)
 #  include <intrin.h>
 # endif /* if defined(_MSC_VER) */
-# define LZ9_SET_BINARY_MODE(f) (void)_setmode (_fileno (f), _O_BINARY)
+# define LZ9_SET_BINARY_MODE(f) _setmode (_fileno (f), _O_BINARY)
 #elif defined(__unix__) || defined(__APPLE__) || defined(__linux__)
 # include <fcntl.h>
 # include <sys/stat.h>
 # include <sys/types.h>
 # include <unistd.h>
-# define LZ9_SET_BINARY_MODE(f) (void)(f)
+# define LZ9_SET_BINARY_MODE(f) ((void)(f), 0)
 #elif defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS)
 # include <fcntl.h>
 # include <io.h>
+# if defined(__DJGPP__)
+#  include <sys/exceptn.h>
+#  include <sys/stat.h>
+#  include <sys/types.h>
+# endif /* if defined(__DJGPP__) */
 # include <unistd.h>
-# define LZ9_SET_BINARY_MODE(f) (void)setmode (fileno (f), O_BINARY)
+# define LZ9_SET_BINARY_MODE(f) setmode (fileno (f), O_BINARY)
 #else
-# define LZ9_SET_BINARY_MODE(f) (void)(f)
+# define LZ9_SET_BINARY_MODE(f) ((void)(f), 0)
 #endif /* if defined(_WIN32) || defined(_WIN64) */
 
 /*****************************************************************************/
@@ -132,6 +137,10 @@ __extension__ typedef long long LZ9FileOffset;
 #elif defined(__unix__) || defined(__APPLE__) || defined(__linux__)
 typedef off_t LZ9FileSize;
 typedef off_t LZ9FileOffset;
+# define LZ9_HAS_64BIT_FILE_SIZE 1
+#elif defined(__DJGPP__)
+__extension__ typedef unsigned long long LZ9FileSize;
+__extension__ typedef long long LZ9FileOffset;
 # define LZ9_HAS_64BIT_FILE_SIZE 1
 #else
 typedef unsigned long LZ9FileSize;
@@ -11948,6 +11957,19 @@ file_size (FILE *in, LZ9FileSize *size)
   *size = (LZ9FileSize)bytes;
 
   return 1;
+#elif defined(__DJGPP__)
+  long long bytes;
+
+  bytes = lfilelength (fileno (in));
+
+  if (bytes < 0LL)
+    {
+      return 0;
+    }
+
+  *size = (LZ9FileSize)bytes;
+
+  return 1;
 #else
   long bytes;
 
@@ -12169,12 +12191,108 @@ open_output_file (FILE *input, const char *path, int check_input,
 
     return out;
   }
+#elif defined(__DJGPP__)
+  {
+    int fd;
+    FILE *out;
+
+    fd = open (path, O_WRONLY | O_CREAT | O_BINARY, (mode_t)0666);
+
+    if (fd < 0)
+      {
+        return (FILE *)0;
+      }
+
+    {
+      struct stat output_stat;
+
+      if (fstat (fd, &output_stat) != 0)
+        {
+          int saved_errno = errno;
+
+          (void)close (fd);
+          errno = saved_errno;
+
+          return (FILE *)0;
+        }
+
+      if (check_input)
+        {
+          struct stat input_stat;
+
+          if (fstat (fileno (input), &input_stat) != 0)
+            {
+              int saved_errno = errno;
+
+              (void)close (fd);
+              errno = saved_errno;
+
+              return (FILE *)0;
+            }
+
+          if (input_stat.st_dev == output_stat.st_dev
+              && input_stat.st_ino == output_stat.st_ino)
+            {
+              (void)close (fd);
+              *same_file = 1;
+              errno = EINVAL;
+
+              return (FILE *)0;
+            }
+        }
+
+      if (S_ISREG (output_stat.st_mode) && ftruncate (fd, 0L) != 0)
+        {
+          int saved_errno = errno;
+
+          (void)close (fd);
+          errno = saved_errno;
+
+          return (FILE *)0;
+        }
+    }
+
+    out = fdopen (fd, "wb");
+
+    if (!out)
+      {
+        int saved_errno = errno;
+
+        (void)close (fd);
+        errno = saved_errno;
+
+        return (FILE *)0;
+      }
+
+    return out;
+  }
 #else
   (void)input;
   (void)check_input;
 
   return fopen (path, "wb");
 #endif /* if defined(_WIN32) || defined(_WIN64) */
+}
+
+/*****************************************************************************/
+
+static int
+set_binary_mode (FILE *stream)
+{
+  if (LZ9_SET_BINARY_MODE (stream) < 0)
+    {
+      /*NOTREACHED*/ /* unreachable */
+      return 0;
+    }
+
+#if defined(__DJGPP__)
+  if (isatty (fileno (stream)))
+    {
+      (void)__djgpp_set_ctrl_c (1);
+    }
+#endif /* if defined(__DJGPP__) */
+
+  return 1;
 }
 
 /*****************************************************************************/
@@ -12757,9 +12875,11 @@ main (int argc, char **argv)
       return 2;
     }
 
-  if (input_is_stdio)
+  if (input_is_stdio && !set_binary_mode (in))
     {
-      LZ9_SET_BINARY_MODE (in);
+      perror ("stdin");
+
+      return 2;
     }
 
 #if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
@@ -12865,9 +12985,28 @@ main (int argc, char **argv)
       return 2;
     }
 
-  if (output_is_stdio)
+  if (output_is_stdio && !set_binary_mode (out))
     {
-      LZ9_SET_BINARY_MODE (out);
+      perror ("stdout");
+
+      if (!input_is_stdio)
+        {
+          (void)fclose (in);
+        }
+
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+      if (in_buf)
+        {
+          if (input_is_stdio)
+            {
+              (void)setvbuf (stdin, (char *)0, _IONBF, 0);
+            }
+
+          FREE (in_buf);
+        }
+#endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
+
+      return 2;
     }
 
 #if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
