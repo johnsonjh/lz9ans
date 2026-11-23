@@ -11,7 +11,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.41 (2026-11-23)"
+#define LZ9VER "v0.9.42 (2026-11-23)"
 
 /*****************************************************************************/
 
@@ -12230,7 +12230,8 @@ open_output_file (FILE *input, const char *path, int check_input,
               return (FILE *)0;
             }
 
-          if (input_stat.st_dev == output_stat.st_dev
+          if (S_ISREG (input_stat.st_mode) && S_ISREG (output_stat.st_mode)
+              && input_stat.st_dev == output_stat.st_dev
               && input_stat.st_ino == output_stat.st_ino)
             {
               (void)close (fd);
@@ -12950,7 +12951,7 @@ main (int argc, char **argv)
     }
 
   out = output_is_stdio ? stdout
-                        : open_output_file (in, argv[3], !input_is_stdio,
+                        : open_output_file (in, argv[3], 1,
                                             &output_is_same_file);
 
   if (!out)

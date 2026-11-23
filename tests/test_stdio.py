@@ -244,6 +244,89 @@ def exercise_path_aliases(binary, directory):
             )
 
 
+def exercise_stdin_output_aliases(binary, directory):
+    """Reject output files that alias the file redirected to stdin."""
+
+    def expect_rejected(arguments, input_path, output_path, original, label):
+        with input_path.open("rb") as source:
+            result = subprocess.run(
+                [binary] + [str(argument) for argument in arguments],
+                stdin=source,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+                check=False,
+            )
+
+        if result.returncode == 0:
+            raise AssertionError(
+                label + ": CLI accepted an output file identical to redirected stdin"
+            )
+        diagnostic = result.stderr.decode("utf-8", "replace")
+        if "same file" not in diagnostic.lower():
+            raise AssertionError(
+                label
+                + ": rejection did not identify the input/output alias: "
+                + diagnostic
+            )
+        if output_path.read_bytes() != original:
+            raise AssertionError(
+                label + ": CLI modified the file supplying redirected stdin"
+            )
+
+    # Compression, byte mode: the output pathname is exactly the stdin file.
+    byte_path = directory / "stdin-output-alias-c8.bin"
+    byte_data = bytes(range(256)) * 3 + b"stdin alias regression\n"
+    byte_path.write_bytes(byte_data)
+    expect_rejected(
+        ["c8", "-", byte_path, "-1"],
+        byte_path,
+        byte_path,
+        byte_data,
+        "c8 same-path",
+    )
+
+    # Compression, packed-9 mode: use a hard link as the output pathname.
+    # This verifies descriptor identity rather than only textual path equality.
+    nine_path = directory / "stdin-output-alias-c9.bin"
+    nine_alias = directory / "stdin-output-alias-c9-hardlink.bin"
+    nine_data = pack9([0, 1, 255, 256, 511, 17, 33, 99, 400] * 37)
+    nine_path.write_bytes(nine_data)
+    try:
+        os.link(nine_path, nine_alias)
+    except (NotImplementedError, OSError) as error:
+        raise AssertionError(
+            "test environment cannot create hard links for stdin alias test: "
+            + str(error)
+        )
+    expect_rejected(
+        ["c9", "-", nine_alias, "-1"],
+        nine_path,
+        nine_alias,
+        nine_data,
+        "c9 hard-link alias",
+    )
+    nine_alias.unlink()
+
+    # Decompression: the input is a valid LZ9ANS frame, and the output is the
+    # same file.  The identity check must happen before any output truncation.
+    plain_path = directory / "stdin-output-alias-decoder-source.bin"
+    frame_path = directory / "stdin-output-alias-decoder-frame.lz9a"
+    decode_path = directory / "stdin-output-alias-decoder.lz9a"
+    plain_data = b"valid compressed input must survive redirected-stdin decode\n"
+    plain_path.write_bytes(plain_data)
+    invoke(binary, ["c8", plain_path, frame_path, "-1"])
+    frame_data = frame_path.read_bytes()
+    decode_path.write_bytes(frame_data)
+    expect_rejected(
+        ["d", "-", decode_path],
+        decode_path,
+        decode_path,
+        frame_data,
+        "decode same-path",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bin", default="./lz9ans")
@@ -278,6 +361,7 @@ def main():
                 )
 
         exercise_path_aliases(binary, directory)
+        exercise_stdin_output_aliases(binary, directory)
 
         # Noncanonical packed-9 EOF padding and an incomplete symbol must fail.
         valid_one = bytearray(pack9([1]))
