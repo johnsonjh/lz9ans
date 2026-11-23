@@ -11,7 +11,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.40 (2026-11-23)"
+#define LZ9VER "v0.9.41 (2026-11-23)"
 
 /*****************************************************************************/
 
@@ -4838,7 +4838,7 @@ norm_active_kl_with_scratch (const unsigned int *counts,
 
 #if defined(LZ9ANS_TEST_NORMALIZER)
 static int
-norm_active_kl ( /*cppcheck-suppress unusedFunction */
+norm_active_kl ( /*cppcheck-suppress unusedFunction*/
                 const unsigned int *counts, const unsigned int *idx,
                 unsigned int active, unsigned int total,
                 unsigned short *freq)
