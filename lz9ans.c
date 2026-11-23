@@ -1,3 +1,5 @@
+/*****************************************************************************/
+
 /*
  * LZ9ANS
  * Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
@@ -9,7 +11,15 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.38 (2026-11-22)"
+#define LZ9VER "v0.9.39-dev (2026-11-23)"
+
+/*****************************************************************************/
+
+#if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS)
+# undef __unix__
+# undef __unix
+# undef unix
+#endif /* if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS) */
 
 /*****************************************************************************/
 
@@ -79,11 +89,20 @@
 # if defined(_MSC_VER)
 #  include <intrin.h>
 # endif /* if defined(_MSC_VER) */
+# define LZ9_SET_BINARY_MODE(f) (void)_setmode (_fileno (f), _O_BINARY)
 #elif defined(__unix__) || defined(__APPLE__) || defined(__linux__)
 # include <fcntl.h>
 # include <sys/stat.h>
 # include <sys/types.h>
 # include <unistd.h>
+# define LZ9_SET_BINARY_MODE(f) (void)(f)
+#elif defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS)
+# include <fcntl.h>
+# include <io.h>
+# include <unistd.h>
+# define LZ9_SET_BINARY_MODE(f) (void)setmode (fileno (f), O_BINARY)
+#else
+# define LZ9_SET_BINARY_MODE(f) (void)(f)
 #endif /* if defined(_WIN32) || defined(_WIN64) */
 
 /*****************************************************************************/
@@ -12511,6 +12530,10 @@ main (int argc, char **argv)
   unsigned int window_n = WINDOW_DEFAULT;
   unsigned int features, thread_limit = 0U;
 
+#if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS)
+  _fmode = O_BINARY;
+#endif /* if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS) */
+
   if (argc >= 2
       && (!strcmp (argv[1], "--memory")
           || !strcmp (argv[1], "--memory-32k")
@@ -12734,6 +12757,11 @@ main (int argc, char **argv)
       return 2;
     }
 
+  if (input_is_stdio)
+    {
+      LZ9_SET_BINARY_MODE (in);
+    }
+
 #if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
   in_buf = (char *)malloc (POSIX_STDIO_BUFFER_N);
 
@@ -12835,6 +12863,11 @@ main (int argc, char **argv)
 #endif /* if defined(__unix__) || defined(__APPLE__) || defined(__linux__) */
 
       return 2;
+    }
+
+  if (output_is_stdio)
+    {
+      LZ9_SET_BINARY_MODE (out);
     }
 
 #if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
