@@ -15,6 +15,29 @@
 
 /*****************************************************************************/
 
+#if !defined(_ALL_SOURCE)
+# define _ALL_SOURCE /**/
+#endif /* if !defined(_ALL_SOURCE) */
+
+/*****************************************************************************/
+
+#if !defined(_GNU_SOURCE)
+# define _GNU_SOURCE /**/
+#endif /* if !defined(_GNU_SOURCE) */
+
+/*****************************************************************************/
+
+#if defined(__IMPORTC__)
+# if !defined(LZ9ANS_NO_CRC32_HW)
+#  define LZ9ANS_NO_CRC32_HW /**/
+# endif /* if !defined(LZ9ANS_NO_CRC32_HW) */
+# if defined(__SIZEOF_INT128__)
+#  undef __SIZEOF_INT128__
+# endif /* if defined(__SIZEOF_INT128__) */
+#endif /* if defined(__IMPORTC__) */
+
+/*****************************************************************************/
+
 #if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS)
 # undef __unix__
 # undef __unix
