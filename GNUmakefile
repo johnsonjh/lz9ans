@@ -206,7 +206,7 @@ pvs pvs-studio:
 
 clean:
 	rm -f lz9ans lz9ans.exe lz9ans-pthread lz9ans_asan lz9ans_asan.exe \
-		a.out a.exe || :
+		lz9ans.o lz9ans.obj a.out a.exe || :
 	rm -f FORCE log.pvs compile_commands.json .build-config || :
 	rm -f -r tests/__pycache__ pvsreport > /dev/null 2>&1 || :
 
