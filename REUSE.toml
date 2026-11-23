@@ -10,11 +10,15 @@ SPDX-PackageName = "lz9ans"
 SPDX-PackageSupplier = "Jeffrey H. Johnson <johnsonjh.dev@gmail.com>"
 SPDX-PackageDownloadLocation = "https://github.com/johnsonjh/lz9ans"
 
+###############################################################################
+
 [[annotations]]
 path = ["vectors/**","docs/**/*.pdf"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2025-2026 Jeffrey H. Johnson"
 SPDX-License-Identifier = "MIT"
+
+###############################################################################
 
 [[annotations]]
 path = ["corpus/9bit_corpus.tar.lz"]

@@ -1,10 +1,14 @@
+#############################################################################
 # EditorConfig: https://editorconfig.org/
 # Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
 # Copyright (c) 2025-2026 The DPS8M Development Team
 # SPDX-License-Identifier: MIT
 # scspell-id: e83825a2-df71-11f1-b7d5-80ee73e9b8e7
+#############################################################################
 
 root = true
+
+#############################################################################
 
 [*.{c,h}]
 charset = utf-8
@@ -14,6 +18,8 @@ insert_final_newline = true
 max_line_length = 79
 trim_trailing_whitespace = true
 
+#############################################################################
+
 [*.sh]
 charset = utf-8
 end_of_line = lf
@@ -22,6 +28,8 @@ insert_final_newline = true
 max_line_length = 79
 trim_trailing_whitespace = true
 
+#############################################################################
+
 [GNUmakefile]
 charset = utf-8
 end_of_line = lf
@@ -29,11 +37,15 @@ insert_final_newline = true
 max_line_length = 78
 trim_trailing_whitespace = true
 
+#############################################################################
+
 [*.{md,editorconfig}]
 charset = utf-8
 end_of_line = lf
 indent_style = space
 trim_trailing_whitespace = true
+
+#############################################################################
 
 [/vectors/**]
 charset = unset

@@ -1,3 +1,5 @@
+/*****************************************************************************/
+
 /*
  * LZ9ANS - CRC-32/ISO-HDLC hardware acceleration
  * Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>

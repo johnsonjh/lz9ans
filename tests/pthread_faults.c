@@ -1,3 +1,5 @@
+/*****************************************************************************/
+
 /*
  * LZ9ANS - Pthread fault test
  * Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>
