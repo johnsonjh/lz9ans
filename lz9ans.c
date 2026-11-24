@@ -12614,6 +12614,8 @@ print_usage (FILE *stream, const char * const progname)
           "  -L, --license     "
           "show the license terms and conditions and exit\n");
   (void)fprintf (stream,
+          "  -V, --version     show program version and exit\n");
+  (void)fprintf (stream,
           "  -h, --help        show this help text and exit\n");
 
 #undef COMPILER_WARNING
@@ -12664,6 +12666,26 @@ print_license (void)
         {
           return 1;
         }
+    }
+
+  if (fflush (stream) == EOF)
+    {
+      return 1;
+    }
+
+  return 0;
+}
+
+/*****************************************************************************/
+
+static int
+print_version (void)
+{
+  FILE *stream = stdout;
+
+  if (fprintf (stream, "%s %s\n", LZ9NAME, LZ9VER) < 0)
+    {
+      return 1;
     }
 
   if (fflush (stream) == EOF)
@@ -12899,16 +12921,33 @@ main (int argc, char **argv)
   int output_is_same_file = 0;
   unsigned int window_n = WINDOW_DEFAULT;
   unsigned int features, thread_limit = 0U;
-  const char * const progname =
-      (((char **)0 != argv && (char *)0 != argv [0] && '\0' != * argv [0])
-       ? ('\0' == argv [0] [1] ? LZ9NAME : argv [0]) : LZ9NAME);
+  const char *progname;
+
+  if (argc < 0 || (char **)0 == argv)
+    {
+      (void)fprintf (stderr, "Invalid argument vector.\n");
+
+      return 2;
+    }
+
+  for (i = 0; i < argc; ++i)
+    {
+      if ((char *)0 == argv[i])
+        {
+          (void)fprintf (stderr, "Invalid argument vector.\n");
+
+          return 2;
+        }
+    }
+
+  progname = (argc > 0 && '\0' != *argv[0])
+                 ? ('\0' == argv[0][1] ? LZ9NAME : argv[0]) : LZ9NAME;
 
 #if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS)
   _fmode = O_BINARY;
 #endif /* if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS) */
 
-  if (argc >= 2
-      && (!strcmp (argv[1], "-L") || !strcmp (argv[1], "--license")))
+  if (argc >= 2 && (!strcmp (argv[1], "-L") || !strcmp (argv[1], "--license")))
     {
       if (argc != 2)
         {
@@ -12921,6 +12960,19 @@ main (int argc, char **argv)
       return print_license () ? 1 : 0;
     }
 
+  if (argc >= 2 && (!strcmp (argv[1], "-V") || !strcmp (argv[1], "--version")))
+    {
+      if (argc != 2)
+        {
+          (void)fprintf (stderr,
+                  "The '--version' option is only valid in isolation.\n");
+
+          return 2;
+        }
+
+      return print_version () ? 1 : 0;
+    }
+
   if (argc >= 2
       && (!strcmp (argv[1], "--memory") || !strcmp (argv[1], "--memory-32k")
           || !strcmp (argv[1], "--memory-64k")))
@@ -12931,6 +12983,14 @@ main (int argc, char **argv)
             {
               (void)fprintf (stderr,
                   "The '--license' option is only valid in isolation.\n");
+
+              return 2;
+            }
+
+          if (!strcmp (argv[i], "-V") || !strcmp (argv[i], "--version"))
+            {
+              (void)fprintf (stderr,
+                  "The '--version' option is only valid in isolation.\n");
 
               return 2;
             }
@@ -12948,6 +13008,14 @@ main (int argc, char **argv)
 
               return 2;
             }
+
+          if (!strcmp (argv[i], "-V") || !strcmp (argv[i], "--version"))
+            {
+              (void)fprintf (stderr,
+                  "The '--version' option is only valid in isolation.\n");
+
+              return 2;
+            }
         }
     }
   else if (argc >= 2
@@ -12960,6 +13028,14 @@ main (int argc, char **argv)
             {
               (void)fprintf (stderr,
                   "The '--license' option is only valid in isolation.\n");
+
+              return 2;
+            }
+
+          if (!strcmp (argv[i], "-V") || !strcmp (argv[i], "--version"))
+            {
+              (void)fprintf (stderr,
+                  "The '--version' option is only valid in isolation.\n");
 
               return 2;
             }

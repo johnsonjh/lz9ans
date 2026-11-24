@@ -361,6 +361,7 @@ def check_options(serial, threaded, cpu_count):
                 assert b"-w, --window=W" in help_result.stdout
                 assert b"-h, --help" in help_result.stdout
                 assert b"-L, --license" in help_result.stdout
+                assert b"-V, --version" in help_result.stdout
                 if threaded_build:
                     assert b"-T, --threads=N" in help_result.stdout
                 else:
@@ -372,11 +373,35 @@ def check_options(serial, threaded, cpu_count):
             assert b"Usage:" in help_after_operands.stdout
 
         expected_license = (ROOT / "LICENSE").read_bytes()
+        source_text = SOURCE.read_text(encoding="utf-8")
+        version_match = re.search(
+            r'^#define LZ9VER "([^"\n]+)"$', source_text, re.MULTILINE
+        )
+        name_match = re.search(
+            r'^#define LZ9NAME "([^"\n]+)"$', source_text, re.MULTILINE
+        )
+        assert version_match is not None and name_match is not None
+        expected_version = f"{name_match.group(1)} {version_match.group(1)}\n".encode()
         for binary in (serial, threaded):
             for option in ("-L", "--license"):
                 license_result = run([str(binary), option])
                 assert license_result.stdout == expected_license
                 assert license_result.stderr == b""
+            for option in ("-V", "--version"):
+                version_result = run([str(binary), option])
+                assert version_result.stdout == expected_version
+                assert version_result.stderr == b""
+            for command in (
+                [str(binary), "-V", "--help"],
+                [str(binary), "--version", "-L"],
+                [str(binary), "--help", "--version"],
+                [str(binary), "--memory", "--version"],
+                [str(binary), "--memory", "-V"],
+                [str(binary), "c8", str(source), str(out2), "--version"],
+                [str(binary), "d", str(source), str(out2), "-V"],
+            ):
+                combined_version = run(command, expected=2)
+                assert combined_version.stdout == b""
             combined_license = run([str(binary), "-L", "--help"], expected=2)
             assert combined_license.stdout == b""
             combined_memory = run([str(binary), "--memory", "-L"], expected=2)

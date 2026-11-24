@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`48`** (2026‑11‑24)
+> Document revision **`49`** (2026‑11‑24)
 
 <!-- toc -->
 
@@ -191,8 +191,8 @@ low‑latency interactive record protocol. The output name may independently be
 are used.  Compression accepts `--window=32k|64k`, `-w=32k|64k`, or
 `-w 32k|64k` to select the history window.  The `-h`/`--help` option prints the
 command usage and option summary.  The `-L`/`--license` option prints the
-software license details and then exits; it cannot be combined with other
-arguments.
+software license details and the `-V`/`--version` option prints the program
+version; both exit successfully and must be used without other arguments.
 
 ### 3.2. Block prefix and type-specific headers
 
