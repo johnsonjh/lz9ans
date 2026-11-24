@@ -56,6 +56,14 @@
 
 /*****************************************************************************/
 
+#if defined(_WIN32) || defined(_WIN64)
+# if !defined(_CRT_SECURE_NO_WARNINGS)
+#  define _CRT_SECURE_NO_WARNINGS 1
+# endif /* if !defined(_CRT_SECURE_NO_WARNINGS) */
+#endif /* if defined(_WIN32) || defined(_WIN64) */
+
+/*****************************************************************************/
+
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
