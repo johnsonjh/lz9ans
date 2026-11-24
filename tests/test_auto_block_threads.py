@@ -350,11 +350,268 @@ def check_options(serial, threaded, cpu_count):
         out4 = work / "threadauto.lz9a"
         out5 = work / "threaddefault.lz9a"
 
+        # Explicit help is successful, writes to stdout, and advertises the
+        # aliases supported by each build configuration.
+        for binary, threaded_build in ((serial, False), (threaded, True)):
+            for option in ("-h", "--help"):
+                help_result = run([str(binary), option])
+                assert help_result.stderr == b""
+                assert b"Usage:" in help_result.stdout
+                assert b"-v, --verbose" in help_result.stdout
+                assert b"-w, --window=W" in help_result.stdout
+                assert b"-h, --help" in help_result.stdout
+                assert b"-L, --license" in help_result.stdout
+                if threaded_build:
+                    assert b"-T, --threads=N" in help_result.stdout
+                else:
+                    assert b"--threads" not in help_result.stdout
+            help_after_operands = run(
+                [str(binary), "c8", str(source), str(out2), "--help"]
+            )
+            assert help_after_operands.returncode == 0
+            assert b"Usage:" in help_after_operands.stdout
+
+        expected_license = (ROOT / "LICENSE").read_bytes()
+        for binary in (serial, threaded):
+            for option in ("-L", "--license"):
+                license_result = run([str(binary), option])
+                assert license_result.stdout == expected_license
+                assert license_result.stderr == b""
+            combined_license = run([str(binary), "-L", "--help"], expected=2)
+            assert combined_license.stdout == b""
+            combined_memory = run([str(binary), "--memory", "-L"], expected=2)
+            assert combined_memory.stdout == b""
+            combined_compress = run(
+                [str(binary), "c8", str(source), str(out2), "--license"],
+                expected=2,
+            )
+            assert combined_compress.stdout == b""
+            assert not out2.exists()
+            combined_decode = run(
+                [str(binary), "d", str(source), str(out2), "-L"],
+                expected=2,
+            )
+            assert combined_decode.stdout == b""
+
+        # The short window spelling accepts both equals and separate values.
+        window_reference = work / "window-reference.lz9a"
+        window_equals = work / "window-equals.lz9a"
+        window_separate = work / "window-separate.lz9a"
+        window_32k_equals = work / "window-32k-equals.lz9a"
+        window_32k_separate = work / "window-32k-separate.lz9a"
+        run(
+            [
+                str(serial),
+                "c8",
+                str(source),
+                str(window_reference),
+                "-5",
+                "--window=64k",
+            ]
+        )
+        run([str(serial), "c8", str(source), str(window_equals), "-5", "-w=64k"])
+        run(
+            [
+                str(serial),
+                "c8",
+                str(source),
+                str(window_separate),
+                "-5",
+                "-w",
+                "64k",
+            ]
+        )
+        assert window_equals.read_bytes() == window_reference.read_bytes()
+        assert window_separate.read_bytes() == window_reference.read_bytes()
+        run(
+            [
+                str(serial),
+                "c8",
+                str(source),
+                str(window_32k_equals),
+                "-5",
+                "-w=32k",
+            ]
+        )
+        run(
+            [
+                str(serial),
+                "c8",
+                str(source),
+                str(window_32k_separate),
+                "-5",
+                "-w",
+                "32k",
+            ]
+        )
+        default_window = work / "window-default.lz9a"
+        run([str(serial), "c8", str(source), str(default_window), "-5"])
+        assert window_32k_equals.read_bytes() == default_window.read_bytes()
+        assert window_32k_separate.read_bytes() == default_window.read_bytes()
+        for option in ("-w=", "-w"):
+            command = [str(serial), "c8", str(source), str(out2), option]
+            run(command, expected=2)
+        run(
+            [str(serial), "c8", str(source), str(out2), "-5", "-w", "16k"],
+            expected=2,
+        )
+        run(
+            [str(serial), "c8", str(source), str(out2), "-5", "-w=16k"],
+            expected=2,
+        )
+        run(
+            [
+                str(serial),
+                "c8",
+                str(source),
+                str(out2),
+                "-5",
+                "-w=64k",
+                "-w",
+                "32k",
+            ],
+            expected=2,
+        )
+
+        # --verbose is an exact synonym for -v and does not change the stream.
+        verbose_short = work / "verbose-short.lz9a"
+        verbose_long = work / "verbose-long.lz9a"
+        short_report = run(
+            [str(serial), "c8", str(source), str(verbose_short), "-5", "-v"]
+        )
+        long_report = run(
+            [
+                str(serial),
+                "c8",
+                str(source),
+                str(verbose_long),
+                "-5",
+                "--verbose",
+            ]
+        )
+        assert verbose_short.read_bytes() == verbose_long.read_bytes()
+        assert b"Input size:" in short_report.stderr
+        assert short_report.stderr == long_report.stderr
+        run(
+            [str(serial), "c8", str(source), str(out2), "-v", "--verbose"],
+            expected=2,
+        )
+
         run([str(serial), "c8", str(source), str(out1), "-5"])
         run([str(serial), "c8", str(source), str(out2), "-5", "--threads=999"])
         assert out1.read_bytes() == out2.read_bytes()
+        serial_short_thread = work / "serial-short-thread.lz9a"
+        run(
+            [
+                str(serial),
+                "c8",
+                str(source),
+                str(serial_short_thread),
+                "-5",
+                "-T",
+                "999",
+            ]
+        )
+        assert serial_short_thread.read_bytes() == out1.read_bytes()
         run([str(threaded), "c8", str(source), str(out3), "-5", "--threads=1"])
         assert out3.read_bytes() == out1.read_bytes()
+        thread_equals = work / "thread-equals.lz9a"
+        thread_separate = work / "thread-separate.lz9a"
+        run([str(threaded), "c8", str(source), str(thread_equals), "-5", "-T=1"])
+        run(
+            [
+                str(threaded),
+                "c8",
+                str(source),
+                str(thread_separate),
+                "-5",
+                "-T",
+                "1",
+            ]
+        )
+        assert thread_equals.read_bytes() == out1.read_bytes()
+        assert thread_separate.read_bytes() == out1.read_bytes()
+        thread_two_long = work / "thread-two-long.lz9a"
+        thread_two_equals = work / "thread-two-equals.lz9a"
+        thread_two_separate = work / "thread-two-separate.lz9a"
+        run(
+            [
+                str(threaded),
+                "c8",
+                str(source),
+                str(thread_two_long),
+                "-5",
+                "--threads=2",
+            ]
+        )
+        run(
+            [
+                str(threaded),
+                "c8",
+                str(source),
+                str(thread_two_equals),
+                "-5",
+                "-T=2",
+            ]
+        )
+        run(
+            [
+                str(threaded),
+                "c8",
+                str(source),
+                str(thread_two_separate),
+                "-5",
+                "-T",
+                "2",
+            ]
+        )
+        assert thread_two_equals.read_bytes() == thread_two_long.read_bytes()
+        assert thread_two_separate.read_bytes() == thread_two_long.read_bytes()
+        thread_two_64k_long = work / "thread-two-64k-long.lz9a"
+        combined_short = work / "combined-short.lz9a"
+        combined_reverse = work / "combined-reverse.lz9a"
+        run(
+            [
+                str(threaded),
+                "c8",
+                str(source),
+                str(thread_two_64k_long),
+                "-5",
+                "--window=64k",
+                "--threads=2",
+            ]
+        )
+        run(
+            [
+                str(threaded),
+                "c8",
+                str(source),
+                str(combined_short),
+                "-5",
+                "-w",
+                "64k",
+                "-T",
+                "2",
+            ]
+        )
+        run(
+            [
+                str(threaded),
+                "c8",
+                str(source),
+                str(combined_reverse),
+                "-5",
+                "-T",
+                "2",
+                "-w",
+                "64k",
+            ]
+        )
+        assert combined_short.read_bytes() == thread_two_64k_long.read_bytes()
+        assert combined_reverse.read_bytes() == thread_two_64k_long.read_bytes()
+        decoded_short_thread = work / "decoded-short-thread"
+        run([str(threaded), "d", str(out1), str(decoded_short_thread), "-T", "2"])
+        assert decoded_short_thread.read_bytes() == source.read_bytes()
         run([str(threaded), "c8", str(source), str(out4), "-5", "--threads=0"])
         run([str(threaded), "c8", str(source), str(out5), "-5"])
         assert (
@@ -370,6 +627,18 @@ def check_options(serial, threaded, cpu_count):
         )
         run([str(threaded), "d", str(out1), str(out2), "--parallel-blocks"], expected=2)
         run([str(serial), "--memory", "--threads=2"])
+        run([str(threaded), "c8", str(source), str(out2), "-T="], expected=2)
+        run([str(threaded), "c8", str(source), str(out2), "-T"], expected=2)
+        run(
+            [str(threaded), "c8", str(source), str(out2), "-T", "-1"],
+            expected=2,
+        )
+        run([str(threaded), "c8", str(source), str(out2), "-T=abc"], expected=2)
+        run(
+            [str(threaded), "c8", str(source), str(out2), "-T=1", "-T", "2"],
+            expected=2,
+        )
+        run([str(threaded), "--memory", "-T=1", "-T", "2"], expected=2)
 
         serial_help = run([str(serial)], expected=2).stderr
         threaded_help = run([str(threaded)], expected=2).stderr
@@ -387,7 +656,13 @@ def check_options(serial, threaded, cpu_count):
         assert b"decoder maximum allocated state" in serial_report
 
         one = run([str(threaded), "--memory", "--threads=1"]).stdout
+        assert run([str(threaded), "--memory", "-T=1"]).stdout == one
+        assert run([str(threaded), "--memory", "-T", "1"]).stdout == one
+        assert run([str(serial), "--memory", "-T=1"]).stdout == serial_report
+        assert run([str(serial), "--memory", "-T", "1"]).stdout == serial_report
         two = run([str(threaded), "--memory", "--threads=2"]).stdout
+        assert run([str(threaded), "--memory", "-T=2"]).stdout == two
+        assert run([str(threaded), "--memory", "-T", "2"]).stdout == two
         auto = run([str(threaded), "--memory"]).stdout
         many = run([str(threaded), "--memory", "--threads=999"]).stdout
         maximum = 32 if struct.calcsize("P") == 4 else 128

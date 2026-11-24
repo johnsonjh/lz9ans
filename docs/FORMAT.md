@@ -4,7 +4,7 @@
 <!-- scspell-id: dd679e14-df71-11f1-aad9-80ee73e9b8e7 -->
 # LZ9ANS version 9 (2026‑11‑07) stream format
 
-> Document revision **`47`** (2026‑11‑19)
+> Document revision **`48`** (2026‑11‑24)
 
 <!-- toc -->
 
@@ -186,8 +186,13 @@ incrementally and emits an unknown‑length frame without seeking.  Input is
 consumed in block‑sized batches; this is a streaming file format, not a
 low‑latency interactive record protocol. The output name may independently be
 `-` for `stdout`.  Decompression accepts either frame form from a file or
-`stdin` and can write to a file or `stdout`.  Size/ratio reporting with `-v` is
-disabled when UNIX `stdin` or `stdout` streams are used.
+`stdin` and can write to a file or `stdout`.  Size/ratio reporting with `-v`
+(or its `--verbose` synonym) is disabled when UNIX `stdin` or `stdout` streams
+are used.  Compression accepts `--window=32k|64k`, `-w=32k|64k`, or
+`-w 32k|64k` to select the history window.  The `-h`/`--help` option prints the
+command usage and option summary.  The `-L`/`--license` option prints the
+software license details and then exits; it cannot be combined with other
+arguments.
 
 ### 3.2. Block prefix and type-specific headers
 
@@ -894,18 +899,18 @@ representations are different and must be sized separately.
 
 ### 7.2. Optional threading details
 
-The `--threads=N` limit (includes the main) thread: `0` (zero) means automatic
-sizing, `1` (one) selects the original sequential encoder, and larger positive
-values cap the number of concurrent threads.  The encoder uses
-independent‑block encoding automatically when more than one logical processor
-is available and the effective limit exceeds one; otherwise it uses the
-original sequential encoder.  Participants are bounded by the available logical
-processors and, for known‑length input, the number of input blocks.  The
-maximum effective participant count is 32 on 32‑bit builds and 128 on 64‑bit
-builds. Larger explicit requests are silently clamped to that maximum, and
-automatic sizing is subject to the same cap.  These limits include the main
-thread.  The default serial build accepts and validates this option but ignores
-it; only a thread‑enabled build (pthread or native Windows threads)
+The `--threads=N` limit (or its `-T=N` and `-T N` short forms) includes the
+main thread: `0` (zero) means automatic sizing, `1` (one) selects the original
+sequential encoder, and larger positive values cap the number of concurrent
+threads.  The encoder uses independent‑block encoding automatically when more
+than one logical processor is available and the effective limit exceeds one;
+otherwise it uses the original sequential encoder.  Participants are bounded by
+the available logical processors and, for known‑length input, the number of
+input blocks.  The maximum effective participant count is 32 on 32‑bit builds
+and 128 on 64‑bit builds. Larger explicit requests are silently clamped to that
+maximum, and automatic sizing is subject to the same cap.  These limits include
+the main thread.  The default serial build accepts and validates this option
+but ignores it; only a thread‑enabled build (pthread or native Windows threads)
 advertises it in command help.
 
 Threading is an *implementation detail* and does not alter any frame, block,
@@ -1032,8 +1037,8 @@ to match exactly.
   file counts the file first and emits a known‑length frame.  The C decoder
   accepts either frame form from a file or `stdin` and writes to a file or
   `stdout`.  The Python inspection decoder is limited to known‑length frames.
-  The CLI’s `-v` size/ratio reporting need not be available when `stdin` or
-  `stdout` is used.
+  The CLI’s `-v`/`--verbose` size/ratio reporting need not be available when
+  `stdin` or `stdout` is used.
 
 - **Final partial Multics symbol:** The `END` TLV defines the number of
   low‑order bits to truncate from the last 9‑bit symbol.  The C decoder parses

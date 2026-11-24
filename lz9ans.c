@@ -10,8 +10,43 @@
 
 /*****************************************************************************/
 
+#undef LZ9NAME
+#define LZ9NAME "lz9ans"
+
+/*****************************************************************************/
+
 #undef LZ9VER
-#define LZ9VER "v0.9.45 (2026-11-24)"
+#define LZ9VER "v0.9.46 (2026-11-24)"
+
+/*****************************************************************************/
+
+static const char * const lz9ans_license[] =
+{
+  "MIT License\n"
+  "\n",
+  "Copyright (c) 2025-2026 Jeffrey H. Johnson <johnsonjh.dev@gmail.com>\n",
+  "Copyright (c) 2025-2026 The DPS8M Development Team\n",
+  "\n",
+  "Permission is hereby granted, free of charge, to any person obtaining\n",
+  "a copy of this software and associated documentation files (the\n",
+  "\"Software\"), to deal in the Software without restriction, including\n",
+  "without limitation the rights to use, copy, modify, merge, publish,\n",
+  "distribute, sublicense, and/or sell copies of the Software, and to\n",
+  "permit persons to whom the Software is furnished to do so, subject\n",
+  "to the following conditions:\n",
+  "\n",
+  "The above copyright notice and this permission notice shall be\n",
+  "included in all copies or substantial portions of the Software.\n",
+  "\n",
+  "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\n",
+  "EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\n",
+  "MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n",
+  "IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\n",
+  "CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\n",
+  "TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\n",
+  "SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n",
+  (const char *)0
+};
 
 /*****************************************************************************/
 
@@ -8576,6 +8611,7 @@ store_match (Output *o, unsigned int d, unsigned int ml)
 
       o->produced += ml;
       o->in_block += ml;
+
       return;
     }
 
@@ -9301,6 +9337,7 @@ decode_stream_task (void *arg)
       if (workspace->stream.br.failed || symbol > 255U)
         {
           workspace->okay = 0;
+
           return;
         }
 
@@ -12415,17 +12452,9 @@ default_features (int level)
 /*****************************************************************************/
 
 static int
-parse_thread_limit (const char *option, unsigned int *limit)
+parse_thread_limit_value (const char *p, unsigned int *limit)
 {
-  const char *p = option;
   unsigned int value = 0U;
-
-  if (strncmp (p, "--threads=", 10U) != 0)
-    {
-      return 0;
-    }
-
-  p += 10;
 
   if (!*p)
     {
@@ -12455,6 +12484,194 @@ parse_thread_limit (const char *option, unsigned int *limit)
   *limit = clamp_thread_limit (value);
 
   return 1;
+}
+
+/*****************************************************************************/
+
+static int
+parse_thread_option (const char *option, const char *next, unsigned int *limit,
+                     int *consume_next)
+{
+  const char *value;
+
+  *consume_next = 0;
+
+  if (strncmp (option, "--threads=", 10U) == 0)
+    {
+      value = option + 10;
+    }
+  else if (strncmp (option, "-T=", 3U) == 0)
+    {
+      value = option + 3;
+    }
+  else if (strcmp (option, "-T") == 0)
+    {
+      if (!next)
+        {
+          return -1;
+        }
+
+      value = next;
+      *consume_next = 1;
+    }
+  else
+    {
+      return 0;
+    }
+
+  return parse_thread_limit_value (value, limit) ? 1 : -1;
+}
+
+/*****************************************************************************/
+
+static int
+parse_window_option (const char *option, const char *next,
+                     unsigned int *window_n, int *consume_next)
+{
+  const char *value;
+
+  *consume_next = 0;
+
+  if (strncmp (option, "--window=", 9U) == 0)
+    {
+      value = option + 9;
+    }
+  else if (strncmp (option, "-w=", 3U) == 0)
+    {
+      value = option + 3;
+    }
+  else if (strcmp (option, "-w") == 0)
+    {
+      if (!next)
+        {
+          return -1;
+        }
+
+      value = next;
+      *consume_next = 1;
+    }
+  else
+    {
+      return 0;
+    }
+
+  if (strcmp (value, "32k") == 0)
+    {
+      *window_n = WINDOW_DEFAULT;
+      return 1;
+    }
+
+  if (strcmp (value, "64k") == 0)
+    {
+      *window_n = WINDOW_64K;
+      return 1;
+    }
+
+  return -1;
+}
+
+/*****************************************************************************/
+
+static void
+print_usage (FILE *stream, const char * const progname)
+{
+  (void)fprintf (stream,
+          "LZ9ANS reference compressor/decompressor " LZ9VER "\n\n");
+#if defined(LZ9ANS_THREADED)
+  (void)fprintf (stream,
+          "Usage:\n"
+          "  %s <c8|c9> <input> <output> [-1..-9] [-v] [-w=W] [-T=N]\n",
+          progname);
+  (void)fprintf (stream,
+          "  %s <d> <input> <output> [-v] [-T=N]\n\n", progname);
+#else
+  (void)fprintf (stream,
+          "Usage:\n"
+          "  %s <c8|c9> <input> <output> [-1..-9] [-v] [-w=W]\n", progname);
+  (void)fprintf (stream,
+          "  %s d <input> <output> [-v]\n\n", progname);
+#endif /* if defined(LZ9ANS_THREADED) */
+  (void)fprintf (stream,
+          "  Specify an input or output name of '-' for stdin"
+          " or stdout.\n");
+  (void)fprintf (stream,
+          "  c8: 8-bit input; c9: mxload-style packed 9-bit input\n\n");
+  (void)fprintf (stream,
+          "  -1..-9            "
+          "1-4: fast; 5-8: tight; 9: maximum (default: -5)\n");
+  (void)fprintf (stream,
+          "  -v, --verbose     "
+          "report file size and compression ratio details\n");
+  (void)fprintf (stream,
+          "  -w, --window=W    use W (32k or 64k) history window"
+          " (default: 32k)\n");
+#if defined(LZ9ANS_THREADED)
+  (void)fprintf (stream,
+          "  -T, --threads=N   limit to N concurrent threads"
+          " (default: automatic)\n");
+#endif /* if defined(LZ9ANS_THREADED) */
+  (void)fprintf (stream,
+          "  -L, --license     "
+          "show the license terms and conditions and exit\n");
+  (void)fprintf (stream,
+          "  -h, --help        show this help text and exit\n");
+
+#undef COMPILER_WARNING
+#if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) || defined(NO_INLINE) || \
+    defined(OLD_SUNCC)
+# define COMPILER_WARNING
+  (void)fprintf (stream, "\n");
+#endif /* if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) \
+          || defined(NO_INLINE) || defined(OLD_SUNCC) */
+
+#if defined(NO_HAS_ATTRIBUTE)
+  (void)fprintf (stream,
+          "WARNING: Compiler missing support for '__has_attribute'!\n");
+#endif /* if defined(NO_HAS_ATTRIBUTE) */
+
+#if defined(NO_HOT)
+  (void)fprintf (stream,
+          "WARNING: Compiler missing support for the 'hot' attribute!\n");
+#endif /* if defined(NO_HOT) */
+
+#if defined(NO_INLINE)
+  (void)fprintf (stream,
+          "WARNING: Compiler missing support for explicit inlining!\n");
+#endif /* if defined(NO_INLINE) */
+
+#if defined(OLD_SUNCC)
+  (void)fprintf (stream,
+          "WARNING: Compiler version too old (less than Studio 12)!\n");
+#endif /* if defined(OLD_SUNCC) */
+
+#if defined(COMPILER_WARNING)
+  (void)fprintf (stream,
+          "WARNING: This build will NOT perform optimally!\n");
+#endif /* if defined(COMPILER_WARNING) */
+}
+
+/*****************************************************************************/
+
+static int
+print_license (void)
+{
+  FILE *stream = stdout;
+  const char * const *line;
+
+  for (line = lz9ans_license; *line; ++line)
+    {
+      if (fputs (*line, stream) == EOF)
+        {
+          return 1;
+        }
+    }
+
+  if (fflush (stream) == EOF)
+    {
+      return 1;
+    }
+
+  return 0;
 }
 
 /*****************************************************************************/
@@ -12682,42 +12899,142 @@ main (int argc, char **argv)
   int output_is_same_file = 0;
   unsigned int window_n = WINDOW_DEFAULT;
   unsigned int features, thread_limit = 0U;
+  const char * const progname =
+      (((char **)0 != argv && (char *)0 != argv [0] && '\0' != * argv [0])
+       ? ('\0' == argv [0] [1] ? LZ9NAME : argv [0]) : LZ9NAME);
 
 #if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS)
   _fmode = O_BINARY;
 #endif /* if defined(__DJGPP__) || defined(__MSDOS__) || defined(MSDOS) */
 
   if (argc >= 2
-      && (!strcmp (argv[1], "--memory")
-          || !strcmp (argv[1], "--memory-32k")
-          || !strcmp (argv[1], "--memory-64k")))
+      && (!strcmp (argv[1], "-L") || !strcmp (argv[1], "--license")))
     {
-      int seen = 0;
-
-      if (argc > 4)
+      if (argc != 2)
         {
-          (void)fprintf (stderr, "Invalid memory-reporting option.\n");
+          (void)fprintf (stderr,
+                  "The '--license' option is only valid in isolation.\n");
 
           return 2;
         }
 
+      return print_license () ? 1 : 0;
+    }
+
+  if (argc >= 2
+      && (!strcmp (argv[1], "--memory") || !strcmp (argv[1], "--memory-32k")
+          || !strcmp (argv[1], "--memory-64k")))
+    {
       for (i = 2; i < argc; ++i)
         {
-          if (parse_thread_limit (argv[i], &thread_limit))
+          if (!strcmp (argv[i], "-L") || !strcmp (argv[i], "--license"))
             {
-              if (seen)
-                {
-                  (void)fprintf (stderr, "Duplicate --threads option.\n");
+              (void)fprintf (stderr,
+                  "The '--license' option is only valid in isolation.\n");
 
-                  return 2;
-                }
+              return 2;
+            }
+        }
+    }
+  else if (argc >= 2
+           && (!strcmp (argv[1], "-h") || !strcmp (argv[1], "--help")))
+    {
+      for (i = 2; i < argc; ++i)
+        {
+          if (!strcmp (argv[i], "-L") || !strcmp (argv[i], "--license"))
+            {
+              (void)fprintf (stderr,
+                  "The '--license' option is only valid in isolation.\n");
 
+              return 2;
+            }
+        }
+    }
+  else if (argc >= 2
+           && (strcmp (argv[1], "c8") == 0 || strcmp (argv[1], "c9") == 0
+               || strcmp (argv[1], "d") == 0))
+    {
+      for (i = 4; i < argc; ++i)
+        {
+          if (!strcmp (argv[i], "-L") || !strcmp (argv[i], "--license"))
+            {
+              (void)fprintf (stderr,
+                  "The '--license' option is only valid in isolation.\n");
+
+              return 2;
+            }
+        }
+    }
+
+  if (argc >= 2 && (!strcmp (argv[1], "-h") || !strcmp (argv[1], "--help")))
+    {
+      print_usage (stdout, progname);
+
+      return 0;
+    }
+
+  if (argc >= 2
+      && (!strcmp (argv[1], "--memory") || !strcmp (argv[1], "--memory-32k")
+          || !strcmp (argv[1], "--memory-64k")))
+    {
+      for (i = 2; i < argc; ++i)
+        {
+          if (!strcmp (argv[i], "-h") || !strcmp (argv[i], "--help"))
+            {
+              print_usage (stdout, progname);
+
+              return 0;
+            }
+        }
+    }
+  else if (argc >= 2
+           && (strcmp (argv[1], "c8") == 0 || strcmp (argv[1], "c9") == 0
+               || strcmp (argv[1], "d") == 0))
+    {
+      for (i = 4; i < argc; ++i)
+        {
+          if (!strcmp (argv[i], "-h") || !strcmp (argv[i], "--help"))
+            {
+              print_usage (stdout, progname);
+
+              return 0;
+            }
+        }
+    }
+
+  if (argc >= 2
+      && (!strcmp (argv[1], "--memory") || !strcmp (argv[1], "--memory-32k")
+          || !strcmp (argv[1], "--memory-64k")))
+    {
+      int seen = 0;
+
+      for (i = 2; i < argc; ++i)
+        {
+          int consume_next = 0;
+          int thread_option = parse_thread_option (
+              argv[i], i + 1 < argc ? argv[i + 1] : (const char *)0,
+              &thread_limit, &consume_next);
+
+          if (thread_option == 1 && !seen)
+            {
               seen = 1;
+              if (consume_next)
+                {
+                  ++i;
+                }
             }
           else
             {
-              (void)fprintf (stderr, "Invalid memory-reporting option: %s\n",
-                             argv[i]);
+              if (thread_option == 1)
+                {
+                  (void)fprintf (stderr,
+                          "Duplicate thread-limit option.\n");
+                }
+              else
+                {
+                  (void)fprintf (stderr,
+                          "Invalid memory-reporting option: %s\n", argv[i]);
+                }
 
               return 2;
             }
@@ -12734,82 +13051,7 @@ main (int argc, char **argv)
       || (strcmp (argv[1], "c8") != 0 && strcmp (argv[1], "c9") != 0
           && strcmp (argv[1], "d") != 0))
     {
-      (void)fprintf (stderr,
-              "LZ9ANS reference compressor/decompressor " LZ9VER "\n\n");
-#if defined(LZ9ANS_THREADED)
-      (void)fprintf (stderr,
-              "Usage:\n"
-              "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
-              " [--window=W] [--threads=N]\n");
-      (void)fprintf (stderr,
-              "  lz9ans d <input> <output> [-v] [--threads=N]\n\n");
-#else
-      (void)fprintf (stderr,
-              "Usage:\n"
-              "  lz9ans <c8|c9> <input> <output> [-1..-9] [-v]"
-              " [--window=W]\n");
-      (void)fprintf (stderr,
-              "  lz9ans d <input> <output> [-v]\n\n");
-#endif /* if defined(LZ9ANS_THREADED) */
-      (void)fprintf (stderr,
-              "  Specify an input or output name of '-' for stdin");
-      (void)fprintf (stderr,
-              " or stdout.\n");
-      (void)fprintf (stderr,
-              "  c8: 8-bit input;");
-      (void)fprintf (stderr,
-              " c9: mxload-style packed 9-bit input\n\n");
-      (void)fprintf (stderr,
-              "  -1..-9:              ");
-      (void)fprintf (stderr,
-              "1-4: fast; 5-8: tight; 9: maximum (default: -5)\n");
-      (void)fprintf (stderr,
-              "  -v:       ");
-      (void)fprintf (stderr,
-              "           report file size and compression ratio details\n");
-      (void)fprintf (stderr,
-              "  --window=W:");
-      (void)fprintf (stderr,
-              "          use W (32k or 64k) history window (default: 32k)\n");
-#if defined(LZ9ANS_THREADED)
-      (void)fprintf (stderr,
-              "  --threads=N:         limit to N"
-              " concurrent threads (default: automatic)\n");
-#endif /* if defined(LZ9ANS_THREADED) */
-
-#undef COMPILER_WARNING
-#if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) || defined(NO_INLINE) || \
-    defined(OLD_SUNCC)
-# define COMPILER_WARNING
-      (void)fprintf (stderr, "\n");
-#endif /* if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) \
-          || defined(NO_INLINE) || defined(OLD_SUNCC) */
-
-#if defined(NO_HAS_ATTRIBUTE)
-      (void)fprintf (stderr,
-              "WARNING: Compiler missing support for '__has_attribute'!\n");
-#endif /* if defined(NO_HAS_ATTRIBUTE) */
-
-#if defined(NO_HOT)
-      (void)fprintf (stderr,
-              "WARNING: Compiler missing support for the 'hot' attribute!\n");
-#endif /* if defined(NO_HOT) */
-
-#if defined(NO_INLINE)
-      (void)fprintf (stderr,
-              "WARNING: Compiler missing support for explicit inlining!\n");
-#endif /* if defined(NO_INLINE) */
-
-#if defined(OLD_SUNCC)
-      (void)fprintf (stderr,
-              "WARNING: Compiler version too old (less than Studio 12)!\n");
-#endif /* if defined(OLD_SUNCC) */
-
-
-#if defined(COMPILER_WARNING)
-      (void)fprintf (stderr,
-              "WARNING: This build will NOT perform optimally!\n");
-#endif /* if defined(COMPILER_WARNING) */
+      print_usage (stderr, progname);
 
       return 2;
     }
@@ -12821,42 +13063,59 @@ main (int argc, char **argv)
 
   for (i = 4; i < argc; ++i)
     {
-      if (strncmp (argv[i], "--threads", 9U) == 0)
+      int thread_consume_next = 0, window_consume_next = 0;
+      int thread_option = parse_thread_option (
+          argv[i], i + 1 < argc ? argv[i + 1] : (const char *)0,
+          &thread_limit, &thread_consume_next);
+      int window_option = parse_window_option (
+          argv[i], i + 1 < argc ? argv[i + 1] : (const char *)0,
+          &window_n, &window_consume_next);
+
+      if (thread_option != 0
+          || strncmp (argv[i], "--threads", 9U) == 0)
         {
-          if (threads_seen || !parse_thread_limit (argv[i], &thread_limit))
+          if (threads_seen || thread_option != 1)
             {
               (void)fprintf (stderr,
-                  "Invalid or duplicate --threads option: %s\n", argv[i]);
+                  "Invalid or duplicate thread-limit option: %s\n", argv[i]);
 
               return 2;
             }
 
           threads_seen = 1;
+
+          if (thread_consume_next)
+            {
+              ++i;
+            }
         }
-      else if (!strcmp (argv[i], "-v"))
+      else if (!strcmp (argv[i], "-v") || !strcmp (argv[i], "--verbose"))
         {
           if (verbose)
             {
-              (void)fprintf (stderr, "Duplicate -v option.\n");
+              (void)fprintf (stderr, "Duplicate verbose option.\n");
 
               return 2;
             }
 
           verbose = 1;
         }
-      else if (argv[1][0] == 'c' && (!strcmp (argv[i], "--window=64k")
-                                     || !strcmp (argv[i], "--window=32k")))
+      else if (argv[1][0] == 'c' && window_option != 0)
         {
-          if (window_seen)
+          if (window_seen || window_option != 1)
             {
-              (void)fprintf (stderr, "Specify at most one --window option.\n");
+              (void)fprintf (stderr,
+                      "Invalid or duplicate window option: %s\n", argv[i]);
 
               return 2;
             }
 
           window_seen = 1;
-          window_n = !strcmp (argv[i], "--window=64k") ? WINDOW_64K
-                                                       : WINDOW_DEFAULT;
+
+          if (window_consume_next)
+            {
+              ++i;
+            }
         }
       else if (argv[1][0] == 'c' && argv[i][0] == '-' && argv[i][1] >= '1'
                && argv[i][1] <= '9' && argv[i][2] == '\0')
