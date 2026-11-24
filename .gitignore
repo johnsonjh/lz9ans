@@ -31,5 +31,7 @@ out.txt
 /probe.py
 /pvsreport
 __pycache__/
+/README.awk
+/README.out
 *.rej
 /*.tar.?z

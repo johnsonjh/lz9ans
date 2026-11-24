@@ -187,7 +187,7 @@ lint: lz9ans.c crc32_hw.h
 		-Wno-unreachable-code-return -Werror -D_ALL_SOURCE -D_GNU_SOURCE \
 		-DLZ9ANS_PTHREAD lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) -pthread
 	$(MAKE) pvs-studio
-	$(MAKE) clean
+	$(MAKE) scc
 
 ##############################################################################
 
@@ -214,6 +214,24 @@ clean:
 distclean: clean
 	rm -f lz9ans.gcda .build-config
 	@git clean -ndx 2> /dev/null || :
+
+##############################################################################
+
+scc: README.md
+	"$${MAKE:-$(MAKE)}" distclean
+	awk '/<!-- scc-start -->/ { \
+		print; system("scc \
+			--exclude-file LICENSE,README.md,README.awk,log.pvs \
+			--exclude-file compile_commands.json,REUSE.toml \
+			--exclude-dir tests,LICENSES,.git,pvsreport,corpus,vectors \
+			--no-cocomo -u --no-size -s lines -f html-table; \
+			printf \"\n%s\n\" \"<!-- scc-end -->\""); \
+			skip=1; next } \
+		skip && /<!-- scc-end -->/ { skip=0; next } \
+		!skip' README.md > README.awk && \
+	mv -f README.awk README.md && \
+	expand README.md > README.out && \
+	mv -f README.out README.md
 
 ##############################################################################
 
