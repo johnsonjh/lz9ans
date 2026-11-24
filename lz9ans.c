@@ -540,7 +540,9 @@ static LZ9_ALWAYS_INLINE unsigned int
 lz9_ctz64 (lz9_u64 value)
 {
   unsigned long index;
+
   (void)_BitScanForward64 (&index, value);
+
   return (unsigned int)index;
 }
 # else
@@ -6073,6 +6075,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
             {
               cand_a = (unsigned int)e->link[slot];
               ++checks;
+
               continue;
             }
 
@@ -6099,6 +6102,7 @@ find_match (Encoder *e, unsigned int pos, unsigned int end,
             {
               cand_a = (unsigned int)e->link[cand_a & (e->window_n - 1U)];
               ++checks;
+
               continue;
             }
 
