@@ -60,7 +60,6 @@ def main():
             + ["-o", str(binary), str(SOURCE)]
             + ldflags
             + thread_ldflags
-            + ["-lm"]
         )
         run(command)
 

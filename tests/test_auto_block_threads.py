@@ -55,7 +55,6 @@ def build(binary, threaded):
     command += ["-o", str(binary), str(SOURCE)] + ldflags
     if threaded:
         command += thread_ldflags
-    command.append("-lm")
     run(command)
 
 

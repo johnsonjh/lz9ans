@@ -61,7 +61,7 @@ def build_harness(path, force_32bit=False, bfprt=False):
         command.extend(["-DNORM_FORCE_32BIT_MUL", "-DNORM_FORCE_32BIT_MULDIV"])
     if bfprt:
         command.append("-DNORM_KL_BFPRT")
-    command.extend([str(ROOT / "tests" / "normalizer_harness.c"), "-lm"])
+    command.extend([str(ROOT / "tests" / "normalizer_harness.c")])
     subprocess.run(command, cwd=ROOT, check=True)
 
 

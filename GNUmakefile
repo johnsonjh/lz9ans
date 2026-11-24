@@ -57,10 +57,10 @@ lz9ans: lz9ans.c crc32_hw.h .build-config
 	@eval echo \
 		$${CC:-$(CC)} $${EXTRA_CFLAGS:-} $(CFLAGS) $(THREAD_DEFS) \
 		$(THREAD_CFLAGS) -o $@ lz9ans.c \
-		$${EXTRA_LDFLAGS:-} $(LDFLAGS) $(THREAD_LDFLAGS) -lm || :
+		$${EXTRA_LDFLAGS:-} $(LDFLAGS) $(THREAD_LDFLAGS) || :
 	@eval $${CC:-$(CC)} $${EXTRA_CFLAGS:-} $(CFLAGS) $(THREAD_DEFS) \
 		$(THREAD_CFLAGS) -o $@ lz9ans.c \
-		$${EXTRA_LDFLAGS:-} $(LDFLAGS) $(THREAD_LDFLAGS) -lm
+		$${EXTRA_LDFLAGS:-} $(LDFLAGS) $(THREAD_LDFLAGS)
 
 ##############################################################################
 
@@ -140,10 +140,9 @@ thread-sanitizer:
 sanitizers: lz9ans.c crc32_hw.h
 	eval $${CC:-$(CC)} -Og -g -ansi -pedantic -Wall -Wextra -Werror \
 		-Wno-overlength-strings -fsanitize=address,undefined \
-		-fno-omit-frame-pointer -Wno-unreachable-code-return \
-		-D_ALL_SOURCE -D_GNU_SOURCE $(THREAD_DEFS) $(THREAD_CFLAGS) \
-		-o lz9ans_asan lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) \
-		$(THREAD_LDFLAGS) -lm
+		-fno-omit-frame-pointer -Wno-unreachable-code-return -D_ALL_SOURCE \
+		-D_GNU_SOURCE $(THREAD_DEFS) $(THREAD_CFLAGS) -o lz9ans_asan \
+		lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) $(THREAD_LDFLAGS)
 
 ##############################################################################
 
@@ -182,11 +181,11 @@ lint: lz9ans.c crc32_hw.h
 	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
 		-Wno-missing-noreturn -Wno-padded -Wno-overlength-strings \
 		-Wno-unreachable-code-return -Werror -D_ALL_SOURCE -D_GNU_SOURCE \
-		lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) -lm
+		lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS)
 	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
 		-Wno-missing-noreturn -Wno-padded -Wno-overlength-strings \
 		-Wno-unreachable-code-return -Werror -D_ALL_SOURCE -D_GNU_SOURCE \
-		-DLZ9ANS_PTHREAD lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) -pthread -lm
+		-DLZ9ANS_PTHREAD lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) -pthread
 	$(MAKE) pvs-studio
 	$(MAKE) clean
 

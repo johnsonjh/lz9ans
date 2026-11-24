@@ -88,7 +88,6 @@ def build(binary, work):
         + [str(app_object), str(wrapper_object), "-o", str(binary)]
         + ldflags
         + thread_ldflags
-        + ["-lm"]
     )
     run(link_command)
 

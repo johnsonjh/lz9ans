@@ -71,7 +71,6 @@ def main():
                 "-o",
                 str(software),
                 str(ROOT / "../lz9ans.c"),
-                "-lm",
             ],
             cwd=ROOT,
             check=True,
