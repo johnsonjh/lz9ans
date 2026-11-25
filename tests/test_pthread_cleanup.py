@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: MIT
 # scspell-id: 1bab442e-e45d-11f1-9194-80ee73e9b8e7
 
+# NOTE: AI/LLM code generation was used for this file.
+
 import os
 from pathlib import Path
 

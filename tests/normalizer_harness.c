@@ -10,6 +10,10 @@
 
 /*****************************************************************************/
 
+/* NOTE: AI/LLM code generation was used for this file. */
+
+/*****************************************************************************/
+
 #define main lz9ans_program_main
 #define LZ9ANS_TEST_NORMALIZER 1
 #include "../lz9ans.c"

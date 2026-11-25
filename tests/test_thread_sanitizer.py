@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: MIT
 # scspell-id: 8d8ece78-dfa1-11f1-80ad-80ee73e9b8e7
 
+# NOTE: AI/LLM code generation was used for this file.
+
 """Run focused pthread encoder/decoder paths under ThreadSanitizer."""
 
 import os

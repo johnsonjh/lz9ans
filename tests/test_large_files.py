@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: MIT
 # scspell-id: 1442d142-df72-11f1-a55c-80ee73e9b8e7
 
+# NOTE: AI/LLM code generation was used for this file.
+
 """Check 64-bit input-size discovery and 32-bit stream-count limits."""
 
 import ctypes

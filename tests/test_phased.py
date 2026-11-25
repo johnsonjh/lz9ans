@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: MIT
 # scspell-id: 2c170cd4-df72-11f1-ac47-80ee73e9b8e7
 
+# NOTE: AI/LLM code generation was used for this file.
+
 # Phased entropy tables (frame flag 0x02) and two-symbol matches (flag 0x04).
 
 import os
