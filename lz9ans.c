@@ -16,7 +16,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.49 (2026-11-25)"
+#define LZ9VER "v0.9.50-dev (2026-11-25)"
 
 /*****************************************************************************/
 
@@ -461,6 +461,12 @@ clamp_thread_limit (unsigned int limit)
 
 /*****************************************************************************/
 
+#if defined(__COMPCERT__)
+# define LZ9_INLINE __inline__
+#endif
+
+/*****************************************************************************/
+
 #undef LZ9_ALWAYS_INLINE
 #undef LZ9_BR_CONST_DIRECTION
 #undef LZ9_HAS_ALWAYS_INLINE
@@ -471,6 +477,9 @@ clamp_thread_limit (unsigned int limit)
 #  define LZ9_BR_CONST_DIRECTION 1 /* needs explicitly guaranteed inlining */
 #  define LZ9_HAS_ALWAYS_INLINE 1 /* boolean */
 # else
+#  if !defined(NO_ALWAYS_INLINE)
+#   define NO_ALWAYS_INLINE /**/
+#  endif /* if !defined(NO_ALWAYS_INLINE) */
 #  if !defined(LZ9_INLINE)
 #   define LZ9_INLINE /**/
 #   if !defined(NO_INLINE)
@@ -489,6 +498,7 @@ clamp_thread_limit (unsigned int limit)
 # undef NO_HAS_ATTRIBUTE
 # undef NO_HOT
 # undef NO_INLINE
+# undef NO_ALWAYS_INLINE
 # undef LZ9_INLINE
 # define LZ9_INLINE __inline
 # undef LZ9_ALWAYS_INLINE
@@ -499,6 +509,21 @@ clamp_thread_limit (unsigned int limit)
 # define LZ9_BR_CONST_DIRECTION 1
 #endif /* if (defined(_WIN32) || defined(_WIN64)) && defined(_MSC_VER) \
           && !defined(__GNUC__) */
+
+/*****************************************************************************/
+
+#if defined(__PCC__) /* PCC: Portable C Compiler 1.2.0.DEVEL 20231021+ */
+# undef NO_HAS_ATTRIBUTE
+# undef NO_HOT
+# undef NO_INLINE
+# undef NO_ALWAYS_INLINE
+# undef LZ9_INLINE
+# define LZ9_INLINE __inline__
+# undef LZ9_ALWAYS_INLINE
+# define LZ9_ALWAYS_INLINE __inline__ __attribute__((always_inline))
+# undef LZ9_BR_CONST_DIRECTION
+# define LZ9_BR_CONST_DIRECTION 1
+#endif
 
 /*****************************************************************************/
 
@@ -12620,11 +12645,20 @@ print_usage (FILE *stream, const char * const progname)
 
 #undef COMPILER_WARNING
 #if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) || defined(NO_INLINE) || \
-    defined(OLD_SUNCC)
+    defined(NO_ALWAYS_INLINE) || defined(OLD_SUNCC) || defined(__PCC__)
 # define COMPILER_WARNING
   (void)fprintf (stream, "\n");
 #endif /* if defined(NO_HAS_ATTRIBUTE) || defined(NO_HOT) \
-          || defined(NO_INLINE) || defined(OLD_SUNCC) */
+          || defined(NO_INLINE) || defined(NO_ALWAYS_INLINE) \
+          || defined(OLD_SUNCC) || defined(__PCC__) */
+
+#if defined(__PCC__) && defined(__OPTIMIZE__)
+  (void)fprintf (stream,
+          "WARNING: Compiler 'PCC' supports only minimal optimizations!\n");
+#elif defined(__PCC__) && !defined(__OPTIMIZE__)
+  (void)fprintf (stream,
+          "WARNING: Compiler 'PCC' used without optimizations enabled!\n");
+#endif /* if defined(__PCC__) && defined(__OPTIMIZE__) */
 
 #if defined(NO_HAS_ATTRIBUTE)
   (void)fprintf (stream,
@@ -12638,8 +12672,13 @@ print_usage (FILE *stream, const char * const progname)
 
 #if defined(NO_INLINE)
   (void)fprintf (stream,
-          "WARNING: Compiler missing support for explicit inlining!\n");
+          "WARNING: Compiler missing support for hinted inlining!\n");
 #endif /* if defined(NO_INLINE) */
+
+#if defined(NO_ALWAYS_INLINE)
+  (void)fprintf (stream,
+          "WARNING: Compiler missing support for explicit inlining!\n");
+#endif /* if defined(NO_ALWAYS_INLINE) */
 
 #if defined(OLD_SUNCC)
   (void)fprintf (stream,
@@ -13268,7 +13307,7 @@ main (int argc, char **argv)
     {
       size_reporting = 0;
       (void)fprintf (stderr,
-              "warning: -v is unavailable when stdin/stdout is used.\n");
+              "NOTICE: -v is unavailable when stdin/stdout is used.\n");
     }
   else if (verbose && !file_size (in, &input_bytes))
     {
