@@ -16,7 +16,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.46 (2026-11-24)"
+#define LZ9VER "v0.9.47 (2026-11-25)"
 
 /*****************************************************************************/
 
@@ -829,8 +829,8 @@ typedef pthread_t lz9_thread_t;
 static void
 lz9_pthread_fatal (const char *operation, int error)
 {
-  (void)fprintf (stderr, "lz9ans: %s failed (pthread error %d)\n",
-                 operation, error);
+  (void)fprintf (stderr, "%s: %s failed (pthread error %d)\n",
+                 LZ9NAME, operation, error);
 
   abort ();
 }
@@ -845,8 +845,8 @@ typedef HANDLE lz9_thread_t;
 static void
 lz9_winthread_fatal (const char *operation, DWORD error)
 {
-  (void)fprintf (stderr, "lz9ans: %s failed (Windows error %lu)\n",
-                 operation, (unsigned long)error);
+  (void)fprintf (stderr, "%s: %s failed (Windows error %lu)\n",
+                 LZ9NAME, operation, (unsigned long)error);
 
   abort ();
 }
@@ -13461,7 +13461,8 @@ main (int argc, char **argv)
   if (!okay)
     {
       (void)fprintf (stderr,
-                     "LZ9ANS: invalid stream, I/O error, or capacity limit\n");
+                     "%s: invalid stream, I/O error, or capacity limit\n",
+                     LZ9NAME);
 
       return 1;
     }
