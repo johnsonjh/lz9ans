@@ -16,7 +16,7 @@
 /*****************************************************************************/
 
 #undef LZ9VER
-#define LZ9VER "v0.9.47 (2026-11-25)"
+#define LZ9VER "v0.9.48 (2026-11-25)"
 
 /*****************************************************************************/
 
@@ -13471,39 +13471,39 @@ main (int argc, char **argv)
     {
       if (mode)
         {
-          print_file_size (stderr, "Input size: ", input_bytes);
-          print_file_size (stderr, "Output size: ", output_bytes);
+          print_file_size (stderr, "Input size  : ", input_bytes);
+          print_file_size (stderr, "Output size : ", output_bytes);
 
           if (input_bytes)
             {
               (void)fprintf (stderr,
-                      "Compression ratio (output/input): %.2f%%\n",
+                      "Compression ratio (output/input)  : %.2f%%\n",
                       100.0 * (double)output_bytes / (double)input_bytes);
               (void)fprintf (stderr,
-                      "Compression factor (input/output): %.3f:1\n",
+                      "Compression factor (input/output) : %.3f:1\n",
                       output_bytes ? (double)input_bytes / (double)output_bytes
                                    : 0.0);
             }
           else
             {
-              (void)fprintf (stderr, "Compression ratio: n/a (empty input)\n");
+              (void)fprintf (stderr, "Compression ratio : n/a (empty input)\n");
             }
         }
       else
         {
-          print_file_size (stderr, "Input size: ", input_bytes);
-          print_file_size (stderr, "Output size: ", output_bytes);
+          print_file_size (stderr, "Input size  : ", input_bytes);
+          print_file_size (stderr, "Output size : ", output_bytes);
 
           if (input_bytes)
             {
               (void)fprintf (stderr,
-                      "Output/input size ratio: %.2f%%\n",
+                      "Output/input size ratio : %.2f%%\n",
                       100.0 * (double)output_bytes / (double)input_bytes);
             }
           else
             {
               (void)fprintf (stderr,
-                      "Output/input size ratio: n/a (empty input)\n");
+                      "Output/input size ratio : n/a (empty input)\n");
             }
         }
     }
