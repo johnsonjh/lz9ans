@@ -48,18 +48,18 @@ def main():
         assert result.returncode == 0, result.stderr.decode()
         assert plain_archive.read_bytes() == (temp / "verbose-after.lz9a").read_bytes()
         report = result.stderr.decode()
-        assert f"Input size: {len(sample)} bytes" in report
-        assert f"Output size: {len(verbose_archive.read_bytes())} bytes" in report
-        assert "Compression ratio (output/input):" in report
-        assert "Compression factor (input/output):" in report
+        assert f"Input size  : {len(sample)} bytes" in report
+        assert f"Output size : {len(verbose_archive.read_bytes())} bytes" in report
+        assert "Compression ratio (output/input)  :" in report
+        assert "Compression factor (input/output) :" in report
 
         result = run("d", verbose_archive, decoded, "-v")
         assert result.returncode == 0, result.stderr.decode()
         assert decoded.read_bytes() == sample
         report = result.stderr.decode()
-        assert f"Input size: {len(verbose_archive.read_bytes())} bytes" in report
-        assert f"Output size: {len(sample)} bytes" in report
-        assert "Output/input size ratio:" in report
+        assert f"Input size  : {len(verbose_archive.read_bytes())} bytes" in report
+        assert f"Output size : {len(sample)} bytes" in report
+        assert "Output/input size ratio :" in report
 
         # Mode 9 reports physical packed-input bytes, not logical symbol count.
         packed9 = temp / "input9.packed"
@@ -69,17 +69,17 @@ def main():
         packed9.write_bytes(raw9)
         result = run("c9", packed9, archive9, "-v", "-6")
         assert result.returncode == 0, result.stderr.decode()
-        assert f"Input size: {len(raw9)} bytes" in result.stderr.decode()
+        assert f"Input size  : {len(raw9)} bytes" in result.stderr.decode()
         result = run("d", archive9, decoded, "-v")
         assert result.returncode == 0, result.stderr.decode()
         assert decoded.read_bytes() == raw9
-        assert f"Output size: {len(raw9)} bytes" in result.stderr.decode()
+        assert f"Output size : {len(raw9)} bytes" in result.stderr.decode()
 
         empty.write_bytes(b"")
         result = run("c8", empty, empty_archive, "-v")
         assert result.returncode == 0, result.stderr.decode()
-        assert "Input size: 0 bytes" in result.stderr.decode()
-        assert "Compression ratio: n/a (empty input)" in result.stderr.decode()
+        assert "Input size  : 0 bytes" in result.stderr.decode()
+        assert "Compression ratio : n/a (empty input)" in result.stderr.decode()
 
         result = run("c8", source, temp / "bad.lz9a", "-v", "-6", "-7")
         assert result.returncode == 2

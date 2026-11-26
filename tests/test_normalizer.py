@@ -49,6 +49,7 @@ def build_harness(path, force_32bit=False, bfprt=False):
         + [
             "-D_ALL_SOURCE",
             "-D_GNU_SOURCE",
+            "-D__EXTENSIONS__",
             "-O2",
             "-ansi",
             "-pedantic",

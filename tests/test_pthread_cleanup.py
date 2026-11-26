@@ -53,7 +53,8 @@ def build(binary, work):
     cflags = shlex.split(
         os.environ.get(
             "CFLAGS",
-            "-D_ALL_SOURCE -D_GNU_SOURCE -O2 -ansi -pedantic " "-Wall -Wextra -Werror",
+            "-D_ALL_SOURCE -D_GNU_SOURCE -D__EXTENSIONS__ -O2 -ansi -pedantic "
+            "-Wall -Wextra -Werror",
         )
     )
     for flag in ("-ansi", "-pedantic", "-Wall", "-Wextra", "-Werror"):

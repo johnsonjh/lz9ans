@@ -6,7 +6,7 @@
 ##############################################################################
 
 CC ?= cc
-CFLAGS = -D_ALL_SOURCE -D_GNU_SOURCE -O3
+CFLAGS = -D_ALL_SOURCE -D_GNU_SOURCE -D__EXTENSIONS__ -O3
 THREADS ?= none
 
 ##############################################################################
@@ -130,8 +130,8 @@ test-winthreads:
 ##############################################################################
 
 thread-sanitizer:
-	env CC="$${CC:-$(CC)}" CFLAGS="-D_ALL_SOURCE -D_GNU_SOURCE -O1 -g \
-		-ansi -pedantic -Wall -Wextra -Werror" \
+	env CC="$${CC:-$(CC)}" CFLAGS="-D_ALL_SOURCE -D_GNU_SOURCE \
+		-D__EXTENSIONS__ -O1 -g -ansi -pedantic -Wall -Wextra -Werror" \
 		LDFLAGS="-fsanitize=thread" TSAN_OPTIONS="halt_on_error=1" \
 		./tests/test_thread_sanitizer.py
 
@@ -141,8 +141,8 @@ sanitizers: lz9ans.c crc32_hw.h
 	eval $${CC:-$(CC)} -Og -g -ansi -pedantic -Wall -Wextra -Werror \
 		-Wno-overlength-strings -fsanitize=address,undefined \
 		-fno-omit-frame-pointer -Wno-unreachable-code-return -D_ALL_SOURCE \
-		-D_GNU_SOURCE $(THREAD_DEFS) $(THREAD_CFLAGS) -o lz9ans_asan \
-		lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) $(THREAD_LDFLAGS)
+		-D_GNU_SOURCE -D__EXTENSIONS__ $(THREAD_DEFS) $(THREAD_CFLAGS) -o \
+		lz9ans_asan lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) $(THREAD_LDFLAGS)
 
 ##############################################################################
 
@@ -151,17 +151,19 @@ cppcheck: lz9ans.c crc32_hw.h
 		--enable=warning,style,performance,portability,unusedFunction \
 		--force --check-level=exhaustive --std=c89 --inline-suppr \
 		--inconclusive --error-exitcode=99 -D__CPPCHECK__ -D__LINT__ \
-		-D_ALL_SOURCE -D_GNU_SOURCE -j 1 --platform=unix64 lz9ans.c
+		-D_ALL_SOURCE -D_GNU_SOURCE -D__EXTENSIONS__ -j 1 --platform=unix64 \
+		lz9ans.c
 
 ##############################################################################
 
 oracle: lz9ans.c crc32_hw.h
 	/opt/oracle/developerstudio12.6/bin/lint -O -D__ORACLE_LINT -fd \
 		-std=c89 -XCC=no -errchk=structarg,parentheses,locfmtchk \
-		-errtags -D_ALL_SOURCE -D_GNU_SOURCE lz9ans.c
+		-errtags -D_ALL_SOURCE -D_GNU_SOURCE -D__EXTENSIONS__ lz9ans.c
 	/opt/oracle/developerstudio12.6/bin/lint -O -D__ORACLE_LINT -fd \
 		-std=c89 -XCC=no -errchk=structarg,parentheses,locfmtchk \
-		-errtags -D_ALL_SOURCE -D_GNU_SOURCE -DLZ9ANS_PTHREAD lz9ans.c
+		-errtags -D_ALL_SOURCE -D_GNU_SOURCE -DLZ9ANS_PTHREAD \
+		-D__EXTENSIONS__ lz9ans.c
 
 ##############################################################################
 
@@ -181,11 +183,12 @@ lint: lz9ans.c crc32_hw.h
 	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
 		-Wno-missing-noreturn -Wno-padded -Wno-overlength-strings \
 		-Wno-unreachable-code-return -Werror -D_ALL_SOURCE -D_GNU_SOURCE \
-		lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS)
+		-D__EXTENSIONS__ lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS)
 	eval $${CLANG:-clang} -Weverything -Wno-unsafe-buffer-usage \
 		-Wno-missing-noreturn -Wno-padded -Wno-overlength-strings \
 		-Wno-unreachable-code-return -Werror -D_ALL_SOURCE -D_GNU_SOURCE \
-		-DLZ9ANS_PTHREAD lz9ans.c $${EXTRA_LDFLAGS:-} $(LDFLAGS) -pthread
+		-DLZ9ANS_PTHREAD -D__EXTENSIONS__ lz9ans.c $${EXTRA_LDFLAGS:-} \
+		$(LDFLAGS) -pthread
 	$(MAKE) pvs-studio
 	$(MAKE) scc
 

@@ -45,7 +45,8 @@ def build(binary, threaded):
     cflags = shlex.split(
         os.environ.get(
             "CFLAGS",
-            "-D_ALL_SOURCE -D_GNU_SOURCE -O2 -ansi -pedantic " "-Wall -Wextra -Werror",
+            "-D_ALL_SOURCE -D_GNU_SOURCE -D__EXTENSIONS__ -O2 -ansi -pedantic "
+            "-Wall -Wextra -Werror",
         )
     )
     ldflags = shlex.split(os.environ.get("LDFLAGS", ""))
@@ -517,7 +518,7 @@ def check_options(serial, threaded, cpu_count):
             ]
         )
         assert verbose_short.read_bytes() == verbose_long.read_bytes()
-        assert b"Input size:" in short_report.stderr
+        assert b"Input size  :" in short_report.stderr
         assert short_report.stderr == long_report.stderr
         run(
             [str(serial), "c8", str(source), str(out2), "-v", "--verbose"],

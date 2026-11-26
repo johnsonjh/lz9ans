@@ -13531,7 +13531,8 @@ main (int argc, char **argv)
             }
           else
             {
-              (void)fprintf (stderr, "Compression ratio : n/a (empty input)\n");
+              (void)fprintf (stderr,
+                      "Compression ratio : n/a (empty input)\n");
             }
         }
       else
