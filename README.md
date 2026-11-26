@@ -113,7 +113,7 @@ any C89‑conforming compiler should suffice.
   * To build using Oracle Studio C/C++ 12.6 on 64‑bit Solaris 11.4:
 
     ```sh
-    env CC=suncc THREAD_CFLAGS= THREAD_LDFLAGS= EXTRA_CFLAGS="-m64" gmake
+    env CC="suncc" THREAD_CFLAGS= THREAD_LDFLAGS= EXTRA_CFLAGS="-m64" gmake
     ```
 
   * To build using IBM XL C/C++ V16.1 on 64‑bit IBM AIX 7.1 TL4 and later:
