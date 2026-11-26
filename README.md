@@ -54,6 +54,19 @@ hardware implementations in ASIC and FPGA environments.  Achieving high
 throughput will still require careful handling of the sequential dependencies
 in entropy decoding and LZ match processing.
 
+## Specification
+
+* A 12‑page white paper,
+  “**LZ9ANS: A High‑Performance Modern 9‑bit Compression Architecture**”
+  (*view*:
+  [GitLab](https://gitlab.com/johnsonjh/lz9ans/-/raw/master/docs/lz9ans_wp/lz9ans_wp.pdf?inline=true),
+  [GitHub](https://raw.githubusercontent.com/johnsonjh/lz9ans/master/docs/lz9ans_wp/lz9ans_wp.pdf)),
+  details the codec design, with a focus on the features that are most valuable
+  when developing independent, compatible production implementations.
+
+* See the [`docs/FORMAT.md`](docs/FORMAT.md) document for the complete
+  specification.
+
 ## Building
 
 **LZ9ANS** needs **only an ANSI&nbsp;C89 compiler** (and optional **GNU Make**)
@@ -122,19 +135,6 @@ Advanced users should review the `GNUmakefile` to see all available options.
 
 Most users don’t need to do any of this, and can simply run `make` (or `gmake`)
 to build **LZ9ANS**.
-
-## Specification
-
-* A 12‑page white paper,
-  “**LZ9ANS: A High‑Performance Modern 9‑bit Compression Architecture**”
-  (*view*:
-  [GitLab](https://gitlab.com/johnsonjh/lz9ans/-/raw/master/docs/lz9ans_wp/lz9ans_wp.pdf?inline=true),
-  [GitHub](https://raw.githubusercontent.com/johnsonjh/lz9ans/master/docs/lz9ans_wp/lz9ans_wp.pdf)),
-  details the codec design, with a focus on the features that are most valuable
-  when developing independent, compatible production implementations.
-
-* See the [`docs/FORMAT.md`](docs/FORMAT.md) document for the complete
-  specification.
 
 ## Contributing
 
