@@ -87,6 +87,22 @@ static const char * const lz9ans_license[] =
 
 /*****************************************************************************/
 
+#if defined(__unix)
+# if !defined(__unix__)
+#  define __unix__ __unix
+# endif /* if !defined(__unix__) */
+#endif /* if defined(__unix) */
+
+/*****************************************************************************/
+
+#if defined(unix)
+# if !defined(__unix__)
+#  define __unix__ unix
+# endif /* if !defined(__unix__) */
+#endif /* if defined(unix) */
+
+/*****************************************************************************/
+
 #if !defined(_WIN32) && !defined(_WIN64) \
     && (defined(__unix__) || defined(__APPLE__) || defined(__linux__)) \
     && !defined(_FILE_OFFSET_BITS)
