@@ -69,11 +69,11 @@ in entropy decoding and LZ match processing.
 
 ## Building
 
-**LZ9ANS** needs **only an ANSI&nbsp;C89 compiler** (and optional **GNU Make**)
-to build on essentially any UNIX‑like platform.  It is **highly recommended**
-to use **GNU GCC**, **LLVM Clang**, or **Microsoft Visual Studio C/C++**
-**compiler** (on Windows) for the best overall experience and performance, but
-any C89‑conforming compiler should suffice.
+**LZ9ANS** needs **only an ANSI&nbsp;C89 compiler** (and optionaly **GNU**
+**Make**) to build on essentially any UNIX‑like platform.  It is **highly**
+**recommended** to use **GNU GCC**, **LLVM Clang**, or **Microsoft Visual**
+**Studio C/C++ compiler** (on Windows) for the best overall experience and
+performance, but any C89‑conforming compiler should suffice.
 
 * To build a native binary, just run `make` (or `gmake`):
 
@@ -81,61 +81,63 @@ any C89‑conforming compiler should suffice.
   make
   ```
 
-When building the default target, a multithreaded build (using POSIX threads)
-is tried first, and if that fails, a non-threaded build is attempted.
+* When building the default target with `make`, a multithreaded build (using
+  POSIX threads) is tried first, and if that fails, a non-threaded build is
+  attempted.
 
-* To explicitly build **without** threads:
+  * To explicitly build **without** threads:
 
-  ```sh
-  make lz9ans THREADS="none"
-  ```
+    ```sh
+    make lz9ans THREADS="none"
+    ```
 
-* To explicitly build **with** POSIX threads:
+  * To explicitly build **with** POSIX threads:
 
-  ```sh
-  make lz9ans THREADS="pthreads"
-  ```
+    ```sh
+    make lz9ans THREADS="pthreads"
+    ```
 
 * To build a native binary on Windows using the Microsoft Visual Studio C/C++
-  compiler, from a **Developer Command Prompt for Visual Studio** window, run:
+  compiler, from a **Developer Command Prompt for Visual Studio** window,
+  run:
 
   ```sh
   msvcbuild.bat
   ```
 
-The `CC` variable can be used to specify a compiler, and various other
-environment variables (*i.e.*, `THREAD_CFLAGS`, `THREAD_LDFLAGS`,
-`EXTRA_CFLAGS`, `EXTRA_LDFLAGS`) can be set to influence the build, for
-example:
+* The `CC` variable can be used to specify a compiler, and various other
+  environment variables (*i.e.*, `THREAD_CFLAGS`, `THREAD_LDFLAGS`,
+  `EXTRA_CFLAGS`, `EXTRA_LDFLAGS`) can be set to influence the build, for
+  example:
 
-* To build using Oracle Studio C/C++ 12.6 on 64‑bit Solaris 11.4:
+  * To build using Oracle Studio C/C++ 12.6 on 64‑bit Solaris 11.4:
 
-  ```sh
-  env CC=suncc THREAD_CFLAGS= THREAD_LDFLAGS= EXTRA_CFLAGS="-m64" gmake
-  ```
+    ```sh
+    env CC=suncc THREAD_CFLAGS= THREAD_LDFLAGS= EXTRA_CFLAGS="-m64" gmake
+    ```
 
-* To build using IBM XL C/C++ V16.1 on 64‑bit IBM AIX 7.1 TL4 and later:
+  * To build using IBM XL C/C++ V16.1 on 64‑bit IBM AIX 7.1 TL4 and later:
 
-  ```sh
-  env OBJECT_MODE="64" THREAD_CFLAGS= THREAD_LDFLAGS= \
-      EXTRA_CFLAGS="-q64" CC="xlc_r" gmake
-  ```
+    ```sh
+    env OBJECT_MODE="64" THREAD_CFLAGS= THREAD_LDFLAGS= \
+        EXTRA_CFLAGS="-q64" CC="xlc_r" gmake
+    ```
 
-* To build using GNU GCC on 64‑bit IBM AIX 7.1 TL4 and later:
+  * To build using GNU GCC on 64‑bit IBM AIX 7.1 TL4 and later:
 
-  ```sh
-   env OBJECT_MODE="64" CC="gcc" EXTRA_CFLAGS="-maix64" gmake
-  ```
+    ```sh
+    env OBJECT_MODE="64" CC="gcc" EXTRA_CFLAGS="-maix64" gmake
+    ```
 
-The CRC‑32/ISO‑HDLC hardware acceleration code is *not* strictly
-C89‑conforming.  If it causes you issues when compiling, you should define
-`LZ9ANS_NO_CRC32_HW` to exclude it.
+* The CRC‑32/ISO‑HDLC hardware acceleration code is *not* strictly
+  C89‑conforming.  If it causes you issues when compiling, you should define
+  `LZ9ANS_NO_CRC32_HW` to exclude it.
 
-Advanced users should review the [`GNUmakefile`](GNUmakefile) to see all
-available targets and options.
+* Advanced users should review the [`GNUmakefile`](GNUmakefile) to see all
+  available targets and options.
 
-Most users don’t need to do any of this, and can simply run `make` (or `gmake`)
-to build **LZ9ANS**.
+* Most users don’t need to do any of this, and can simply run `make` (or `gmake`)
+  to build **LZ9ANS**.
 
 ## Contributing
 
