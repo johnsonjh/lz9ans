@@ -114,9 +114,9 @@ example:
    env OBJECT_MODE="64" CC="gcc" EXTRA_CFLAGS="-maix64" gmake
   ```
 
-The CRC‑32/ISO‑HDLC hardware accelertion code is *not* strictly C89‑conforming.
-If it causes you issues when compiling, you should define `LZ9ANS_NO_CRC32_HW`
-to exclude it.
+The CRC‑32/ISO‑HDLC hardware acceleration code is *not* strictly
+C89‑conforming.  If it causes you issues when compiling, you should define
+`LZ9ANS_NO_CRC32_HW` to exclude it.
 
 Advanced users should review the `GNUmakefile` to see all available options.
 
