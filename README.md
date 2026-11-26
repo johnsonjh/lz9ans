@@ -72,8 +72,8 @@ in entropy decoding and LZ match processing.
 **LZ9ANS** needs **only an ANSI&nbsp;C89 compiler** (and optionaly **GNU**
 **Make**) to build on essentially any UNIX‑like platform.  It is **highly**
 **recommended** to use **GNU GCC**, **LLVM Clang**, or **Microsoft Visual**
-**Studio C/C++ compiler** (on Windows) for the best overall experience and
-performance, but any C89‑conforming compiler should suffice.
+**Studio C/C++ compiler** for the best overall experience and performance, but
+any C89‑conforming compiler should suffice.
 
 * To build a native binary, just run `make` (or `gmake`):
 
