@@ -71,9 +71,9 @@ in entropy decoding and LZ match processing.
 
 **LZ9ANS** needs **only an ANSI&nbsp;C89 compiler** (and optional **GNU Make**)
 to build on essentially any UNIX‑like platform.  It is **highly recommended**
-to use **GNU GCC**, **LLVM Clang**, or **Microsoft MSVC** for the best
-experience (and best performing builds), but any C89‑conforming compiler should
-suffice.
+to use **GNU GCC**, **LLVM Clang**, or **Microsoft Visual Studio C/C++**
+**compiler** (on Windows) for the best overall experience and performance, but
+any C89‑conforming compiler should suffice.
 
 * To build a native binary, just run `make` (or `gmake`):
 
@@ -81,16 +81,16 @@ suffice.
   make
   ```
 
-When building the default (`all`) target, a multithreaded build (using POSIX
-threads) is tried first, and if that fails, a non-threaded build is attempted.
+When building the default target, a multithreaded build (using POSIX threads)
+is tried first, and if that fails, a non-threaded build is attempted.
 
-* To *explicitly* build **without** threads:
+* To explicitly build **without** threads:
 
   ```sh
   make lz9ans THREADS="none"
   ```
 
-* To *explicitly* build **with** POSIX threads:
+* To explicitly build **with** POSIX threads:
 
   ```sh
   make lz9ans THREADS="pthreads"
@@ -103,8 +103,8 @@ threads) is tried first, and if that fails, a non-threaded build is attempted.
   msvcbuild.bat
   ```
 
-The `CC` variable can be used to explicitly specify a compiler, and various
-other environment variables (*i.e.*, `THREAD_CFLAGS`, `THREAD_LDFLAGS`,
+The `CC` variable can be used to specify a compiler, and various other
+environment variables (*i.e.*, `THREAD_CFLAGS`, `THREAD_LDFLAGS`,
 `EXTRA_CFLAGS`, `EXTRA_LDFLAGS`) can be set to influence the build, for
 example:
 
@@ -131,7 +131,8 @@ The CRC‑32/ISO‑HDLC hardware acceleration code is *not* strictly
 C89‑conforming.  If it causes you issues when compiling, you should define
 `LZ9ANS_NO_CRC32_HW` to exclude it.
 
-Advanced users should review the `GNUmakefile` to see all available options.
+Advanced users should review the [`GNUmakefile`](GNUmakefile) to see all
+available targets and options.
 
 Most users don’t need to do any of this, and can simply run `make` (or `gmake`)
 to build **LZ9ANS**.
